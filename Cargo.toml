@@ -1,0 +1,44 @@
+[package]
+name = "nosql_orm"
+version = "0.1.0"
+edition = "2021"
+authors = ["nosql_orm contributors"]
+description = "A TypeORM-inspired ORM for NoSQL databases (JSON files & MongoDB)"
+license = "MIT"
+repository = "https://github.com/yourname/nosql_orm"
+keywords = ["orm", "mongodb", "json", "nosql", "database"]
+categories = ["database", "data-structures"]
+
+[lib]
+name = "nosql_orm"
+path = "src/lib.rs"
+
+[features]
+default = ["json"]
+json = []
+mongo = ["dep:mongodb", "dep:futures-util"]
+full = ["json", "mongo"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = { version = "0.3", optional = true }
+mongodb = { version = "2", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tempfile = "3"
+
+[[example]]
+name = "json_example"
+path = "examples/json_example.rs"
+
+[[example]]
+name = "mongo_example"
+path = "examples/mongo_example.rs"
+required-features = ["mongo"]
