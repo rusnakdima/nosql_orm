@@ -25,7 +25,7 @@ A **TypeORM-inspired ORM for Rust** that works with both **JSON files** and **Mo
 ```toml
 [dependencies]
 # JSON only (default):
-nosql_orm = { version = "0.1", git = "https://github.com/yourname/nosql_orm" }
+nosql_orm = { version = "0.1", git = "https://github.com/rusnakdima/nosql_orm" }
 
 # MongoDB only:
 nosql_orm = { version = "0.1", git = "...", default-features = false, features = ["mongo"] }
