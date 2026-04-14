@@ -33,15 +33,66 @@
 //! }
 //! ```
 
+pub mod aggregation;
+pub mod cdc;
+pub mod cli;
+pub mod constraints;
+pub mod embedded;
 pub mod entity;
 pub mod error;
+pub mod events;
+pub mod graphql;
+pub mod id;
+pub mod inheritance;
+pub mod lazy;
+pub mod migrations;
+pub mod pool;
 pub mod provider;
 pub mod query;
 pub mod relations;
 pub mod repository;
+pub mod schema;
+pub mod search;
+pub mod soft_delete;
+pub mod subscription;
+pub mod transaction;
 pub mod utils;
+pub mod validators;
 
 pub mod providers;
+
+#[cfg(feature = "query_cache")]
+pub mod cache;
+
+pub use aggregation::{
+  Aggregation, AggregationPipeline, GroupStage, LimitStage, MatchStage, ProjectStage, SkipStage,
+  SortStage, Stage,
+};
+pub use cdc::{AuditAction, AuditLog, Change, ChangeCapture, ChangeStream, ChangeType};
+pub use constraints::{
+  CheckConstraintDef, ColumnConstraint, ColumnDef, ColumnType, IndexDef, IndexType,
+  UniqueConstraintDef,
+};
+pub use embedded::{EmbedExt, Embedded, EmbeddedMeta, Embedder};
+pub use events::{EntityEventListener, EntityEvents, Event, EventType};
+pub use graphql::{
+  GraphQLArg, GraphQLEntity, GraphQLField, GraphQLSchema, GraphQLTypeDef, MutationRoot, QueryRoot,
+  SchemaBuilder,
+};
+pub use inheritance::{Discriminator, DiscriminatorValue, Inheritance, InheritanceType};
+pub use lazy::{Lazy, LazyLoader, LazyMany, LazyRelation};
+pub use migrations::migration::{JsonMigration, Migration, MigrationMeta, SqlMigration};
+pub use migrations::runner::MigrationRunner;
+pub use schema::{PrefixConfig, PrefixHolder, Schema, SchemaManager};
+pub use search::{
+  FullTextIndex, FullTextQueryExt, FullTextSearch, SearchResult, SearchScore, TextSearch,
+};
+pub use soft_delete::{SoftDeletable, SoftDeleteExt};
+pub use subscription::{Publisher, Subscription, SubscriptionHandler, SubscriptionManager, Topic};
+pub use validators::{
+  EmailValidator, FieldValidator, LengthValidator, PatternValidator, RangeValidator,
+  ValidationError, ValidationResult,
+};
 
 /// Re-exports everything you need for typical usage.
 pub mod prelude {
@@ -54,10 +105,17 @@ pub mod prelude {
     RelationValue, WithLoaded, WithRelations,
   };
   pub use crate::repository::{RelationRepository, Repository};
+  pub use crate::soft_delete::SoftDeletable;
 
   #[cfg(feature = "json")]
   pub use crate::providers::json::JsonProvider;
 
   #[cfg(feature = "mongo")]
   pub use crate::providers::mongo::MongoProvider;
+
+  #[cfg(feature = "postgres")]
+  pub use crate::providers::postgres::PostgresProvider;
+
+  #[cfg(feature = "query_cache")]
+  pub use crate::cache::{CacheConfig, CacheStats, CachedResult, QueryCache};
 }

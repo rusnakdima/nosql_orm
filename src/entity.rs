@@ -53,6 +53,11 @@ pub trait Entity: Serialize + DeserializeOwned + Debug + Clone + Send + Sync + '
   fn table_name() -> String {
     Self::meta().table_name
   }
+
+  /// Check if this entity supports soft deletes.
+  fn is_soft_deletable() -> bool {
+    false
+  }
 }
 
 /// A blanket helper: given a `Value` map, extract the string id.

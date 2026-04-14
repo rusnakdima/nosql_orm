@@ -1,12 +1,11 @@
-use serde_json::Value;
-use std::marker::PhantomData;
-
 use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
-use crate::query::{OrderBy, QueryBuilder, SortDirection};
+use crate::query::{Filter, OrderBy, QueryBuilder, SortDirection};
 use crate::relations::{RelationDef, RelationLoader, WithLoaded, WithRelations};
 use crate::utils::generate_id;
+use serde_json::Value;
+use std::marker::PhantomData;
 
 /// Generic repository providing full CRUD for any `Entity`.
 ///
@@ -148,8 +147,38 @@ where
 
   /// Return all entities in the collection.
   pub async fn find_all(&self) -> OrmResult<Vec<E>> {
+    if E::is_soft_deletable() {
+      self.find_all_including_deleted().await
+    } else {
+      let docs = self.provider.find_all(&Self::collection()).await?;
+      docs.into_iter().map(E::from_value).collect()
+    }
+  }
+
+  /// Return all entities including soft-deleted ones.
+  pub async fn find_all_including_deleted(&self) -> OrmResult<Vec<E>> {
     let docs = self.provider.find_all(&Self::collection()).await?;
     docs.into_iter().map(E::from_value).collect()
+  }
+
+  /// Soft delete an entity by setting deleted_at timestamp.
+  pub async fn soft_delete(&self, id: impl AsRef<str>) -> OrmResult<bool> {
+    let patch = serde_json::json!({ "deleted_at": chrono::Utc::now() });
+    self
+      .provider
+      .patch(&Self::collection(), id.as_ref(), patch)
+      .await?;
+    Ok(true)
+  }
+
+  /// Restore a soft-deleted entity by clearing deleted_at timestamp.
+  pub async fn restore(&self, id: impl AsRef<str>) -> OrmResult<bool> {
+    let patch = serde_json::json!({ "deleted_at": serde_json::Value::Null });
+    self
+      .provider
+      .patch(&Self::collection(), id.as_ref(), patch)
+      .await?;
+    Ok(true)
   }
 
   /// Return the count of all entities.
@@ -165,11 +194,71 @@ where
   // ── Query builder entry point ─────────────────────────────────────────────
 
   /// Start a fluent query against this repository.
-  pub fn query(&self) -> RepositoryQuery<E, P> {
+  /// By default, soft-deleted entities are excluded for SoftDeletable entities.
+  pub fn query(&self) -> RepositoryQuery<'_, E, P> {
+    let builder = if E::is_soft_deletable() {
+      QueryBuilder::new().where_is_null("deleted_at")
+    } else {
+      QueryBuilder::new()
+    };
+    RepositoryQuery {
+      repo: self,
+      builder,
+    }
+  }
+
+  /// Start a fluent query against this repository, including soft-deleted entities.
+  pub fn query_including_deleted(&self) -> RepositoryQuery<'_, E, P> {
     RepositoryQuery {
       repo: self,
       builder: QueryBuilder::new(),
     }
+  }
+
+  // ── Batch Operations ───────────────────────────────────────────────────────
+
+  /// Batch insert multiple entities.
+  /// Returns vector of inserted entities with generated IDs.
+  pub async fn insert_many(&self, entities: Vec<E>) -> OrmResult<Vec<E>> {
+    let mut results = Vec::with_capacity(entities.len());
+    for entity in entities {
+      results.push(self.insert(entity).await?);
+    }
+    Ok(results)
+  }
+
+  /// Batch update multiple entities by ID.
+  /// Returns count of updated entities.
+  pub async fn update_many(&self, entities: Vec<E>) -> OrmResult<u64> {
+    let mut count = 0u64;
+    for entity in entities {
+      if entity.get_id().is_some() {
+        self.update(entity).await?;
+        count += 1;
+      }
+    }
+    Ok(count)
+  }
+
+  /// Batch delete by IDs.
+  /// Returns count of deleted entities.
+  pub async fn delete_many(&self, ids: Vec<String>) -> OrmResult<u64> {
+    let mut count = 0u64;
+    for id in ids {
+      if self.delete(&id).await? {
+        count += 1;
+      }
+    }
+    Ok(count)
+  }
+
+  /// Upsert many - insert or update based on presence of ID.
+  pub async fn upsert_many(&self, entities: Vec<E>) -> OrmResult<Vec<E>> {
+    let mut results = Vec::with_capacity(entities.len());
+    for entity in entities {
+      results.push(self.save(entity).await?);
+    }
+    Ok(results)
   }
 }
 
@@ -228,6 +317,10 @@ where
   }
   pub fn with_relation(mut self, name: impl Into<String>) -> Self {
     self.builder = self.builder.with_relation(name);
+    self
+  }
+  pub fn filter(mut self, f: Filter) -> Self {
+    self.builder = self.builder.filter(f);
     self
   }
 

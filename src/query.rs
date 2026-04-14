@@ -52,6 +52,8 @@ pub enum Filter {
   Contains(String, String),
   /// Field string value starts with prefix.
   StartsWith(String, String),
+  /// Field value is NULL.
+  IsNull(String),
   /// All conditions must hold.
   And(Vec<Filter>),
   /// At least one condition must hold.
@@ -83,6 +85,7 @@ impl Filter {
       Filter::And(filters) => filters.iter().all(|f| f.matches(doc)),
       Filter::Or(filters) => filters.iter().any(|f| f.matches(doc)),
       Filter::Not(inner) => !inner.matches(doc),
+      Filter::IsNull(field) => get_field(doc, field).map_or(false, |v| v.is_null()),
     }
   }
 }
@@ -184,6 +187,12 @@ impl QueryBuilder {
   /// Add a raw `Filter`.
   pub fn filter(mut self, f: Filter) -> Self {
     self.filters.push(f);
+    self
+  }
+
+  /// Add an IS NULL filter.
+  pub fn where_is_null(mut self, field: impl Into<String>) -> Self {
+    self.filters.push(Filter::IsNull(field.into()));
     self
   }
 

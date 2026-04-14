@@ -33,6 +33,10 @@ pub enum OrmError {
   #[cfg(feature = "mongo")]
   #[error("MongoDB error: {0}")]
   Mongo(#[from] mongodb::error::Error),
+
+  #[cfg(feature = "redis")]
+  #[error("Redis error: {0}")]
+  Redis(#[from] redis::RedisError),
 }
 
 /// Convenience alias for `Result<T, OrmError>`.
