@@ -1,7 +1,7 @@
 //! # nosql_orm
 //!
 //! A TypeORM-inspired ORM for NoSQL databases.
-//! Supports JSON file storage and MongoDB with a unified, ergonomic API.
+//! Supports JSON file storage, MongoDB, and Redis with a unified, ergonomic API.
 //!
 //! ## Quick Start
 //!
@@ -113,8 +113,8 @@ pub mod prelude {
   #[cfg(feature = "mongo")]
   pub use crate::providers::mongo::MongoProvider;
 
-  #[cfg(feature = "postgres")]
-  pub use crate::providers::postgres::PostgresProvider;
+  #[cfg(feature = "redis")]
+  pub use crate::providers::redis::RedisProvider;
 
   #[cfg(feature = "query_cache")]
   pub use crate::cache::{CacheConfig, CacheStats, CachedResult, QueryCache};

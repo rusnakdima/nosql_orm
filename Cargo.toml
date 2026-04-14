@@ -3,10 +3,10 @@ name = "nosql_orm"
 version = "0.1.0"
 edition = "2021"
 authors = ["nosql_orm contributors"]
-description = "A TypeORM-inspired ORM for NoSQL databases (JSON files & MongoDB)"
+description = "A TypeORM-inspired ORM for NoSQL databases (JSON files, MongoDB, Redis)"
 license = "MIT"
 repository = "https://github.com/yourname/nosql_orm"
-keywords = ["orm", "mongodb", "json", "nosql", "database"]
+keywords = ["orm", "mongodb", "json", "nosql", "database", "redis"]
 categories = ["database", "data-structures"]
 
 [lib]
@@ -17,11 +17,8 @@ path = "src/lib.rs"
 default = ["json"]
 json = []
 mongo = ["dep:mongodb", "dep:futures-util"]
-postgres = ["dep:sqlx", "sqlx/postgres"]
-pg = ["postgres"]
-sqlite = ["dep:sqlx", "sqlx/sqlite"]
 redis = ["dep:redis"]
-full = ["json", "mongo", "postgres", "sqlite", "redis"]
+full = ["json", "mongo", "redis"]
 query_cache = []
 
 [dependencies]
@@ -34,7 +31,6 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 futures-util = { version = "0.3", optional = true }
 mongodb = { version = "2", optional = true }
-sqlx = { version = "0.7", features = ["runtime-tokio", "uuid", "chrono", "json"], optional = true }
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"], optional = true }
 regex = "1"
 deadpool = "0.10"
