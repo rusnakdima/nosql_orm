@@ -4,6 +4,7 @@ use mongodb::{
   options::{ClientOptions, FindOptions},
   Client, Database,
 };
+use serde::{ser::Error, Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{OrmError, OrmResult};
@@ -43,7 +44,7 @@ impl MongoProvider {
 
   fn json_to_bson(value: Value) -> OrmResult<Document> {
     let bson = to_bson(&value)
-      .map_err(|e| OrmError::Serialization(serde_json::Error::custom(e.to_string())))?;
+      .map_err(|e| OrmError::Serialization(serde::ser::Error::custom(e.to_string())))?;
     bson
       .as_document()
       .cloned()
@@ -53,7 +54,7 @@ impl MongoProvider {
   fn bson_to_json(doc: Document) -> OrmResult<Value> {
     let bson = Bson::Document(doc);
     let json: Value = from_bson(bson)
-      .map_err(|e| OrmError::Serialization(serde_json::Error::custom(e.to_string())))?;
+      .map_err(|e| OrmError::Serialization(serde::ser::Error::custom(e.to_string())))?;
     // Rename MongoDB's `_id` to `id` for API uniformity
     Ok(normalize_id(json))
   }
@@ -99,6 +100,7 @@ impl MongoProvider {
         doc! { "$or": docs }
       }
       Filter::Not(inner) => doc! { "$nor": [Self::filter_to_doc(inner)] },
+      Filter::IsNull(f) => doc! { f: { "$exists": false } },
     }
   }
 }

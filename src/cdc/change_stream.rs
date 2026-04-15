@@ -11,7 +11,9 @@ impl ChangeStream {
   }
 
   #[cfg(feature = "mongo")]
-  pub async fn from_mongo_stream(_stream: mongodb::change_stream::ChangeStream) -> OrmResult<Self> {
+  pub async fn from_mongo_stream<T: serde::de::DeserializeOwned + Unpin>(
+    _stream: mongodb::change_stream::ChangeStream<T>,
+  ) -> OrmResult<Self> {
     let mut changes = Vec::new();
     Ok(Self { changes })
   }
