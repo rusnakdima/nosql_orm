@@ -1,8 +1,9 @@
 use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
-use crate::query::{Filter, OrderBy, QueryBuilder, SortDirection};
+use crate::query::{Cursor, Filter, OrderBy, PaginatedResult, QueryBuilder, SortDirection};
 use crate::relations::{RelationDef, RelationLoader, WithLoaded, WithRelations};
+use crate::timestamps::apply_timestamps;
 use crate::utils::generate_id;
 use serde_json::Value;
 use std::marker::PhantomData;
@@ -71,21 +72,25 @@ where
   // ── Create / Update ──────────────────────────────────────────────────────
 
   /// Inserts a new entity (auto-generates an id if none is set).
+  /// Automatically sets created_at and updated_at timestamps.
   pub async fn insert(&self, mut entity: E) -> OrmResult<E> {
     if entity.get_id().is_none() {
       entity.set_id(generate_id());
     }
-    let doc = entity.to_value()?;
+    let mut doc = entity.to_value()?;
+    apply_timestamps(&mut doc, true);
     let stored = self.provider.insert(&Self::collection(), doc).await?;
     E::from_value(stored)
   }
 
   /// Updates an existing entity (must have an id).
+  /// Automatically updates the updated_at timestamp.
   pub async fn update(&self, entity: E) -> OrmResult<E> {
     let id = entity
       .get_id()
       .ok_or_else(|| OrmError::InvalidQuery("Cannot update entity without an id".to_string()))?;
-    let doc = entity.to_value()?;
+    let mut doc = entity.to_value()?;
+    apply_timestamps(&mut doc, false);
     let stored = self.provider.update(&Self::collection(), &id, doc).await?;
     E::from_value(stored)
   }
@@ -101,6 +106,7 @@ where
 
   /// Insert multiple entities in a batch.
   /// Returns the number of inserted entities.
+  /// Automatically sets created_at and updated_at timestamps.
   pub async fn insert_many(&self, entities: Vec<E>) -> OrmResult<usize> {
     if entities.is_empty() {
       return Ok(0);
@@ -110,7 +116,8 @@ where
       if entity.get_id().is_none() {
         entity.set_id(generate_id());
       }
-      let doc = entity.to_value()?;
+      let mut doc = entity.to_value()?;
+      apply_timestamps(&mut doc, true);
       self.provider.insert(&Self::collection(), doc).await?;
       count += 1;
     }
@@ -466,6 +473,63 @@ where
     };
 
     docs.into_iter().map(E::from_value).collect()
+  }
+
+  /// Execute and return results with cursor for pagination.
+  /// The returned `PaginatedResult` contains the data and an optional cursor for the next page.
+  /// Use `cursor` parameter to fetch the next page (from previous response's next_cursor).
+  pub async fn find_with_cursor(self, cursor: Option<Cursor>) -> OrmResult<PaginatedResult<E>> {
+    let mut builder = self.builder;
+
+    if let Some(c) = cursor {
+      let cursor_filter = c.as_filter();
+      builder = builder.filter(cursor_filter);
+    }
+
+    let filter = builder.build_filter();
+    let (sort_field, sort_asc) = match &builder.order {
+      Some(o) => (Some(o.field.as_str()), o.direction == SortDirection::Asc),
+      None => (Some("id"), true),
+    };
+
+    let docs = self
+      .repo
+      .provider
+      .find_many(
+        &E::table_name(),
+        filter.as_ref(),
+        None,
+        builder.limit,
+        sort_field,
+        sort_asc,
+      )
+      .await?;
+
+    let has_more = docs.len() as u64 >= builder.limit.unwrap_or(0);
+    let next_cursor = docs.last().and_then(|doc| {
+      doc.get("id").and_then(|v| v.as_str()).map(|id| Cursor {
+        last_id: id.to_string(),
+        sort_field: sort_field.unwrap_or("id").to_string(),
+        sort_asc,
+      })
+    });
+
+    let docs = if let Some(ref projection) = builder.projection {
+      docs.into_iter().map(|doc| projection.apply(&doc)).collect()
+    } else {
+      docs
+    };
+
+    let entities: Vec<E> = docs
+      .into_iter()
+      .map(E::from_value)
+      .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(PaginatedResult {
+      data: entities,
+      next_cursor,
+      has_more,
+    })
   }
 
   /// Execute and return the first matching entity.

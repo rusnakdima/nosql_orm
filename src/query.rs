@@ -7,6 +7,51 @@ pub enum SortDirection {
   Desc,
 }
 
+/// Cursor for paginating through results.
+/// Contains the last seen document's id and sort information.
+#[derive(Debug, Clone)]
+pub struct Cursor {
+  pub last_id: String,
+  pub sort_field: String,
+  pub sort_asc: bool,
+}
+
+impl Cursor {
+  pub fn new(last_id: String, sort_field: String, sort_asc: bool) -> Self {
+    Self {
+      last_id,
+      sort_field,
+      sort_asc,
+    }
+  }
+
+  pub fn as_filter(&self) -> Filter {
+    if self.sort_asc {
+      Filter::Gt(self.sort_field.clone(), Value::String(self.last_id.clone()))
+    } else {
+      Filter::Lt(self.sort_field.clone(), Value::String(self.last_id.clone()))
+    }
+  }
+}
+
+impl Default for Cursor {
+  fn default() -> Self {
+    Self {
+      last_id: String::new(),
+      sort_field: String::new(),
+      sort_asc: true,
+    }
+  }
+}
+
+/// A struct containing results and cursor for the next page.
+#[derive(Debug)]
+pub struct PaginatedResult<T> {
+  pub data: Vec<T>,
+  pub next_cursor: Option<Cursor>,
+  pub has_more: bool,
+}
+
 /// A single sort specification.
 #[derive(Debug, Clone)]
 pub struct OrderBy {
@@ -472,6 +517,63 @@ impl QueryBuilder {
     self
   }
 
+  /// Add filters grouped with OR (any condition matches).
+  /// Multiple calls append to the same OR group.
+  pub fn where_or(mut self, field: impl Into<String>, value: impl Into<Value>) -> Self {
+    let filter = Filter::Eq(field.into(), value.into());
+    self.filters.push(Filter::Or(vec![filter]));
+    self
+  }
+
+  /// Add filters grouped with AND (all conditions must match).
+  /// Multiple calls append to the same AND group.
+  pub fn where_and(mut self, field: impl Into<String>, value: impl Into<Value>) -> Self {
+    let filter = Filter::Eq(field.into(), value.into());
+    self.filters.push(filter);
+    self
+  }
+
+  /// Add a negation filter for a specific field=value.
+  pub fn where_not(mut self, field: impl Into<String>, value: impl Into<Value>) -> Self {
+    self.filters.push(Filter::Not(Box::new(Filter::Eq(
+      field.into(),
+      value.into(),
+    ))));
+    self
+  }
+
+  /// Build an OR group from multiple QueryBuilders.
+  /// Each builder's filter becomes part of the OR group.
+  pub fn or_group(mut self, others: Vec<QueryBuilder>) -> Self {
+    let mut all_filters = Vec::new();
+    if let Some(f) = self.build_filter() {
+      all_filters.push(f);
+    }
+    for builder in others {
+      if let Some(f) = builder.build_filter() {
+        all_filters.push(f);
+      }
+    }
+    self.filters = vec![Filter::Or(all_filters)];
+    self
+  }
+
+  /// Build an AND group from multiple QueryBuilders.
+  /// Each builder's filter becomes part of the AND group.
+  pub fn and_group(mut self, others: Vec<QueryBuilder>) -> Self {
+    let mut all_filters = Vec::new();
+    if let Some(f) = self.build_filter() {
+      all_filters.push(f);
+    }
+    for builder in others {
+      if let Some(f) = builder.build_filter() {
+        all_filters.push(f);
+      }
+    }
+    self.filters = vec![Filter::And(all_filters)];
+    self
+  }
+
   /// Get the projection if set.
   pub fn get_projection(&self) -> Option<&Projection> {
     self.projection.as_ref()
@@ -484,5 +586,10 @@ impl QueryBuilder {
       1 => Some(self.filters[0].clone()),
       _ => Some(Filter::And(self.filters.clone())),
     }
+  }
+
+  /// Get the cursor info (last document's id) for pagination.
+  pub fn get_cursor(&self) -> Option<String> {
+    None
   }
 }

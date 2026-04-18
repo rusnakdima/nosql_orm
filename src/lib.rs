@@ -57,10 +57,12 @@ pub mod search;
 pub mod soft_delete;
 pub mod sql;
 pub mod subscription;
+pub mod timestamps;
 pub mod transaction;
 pub mod utils;
 pub mod validators;
 
+pub mod logging;
 pub mod providers;
 
 #[cfg(feature = "query_cache")]
