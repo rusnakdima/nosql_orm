@@ -127,8 +127,16 @@ pub enum Filter {
   Contains(String, String),
   /// Field string value starts with prefix.
   StartsWith(String, String),
+  /// Field string value ends with suffix.
+  EndsWith(String, String),
+  /// Field matches SQL LIKE pattern (%, _ wildcards).
+  Like(String, String),
   /// Field value is NULL.
   IsNull(String),
+  /// Field value is NOT NULL.
+  IsNotNull(String),
+  /// Field value is between two values (inclusive).
+  Between(String, Value, Value),
   /// All conditions must hold.
   And(Vec<Filter>),
   /// At least one condition must hold.
@@ -157,12 +165,91 @@ impl Filter {
         .map_or(false, |s| {
           s.to_lowercase().starts_with(&prefix.to_lowercase())
         }),
+      Filter::EndsWith(field, suffix) => get_field(doc, field)
+        .and_then(|v| v.as_str())
+        .map_or(false, |s| {
+          s.to_lowercase().ends_with(&suffix.to_lowercase())
+        }),
+      Filter::Like(field, pattern) => {
+        if let Some(s) = get_field(doc, field).and_then(|v| v.as_str()) {
+          matches_like(s, pattern)
+        } else {
+          false
+        }
+      }
       Filter::And(filters) => filters.iter().all(|f| f.matches(doc)),
       Filter::Or(filters) => filters.iter().any(|f| f.matches(doc)),
       Filter::Not(inner) => !inner.matches(doc),
       Filter::IsNull(field) => get_field(doc, field).map_or(false, |v| v.is_null()),
+      Filter::IsNotNull(field) => get_field(doc, field).map_or(false, |v| !v.is_null()),
+      Filter::Between(field, min, max) => {
+        if let Some(val) = get_field(doc, field) {
+          let ge_min = compare_values(val, min, |o| o.is_ge());
+          let le_max = compare_values(val, max, |o| o.is_le());
+          ge_min && le_max
+        } else {
+          false
+        }
+      }
     }
   }
+}
+
+fn compare_values<F>(lhs: &Value, rhs: &Value, check: F) -> bool
+where
+  F: Fn(std::cmp::Ordering) -> bool,
+{
+  match (lhs, rhs) {
+    (Value::Number(a), Value::Number(b)) => {
+      let af = a.as_f64().unwrap_or(f64::NAN);
+      let bf = b.as_f64().unwrap_or(f64::NAN);
+      af.partial_cmp(&bf).map_or(false, check)
+    }
+    (Value::String(a), Value::String(b)) => a.partial_cmp(b).map_or(false, check),
+    _ => false,
+  }
+}
+
+fn matches_like(s: &str, pattern: &str) -> bool {
+  let s_lower = s.to_lowercase();
+  let pattern_lower = pattern.to_lowercase();
+
+  if pattern_lower == "%" {
+    return true;
+  }
+
+  let parts: Vec<&str> = pattern_lower.split('%').collect();
+  let mut pos = 0;
+
+  for (i, part) in parts.iter().enumerate() {
+    if part.is_empty() {
+      if i == 0 && pattern_lower.starts_with('%') && pattern_lower.len() > 1 {
+        continue;
+      }
+      if i == parts.len() - 1 && pattern_lower.ends_with('%') && pattern_lower.len() > 1 {
+        continue;
+      }
+      continue;
+    }
+
+    if let Some(found) = s_lower[pos..].find(part) {
+      if i == 0 && found != 0 && !pattern_lower.starts_with('%') {
+        return false;
+      }
+      pos = found + part.len();
+    } else {
+      return false;
+    }
+  }
+
+  if pattern_lower.ends_with('%') && !pattern_lower.starts_with('%') {
+    return s_lower.len() >= pos;
+  }
+  if !pattern_lower.ends_with('%') && !pattern_lower.starts_with('%') {
+    return pos == s_lower.len();
+  }
+
+  true
 }
 
 fn get_field<'a>(doc: &'a Value, field: &str) -> Option<&'a Value> {
@@ -311,6 +398,77 @@ impl QueryBuilder {
   /// Example: `repo.query().exclude(&["password", "token"]).find().await?`
   pub fn exclude(mut self, fields: &[&str]) -> Self {
     self.projection = Some(Projection::exclude(fields));
+    self
+  }
+
+  /// Add a greater-than-or-equal filter.
+  pub fn where_gte(mut self, field: impl Into<String>, value: impl Into<Value>) -> Self {
+    self.filters.push(Filter::Gte(field.into(), value.into()));
+    self
+  }
+
+  /// Add a less-than-or-equal filter.
+  pub fn where_lte(mut self, field: impl Into<String>, value: impl Into<Value>) -> Self {
+    self.filters.push(Filter::Lte(field.into(), value.into()));
+    self
+  }
+
+  /// Add a NOT IN filter.
+  pub fn where_not_in(mut self, field: impl Into<String>, values: Vec<Value>) -> Self {
+    self.filters.push(Filter::NotIn(field.into(), values));
+    self
+  }
+
+  /// Add an ends-with filter.
+  pub fn where_ends_with(mut self, field: impl Into<String>, suffix: impl Into<String>) -> Self {
+    self
+      .filters
+      .push(Filter::EndsWith(field.into(), suffix.into()));
+    self
+  }
+
+  /// Add a LIKE filter (SQL-style pattern matching with % and _ wildcards).
+  pub fn where_like(mut self, field: impl Into<String>, pattern: impl Into<String>) -> Self {
+    self
+      .filters
+      .push(Filter::Like(field.into(), pattern.into()));
+    self
+  }
+
+  /// Add a NOT NULL filter.
+  pub fn where_is_not_null(mut self, field: impl Into<String>) -> Self {
+    self.filters.push(Filter::IsNotNull(field.into()));
+    self
+  }
+
+  /// Add a BETWEEN filter (value is between min and max, inclusive).
+  pub fn where_between(
+    mut self,
+    field: impl Into<String>,
+    min: impl Into<Value>,
+    max: impl Into<Value>,
+  ) -> Self {
+    self
+      .filters
+      .push(Filter::Between(field.into(), min.into(), max.into()));
+    self
+  }
+
+  /// Combine filters with OR (any condition matches).
+  /// Note: calling this replaces all previous individual filters with an OR group.
+  pub fn or(mut self, other: QueryBuilder) -> Self {
+    let mut combined = Vec::new();
+    combined.push(self.build_filter().unwrap_or(Filter::And(vec![])));
+    combined.push(other.build_filter().unwrap_or(Filter::And(vec![])));
+    self.filters = vec![Filter::Or(combined)];
+    self
+  }
+
+  /// Add a negation wrapper around the next filter.
+  pub fn not(mut self) -> Self {
+    if let Some(f) = self.build_filter() {
+      self.filters = vec![Filter::Not(Box::new(f))];
+    }
     self
   }
 

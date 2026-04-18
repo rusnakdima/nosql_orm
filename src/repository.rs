@@ -99,6 +99,55 @@ where
     }
   }
 
+  /// Insert multiple entities in a batch.
+  /// Returns the number of inserted entities.
+  pub async fn insert_many(&self, entities: Vec<E>) -> OrmResult<usize> {
+    if entities.is_empty() {
+      return Ok(0);
+    }
+    let mut count = 0;
+    for mut entity in entities {
+      if entity.get_id().is_none() {
+        entity.set_id(generate_id());
+      }
+      let doc = entity.to_value()?;
+      self.provider.insert(&Self::collection(), doc).await?;
+      count += 1;
+    }
+    Ok(count)
+  }
+
+  /// Update multiple entities matching the filter.
+  /// Returns the number of updated entities.
+  pub async fn update_many(&self, filter: Option<Filter>, updates: Value) -> OrmResult<usize> {
+    self
+      .provider
+      .update_many(&Self::collection(), filter, updates)
+      .await
+  }
+
+  /// Upsert (insert or update) multiple entities based on their id.
+  /// For entities with id: updates if exists, inserts if not.
+  /// For entities without id: generates new id and inserts.
+  /// Returns the number of upserted entities.
+  pub async fn upsert_many(&self, entities: Vec<E>) -> OrmResult<usize> {
+    if entities.is_empty() {
+      return Ok(0);
+    }
+    let mut count = 0;
+    for entity in entities {
+      self.save(entity).await?;
+      count += 1;
+    }
+    Ok(count)
+  }
+
+  /// Delete multiple entities matching the filter.
+  /// Returns the number of deleted entities.
+  pub async fn delete_many(&self, filter: Option<Filter>) -> OrmResult<usize> {
+    self.provider.delete_many(&Self::collection(), filter).await
+  }
+
   /// Partially update an entity by merging `patch` fields.
   pub async fn patch(&self, id: impl AsRef<str>, patch: Value) -> OrmResult<E> {
     let stored = self
@@ -213,52 +262,6 @@ where
       repo: self,
       builder: QueryBuilder::new(),
     }
-  }
-
-  // ── Batch Operations ───────────────────────────────────────────────────────
-
-  /// Batch insert multiple entities.
-  /// Returns vector of inserted entities with generated IDs.
-  pub async fn insert_many(&self, entities: Vec<E>) -> OrmResult<Vec<E>> {
-    let mut results = Vec::with_capacity(entities.len());
-    for entity in entities {
-      results.push(self.insert(entity).await?);
-    }
-    Ok(results)
-  }
-
-  /// Batch update multiple entities by ID.
-  /// Returns count of updated entities.
-  pub async fn update_many(&self, entities: Vec<E>) -> OrmResult<u64> {
-    let mut count = 0u64;
-    for entity in entities {
-      if entity.get_id().is_some() {
-        self.update(entity).await?;
-        count += 1;
-      }
-    }
-    Ok(count)
-  }
-
-  /// Batch delete by IDs.
-  /// Returns count of deleted entities.
-  pub async fn delete_many(&self, ids: Vec<String>) -> OrmResult<u64> {
-    let mut count = 0u64;
-    for id in ids {
-      if self.delete(&id).await? {
-        count += 1;
-      }
-    }
-    Ok(count)
-  }
-
-  /// Upsert many - insert or update based on presence of ID.
-  pub async fn upsert_many(&self, entities: Vec<E>) -> OrmResult<Vec<E>> {
-    let mut results = Vec::with_capacity(entities.len());
-    for entity in entities {
-      results.push(self.save(entity).await?);
-    }
-    Ok(results)
   }
 
   // ── Index Management ────────────────────────────────────────────────────────

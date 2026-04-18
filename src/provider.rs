@@ -69,6 +69,17 @@ pub trait DatabaseProvider: Send + Sync + Clone + 'static {
   /// Delete a document. Returns `true` if it existed.
   async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool>;
 
+  /// Delete multiple documents matching the filter.
+  async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize>;
+
+  /// Update multiple documents matching the filter with the given values.
+  async fn update_many(
+    &self,
+    collection: &str,
+    filter: Option<Filter>,
+    updates: Value,
+  ) -> OrmResult<usize>;
+
   /// Count documents matching the filter.
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64>;
 

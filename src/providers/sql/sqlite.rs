@@ -382,6 +382,68 @@ impl DatabaseProvider for SqliteProvider {
     .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
   }
 
+  async fn update_many(
+    &self,
+    collection: &str,
+    filter: Option<Filter>,
+    updates: Value,
+  ) -> OrmResult<usize> {
+    let updates_obj = updates
+      .as_object()
+      .ok_or_else(|| OrmError::InvalidInput("Updates must be an object".to_string()))?;
+
+    let set_clauses: Vec<String> = updates_obj
+      .iter()
+      .map(|(k, v)| {
+        format!(
+          "{} = {}",
+          self.dialect.quote_identifier(k),
+          self.query_builder.value_to_sql(v)
+        )
+      })
+      .collect();
+
+    let mut sql = format!(
+      "UPDATE {} SET {}",
+      self.dialect.quote_identifier(collection),
+      set_clauses.join(", ")
+    );
+
+    if let Some(f) = filter {
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
+    }
+
+    let conn = self.conn.clone();
+    tokio::task::spawn_blocking(move || {
+      let conn_guard = conn.blocking_lock();
+      let rows = conn_guard
+        .execute(&sql, [])
+        .map_err(|e| OrmError::Query(e.to_string()))?;
+      Ok(rows)
+    })
+    .await
+    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+  }
+
+  async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
+    let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
+
+    if let Some(f) = filter {
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
+    }
+
+    let conn = self.conn.clone();
+    tokio::task::spawn_blocking(move || {
+      let conn_guard = conn.blocking_lock();
+      let rows = conn_guard
+        .execute(&sql, [])
+        .map_err(|e| OrmError::Query(e.to_string()))?;
+      Ok(rows)
+    })
+    .await
+    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+  }
+
   async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
     let mut index_def = crate::sql::types::SqlIndexDef::new(
       index.get_name().unwrap_or("idx_default"),

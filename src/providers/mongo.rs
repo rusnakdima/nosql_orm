@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use mongodb::{
   bson::{doc, from_bson, to_bson, Bson, Document},
-  options::{ClientOptions, FindOptions, IndexOptions},
+  options::{ClientOptions, DeleteOptions, FindOptions, IndexOptions, UpdateOptions},
   Client, Database, IndexModel,
 };
 use serde::{ser::Error, Deserialize, Serialize};
@@ -240,6 +240,15 @@ impl MongoProvider {
       }
       Filter::Not(inner) => doc! { "$nor": [Self::filter_to_doc(inner)] },
       Filter::IsNull(f) => doc! { f: { "$exists": false } },
+      Filter::IsNotNull(f) => doc! { f: { "$exists": true, "$ne": Bson::Null } },
+      Filter::Like(f, pattern) => doc! { f: { "$regex": pattern, "$options": "i" } },
+      Filter::EndsWith(f, suffix) => {
+        let escaped = regex_escape(suffix);
+        doc! { f: { "$regex": format!(".*{}$", escaped), "$options": "i" } }
+      }
+      Filter::Between(f, min, max) => {
+        doc! { f: { "$gte": to_bson(min).unwrap_or(Bson::Null), "$lte": to_bson(max).unwrap_or(Bson::Null) } }
+      }
     }
   }
 }
@@ -281,7 +290,7 @@ impl DatabaseProvider for MongoProvider {
   ) -> OrmResult<Vec<Value>> {
     use futures_util::TryStreamExt;
 
-    let query = filter.map(Self::filter_to_doc).unwrap_or_default();
+    let query = filter.map(|f| Self::filter_to_doc(&f)).unwrap_or_default();
     let mut opts = FindOptions::default();
     opts.skip = skip;
     opts.limit = limit.map(|n| n as i64);
@@ -326,9 +335,31 @@ impl DatabaseProvider for MongoProvider {
   }
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
-    let query = filter.map(Self::filter_to_doc).unwrap_or_default();
+    let query = filter.map(|f| Self::filter_to_doc(&f)).unwrap_or_default();
     let coll = self.db.collection::<Document>(collection);
     coll.count_documents(query, None).await.map_err(Into::into)
+  }
+
+  async fn update_many(
+    &self,
+    collection: &str,
+    filter: Option<Filter>,
+    updates: Value,
+  ) -> OrmResult<usize> {
+    let coll = self.db.collection::<Document>(collection);
+    let query = filter.map(|f| Self::filter_to_doc(&f)).unwrap_or_default();
+    let update_doc = Self::json_to_bson(updates)?;
+    let result = coll
+      .update_many(query, doc! { "$set": update_doc }, None)
+      .await?;
+    Ok(result.modified_count as usize)
+  }
+
+  async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
+    let coll = self.db.collection::<Document>(collection);
+    let query = filter.map(|f| Self::filter_to_doc(&f)).unwrap_or_default();
+    let result = coll.delete_many(query, None).await?;
+    Ok(result.deleted_count as usize)
   }
 
   async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {

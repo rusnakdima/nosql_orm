@@ -240,6 +240,56 @@ impl DatabaseProvider for JsonProvider {
     Ok(count as u64)
   }
 
+  async fn update_many(
+    &self,
+    collection: &str,
+    filter: Option<Filter>,
+    updates: Value,
+  ) -> OrmResult<usize> {
+    self.ensure_loaded(collection).await?;
+    let mut w = self.cache.write().await;
+    let records = w
+      .get_mut(collection)
+      .ok_or_else(|| OrmError::NotFound(format!("collection={}", collection)))?;
+
+    let mut count = 0;
+    for record in records.iter_mut() {
+      if filter.as_ref().map_or(true, |f| f.matches(record)) {
+        if let (Value::Object(base), Value::Object(patch)) = (record, &updates) {
+          for (k, v) in patch {
+            base.insert(k.clone(), v.clone());
+          }
+        }
+        count += 1;
+      }
+    }
+    drop(w);
+
+    if count > 0 {
+      self.flush(collection).await?;
+    }
+    Ok(count)
+  }
+
+  async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
+    self.ensure_loaded(collection).await?;
+    let mut w = self.cache.write().await;
+    let records = match w.get_mut(collection) {
+      Some(r) => r,
+      None => return Ok(0),
+    };
+
+    let before = records.len();
+    records.retain(|r| filter.as_ref().map_or(false, |f| !f.matches(r)));
+    let deleted = before - records.len();
+    drop(w);
+
+    if deleted > 0 {
+      self.flush(collection).await?;
+    }
+    Ok(deleted)
+  }
+
   // ── Index Management (No-op for JSON provider) ──────────────────────────────────
 
   /// JSON provider does not support indexes natively.

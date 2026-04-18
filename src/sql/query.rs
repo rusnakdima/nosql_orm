@@ -36,7 +36,13 @@ impl SqlQueryBuilder {
       .collect::<Vec<_>>()
       .join(", ");
     let name = self.dialect.quote_identifier(&index.name);
-    format!("CREATE {}INDEX {} ON {} ({})", unique_str, name, self.dialect.quote_identifier(table_name), columns)
+    format!(
+      "CREATE {}INDEX {} ON {} ({})",
+      unique_str,
+      name,
+      self.dialect.quote_identifier(table_name),
+      columns
+    )
   }
 
   pub fn build_create_index(&self, index: &SqlIndexDef) -> String {
@@ -84,7 +90,10 @@ impl SqlQueryBuilder {
   pub fn insert_sql(&self, table: &str, data: &serde_json::Value) -> String {
     let table_name = self.dialect.quote_identifier(table);
     let obj = data.as_object().expect("data must be an object");
-    let columns: Vec<String> = obj.keys().map(|k| self.dialect.quote_identifier(k)).collect();
+    let columns: Vec<String> = obj
+      .keys()
+      .map(|k| self.dialect.quote_identifier(k))
+      .collect();
     let placeholders: Vec<String> = obj.keys().map(|_| "?".to_string()).collect();
     format!(
       "INSERT INTO {} ({}) VALUES ({})",
@@ -94,7 +103,13 @@ impl SqlQueryBuilder {
     )
   }
 
-  pub fn update_sql(&self, table: &str, data: &serde_json::Value, pk_field: &str, pk_value: &str) -> String {
+  pub fn update_sql(
+    &self,
+    table: &str,
+    data: &serde_json::Value,
+    pk_field: &str,
+    pk_value: &str,
+  ) -> String {
     let table_name = self.dialect.quote_identifier(table);
     let obj = data.as_object().expect("data must be an object");
     let set_clause = obj
@@ -119,7 +134,13 @@ impl SqlQueryBuilder {
     )
   }
 
-  pub fn select_sql(&self, table: &str, projection: Option<&[String]>, limit: Option<u32>, offset: Option<u64>) -> String {
+  pub fn select_sql(
+    &self,
+    table: &str,
+    projection: Option<&[String]>,
+    limit: Option<u32>,
+    offset: Option<u64>,
+  ) -> String {
     let table_name = self.dialect.quote_identifier(table);
     let select_clause = projection
       .map(|p| {
@@ -349,6 +370,31 @@ impl SqlQueryBuilder {
       Filter::IsNull(field) => {
         format!("{} IS NULL", self.dialect.quote_identifier(field))
       }
+      Filter::IsNotNull(field) => {
+        format!("{} IS NOT NULL", self.dialect.quote_identifier(field))
+      }
+      Filter::Like(field, pattern) => {
+        format!(
+          "{} LIKE {}",
+          self.dialect.quote_identifier(field),
+          self.value_to_sql(&serde_json::json!(pattern))
+        )
+      }
+      Filter::EndsWith(field, suffix) => {
+        format!(
+          "{} LIKE {}",
+          self.dialect.quote_identifier(field),
+          self.value_to_sql(&serde_json::json!(format!("%{}", suffix)))
+        )
+      }
+      Filter::Between(field, min, max) => {
+        format!(
+          "{} BETWEEN {} AND {}",
+          self.dialect.quote_identifier(field),
+          self.value_to_sql(min),
+          self.value_to_sql(max)
+        )
+      }
       Filter::And(filters) => {
         let strs = filters
           .iter()
@@ -452,7 +498,10 @@ mod tests {
   #[test]
   fn test_select_with_projection() {
     let builder = SqlQueryBuilder::new(SqlDialect::MySQL);
-    let projection = Projection { select: Some(vec!["id".to_string(), "name".to_string()]), exclude: None };
+    let projection = Projection {
+      select: Some(vec!["id".to_string(), "name".to_string()]),
+      exclude: None,
+    };
     let sql = builder.build_select("users", None, Some(&projection), None, None, None);
     assert_eq!(sql, "SELECT `id`, `name` FROM `users`");
   }
