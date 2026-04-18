@@ -427,8 +427,8 @@ let repo: Repository<Entity, _> = Repository::new(provider);
 | Relations (one-to-many, etc.) | ✅ Done |
 | Migrations | ✅ Done |
 | Transaction support | ✅ Done |
-| **Query builder** | 🔲 Planned |
-| **Bulk operations** | 🔲 Planned |
+| **Query builder** | ✅ Done |
+| **Bulk operations** | ✅ Done |
 | **Change tracking** | 🔲 Planned |
 
 ### vs Prisma (Node.js)
@@ -439,14 +439,14 @@ let repo: Repository<Entity, _> = Repository::new(provider);
 | Auto-generated migrations | 🔲 Planned |
 | Prisma schema | Our entity macros similar |
 | **Connection pooling** | ✅ Done |
-| **Transactional batching** | 🔲 Planned |
+| **Transactional batching** | ✅ Done |
 
 ### vs SQLAlchemy (Python)
 
 | SQLAlchemy Feature | nosql_orm Status |
 |-------------------|------------------|
 | ORM Expression language | 🔲 Planned |
-| Core query builder | ✅ Basic done |
+| Core query builder | ✅ Done |
 | Session management | ✅ Done |
 | **Eager loading** | ✅ Done |
 | **Lazy loading** | ✅ Done |
@@ -454,36 +454,190 @@ let repo: Repository<Entity, _> = Repository::new(provider);
 
 ---
 
-## 14. Recommendations for Next Implementation
+## 15. Next-Gen Features (Best-in-Class)
 
-### Priority 1: Query Builder Enhancements
+### 15.1 Additional Database Providers
 
-The current query system works but lacks chainable methods and advanced filters. This affects usability:
+| Provider | Description | Priority |
+|----------|-------------|----------|
+| **ClickHouse** | Ultra-fast OLAP columnar database | 🔲 Planned |
+| **CockroachDB** | Distributed SQL with auto-sharding | 🔲 Planned |
+| **DynamoDB** | AWS managed NoSQL key-value | 🔲 Planned |
+| **ScyllaDB** | Cassandra-compatible high-performance | 🔲 Planned |
+| **QuestDB** | Time-series database | 🔲 Planned |
+| **TimescaleDB** | PostgreSQL-based time-series | 🔲 Planned |
+| **Neo4j** | Graph database for relationships | 🔲 Planned |
 
-```rust
-// Current approach (works but verbose)
-let filter = Filter::And(vec![
-    Filter::Eq("age".to_string(), json!(18)),
-    Filter::Eq("status".to_string(), json!("active"))
-]);
-repo.find_many("users", Some(&filter), ...)
+### 15.2 Advanced ORM Features (from Top ORMs)
 
-// Improved approach (planned)
-repo.query()
-    .where("age").gte(18)
-    .and("status").eq("active")
-    .find("users")
-    .await?;
-```
+#### Eloquent/Laravel Style
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Mutators & Casts** | Type conversion on field access | 🔲 Planned |
+| **Accessors** | Computed field values | 🔲 Planned |
+| **Attribute Snaking/CamelCase** | Auto field name transformation | 🔲 Planned |
+| **Model Events** | Before/After hooks for CRUD | 🔲 Planned |
+| **Observers** | Global event listeners | 🔲 Planned |
 
-### Priority 2: Bulk Operations
+#### Django ORM Style
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Q Objects** | Complex query composition | 🔲 Planned |
+| **Annotations** | SQL-level computed fields | 🔲 Planned |
+| **Aggregations** | Sum, Avg, Count, Min, Max | 🔲 Planned |
+| **Prefetch Related** | Efficient N+1 prevention | 🔲 Planned |
+| **Select Related** | JOIN-based eager loading | 🔲 Planned |
+| **Raw ID Lookup** | pk=id shortcut | 🔲 Planned |
 
-Many applications need to insert/update hundreds of records efficiently:
+#### SQLAlchemy Style
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Expression Language** | Type-safe SQL construction | 🔲 Planned |
+| **SQL Compilation** | Provider-specific SQL generation | 🔲 Planned |
+| **Lazy Loading** | Deferred attribute loading | 🔲 Planned |
+| **Eager Loading** | Joined/subquery loading | 🔲 Planned |
+| **Hybrid Properties** | Python + SQL computed fields | 🔲 Planned |
+| **Row Session Identity Map** | Unit of Work pattern | 🔲 Planned |
 
-```rust
-// Insert 1000 users efficiently
-repo.insert_many(users_vec).await?;
+#### TypeORM Style
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Active Record** | Model-based CRUD | 🔲 Planned |
+| **Data Mapper** | Repository-based CRUD | ✅ Done |
+| **Entity Schema** | Metadata-driven definition | 🔲 Planned |
+| **Relation Options** | Cascade, orphanRemoval, etc. | 🔲 Planned |
+| **Index Decorators** | @Index, @Unique constraints | 🔲 Planned |
+| **Migration Auto-Sync** | Sync schema from entities | 🔲 Planned |
 
-// Update all matching records
-repo.update_many("users", filter, updates).await?;
-```
+#### Prisma Style
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Prisma-like Schema** | Declarative entity definition | 🔲 Planned |
+| **Type-safe Client** | Generated query types | 🔲 Planned |
+| **Connection Pooling** | Built-in Prisma-like pool | ✅ Done |
+| **Interactive Transactions** | Serialized transactions | 🔲 Planned |
+| **Accelerate** | Global database caching | 🔲 Planned |
+
+### 15.3 Performance Optimizations
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| **Query Result Streaming** | Stream large results without loading all | 🔲 Planned |
+| **Batch Prepared Statements** | Reuse query plans | 🔲 Planned |
+| **Connection Health Checks** | Auto-reconnect on failure | 🔲 Planned |
+| **Read Replicas** | Route reads to replicas | 🔲 Planned |
+| **Write Buffering** | Batch writes for efficiency | 🔲 Planned |
+| **Adaptive Fetching** | Auto-tune fetch size | 🔲 Planned |
+| **Query Plan Caching** | Cache EXPLAIN results | 🔲 Planned |
+| **Deadlock Detection** | Auto-retry with backoff | 🔲 Planned |
+
+### 15.4 Developer Experience
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| **CLI Auto-Completion** | Shell completions for commands | 🔲 Planned |
+| **Migration Diff Viewer** | Preview migration changes | 🔲 Planned |
+| **Entity Diagram Generator** | Visualize relationships | 🔲 Planned |
+| **Query Profiler** | Performance insights dashboard | 🔲 Planned |
+| **Debug Mode** | Verbose logging with formatting | 🔲 Planned |
+| **REPL Shell** | Interactive query testing | 🔲 Planned |
+| **Documentation Server** | Auto-generate API docs | 🔲 Planned |
+| **Benchmark Suite** | Performance regression testing | 🔲 Planned |
+
+### 15.5 Observability & Reliability
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| **OpenTelemetry Integration** | Distributed tracing | 🔲 Planned |
+| **Metrics Export** | Prometheus metrics | 🔲 Planned |
+| **Health Checks** | Connection + query health | 🔲 Planned |
+| **Circuit Breaker** | Fail-fast on provider errors | 🔲 Planned |
+| **Rate Limiting** | Query throttling | 🔲 Planned |
+| **Query Timeout** | Automatic query cancellation | 🔲 Planned |
+| **Retry Budget** | Configurable retry policies | 🔲 Planned |
+
+### 15.6 Security Features
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| **SQL Injection Prevention** | Parameterized queries | ✅ Done |
+| **Field-Level Encryption** | Encrypt sensitive fields | 🔲 Planned |
+| **Audit Trail** | Track all data changes | 🔲 Planned |
+| **Row-Level Security** | Multi-tenancy isolation | 🔲 Planned |
+| **Query Allowlisting** | Block dangerous queries | 🔲 Planned |
+| **Secrets Rotation** | Auto-refresh credentials | 🔲 Planned |
+
+### 15.7 Data Engineering Features
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| **ETL Pipelines** | Bulk data transformation | 🔲 Planned |
+| **Data Replication** | Cross-provider sync | 🔲 Planned |
+| **Schema Evolution** | Non-breaking changes | 🔲 Planned |
+| **Data Validation** | Custom validation rules | ✅ Done |
+| **Import/Export** | CSV, JSON, Parquet | 🔲 Planned |
+| **Data Masking** | Hide sensitive data | 🔲 Planned |
+| **Incremental Sync** | Change data capture | 🔲 Planned |
+
+---
+
+## 16. Competitive Advantages
+
+### Why nosql_orm is Best-in-Class
+
+| Feature | nosql_orm | TypeORM | Prisma | Django | SQLAlchemy |
+|---------|-----------|---------|--------|--------|------------|
+| **Unified API** | ✅ All DBs same code | ❌ Different syntax | ❌ Limited DBs | ❌ SQL only | ❌ SQL only |
+| **Type Safety** | ✅ Full Rust type safety | ⚠️ Partial | ✅ Full | ❌ Dynamic | ⚠️ Partial |
+| **Async First** | ✅ Native async | ⚠️ Partial | ✅ Full | ❌ Sync | ⚠️ Partial |
+| **NoSQL Support** | ✅ MongoDB, Redis, JSON | ⚠️ Limited | ❌ None | ❌ None | ❌ None |
+| **Zero-Config** | ✅ Embedded JSON | ❌ Requires setup | ⚠️ Requires CLI | ⚠️ Requires setup | ⚠️ Requires setup |
+| **Bulk Operations** | ✅ Native batch | ⚠️ Manual loop | ✅ batch API | ✅ bulk_create | ⚠️ bulk_insert |
+| **Query Builder** | ✅ Fluent chainable | ⚠️ QueryBuilder | ✅ filter | ✅ Q objects | ✅ SQLAlchemy |
+| **Migrations** | ✅ Auto-generate | ✅ TypeORM CLI | ✅ Prisma Migrate | ✅ Django Migrate | ✅ Alembic |
+| **Connection Pool** | ✅ Built-in | ⚠️ External | ✅ Built-in | ❌ Django ORM | ⚠️ SQLAlchemy Pool |
+| **Lazy Loading** | ✅ Built-in | ✅ TypeORM | ❌ Prisma edge | ✅ Django | ✅ SQLAlchemy |
+| **Change Tracking** | 🔲 Planned | ✅ TypeORM | ⚠️ Prisma Client | ✅ Django | ⚠️ SQLAlchemy |
+| **Subscriptions** | ✅ Built-in | ❌ None | ❌ None | ❌ None | ❌ None |
+| **Aggregation** | ✅ Pipeline | ⚠️ Manual | ⚠️ Raw only | ✅ ORM agg | ✅ SQL agg |
+| **GraphQL** | ✅ Built-in | ⚠️ Separate | ❌ None | ❌ None | ❌ None |
+| **Size** | ⚡ Small | ⚠️ Large | ⚠️ Large | ⚠️ Large | ⚠️ Large |
+
+---
+
+## 17. Version Roadmap (Extended)
+
+| Version | Focus | Status |
+|---------|-------|--------|
+| 0.2.0 | Transactions + Pooling | ✅ |
+| 0.3.0 | Soft Deletes + Validators + NoSQL Indexes | ✅ |
+| 0.4.0 | Field Projection | ✅ |
+| 0.5.0 | Migration System + CLI | ✅ |
+| 0.6.0 | SQL Providers (PostgreSQL, SQLite, MySQL) | ✅ |
+| 0.7.0 | Batch Relation Loading (RelationLoader) | ✅ |
+| 0.8.0 | Query Builder Enhancements + Bulk Operations | ✅ |
+| **0.9.0** | **Advanced Filters + Auto-timestamps + Query Logging** | ✅ |
+| **0.10.0** | **Additional DB Providers (ClickHouse, CockroachDB)** | 🔲 Planned |
+| **0.11.0** | **Change Tracking + Dirty Checking + Optimistic Locking** | 🔲 Planned |
+| **0.12.0** | **Query Streaming + Prepared Statements + Performance** | 🔲 Planned |
+| **0.13.0** | **Observability (OpenTelemetry, Metrics, Health)** | 🔲 Planned |
+| **0.14.0** | **Data Engineering (ETL, Replication, Import/Export)** | 🔲 Planned |
+| **1.0.0** | **Stable API + Full Docs + Benchmark Suite** | 🔲 Planned |
+
+---
+
+## 18. Contributing Goal
+
+**Mission:** Build the most capable, ergonomic, and high-performance ORM in the Rust ecosystem that surpasses TypeORM, Prisma, Django ORM, and SQLAlchemy in features while maintaining the best developer experience.
+
+**Key Differentiators:**
+1. ✅ Single API for NoSQL + SQL databases
+2. ✅ Zero-config embedded storage option
+3. ✅ Native async runtime support
+4. ✅ Built-in GraphQL, Pub/Sub, CDC
+5. ✅ Type-safe query builder
+6. 🔲 Change tracking with dirty checking
+7. 🔲 Sub-millisecond query execution
+8. 🔲 Auto-scaling connection management
+9. 🔲 Intelligent query optimization hints
+10. 🔲 Natural language query interface (AI-assisted)
