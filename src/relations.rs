@@ -28,6 +28,22 @@ pub struct RelationDef {
   pub foreign_key: String,
   /// For ManyToMany: the join collection / field name (e.g. `"tag_ids"`).
   pub join_field: Option<String>,
+  /// For relations where local key is stored in an array field (e.g., `assignees: Vec<String>`).
+  /// When set, the loader extracts IDs from this array field instead of `local_key`.
+  pub local_key_in_array: Option<String>,
+  /// When set, the loaded relation is transformed by looking up values in this map field
+  /// from another collection. E.g., `assigneesProfiles` resolves `assignees` (user IDs) to profiles.
+  pub transform_map_via: Option<TransformMapVia>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TransformMapVia {
+  /// The field on the loaded relation that contains the lookup key (e.g., "userId").
+  pub lookup_key: String,
+  /// The collection to query for the transformation (e.g., "profiles").
+  pub source_collection: String,
+  /// The field name in source_collection to match against (e.g., "id").
+  pub source_key: String,
 }
 
 impl RelationDef {
@@ -44,6 +60,28 @@ impl RelationDef {
       local_key: local_key.into(),
       foreign_key: "id".to_string(),
       join_field: None,
+      local_key_in_array: None,
+      transform_map_via: None,
+    }
+  }
+
+  /// Shorthand for a Many-To-One where the local key is stored in an array field.
+  /// The loader will extract IDs from this array and resolve each to a target entity.
+  pub fn many_to_one_array(
+    name: impl Into<String>,
+    target_collection: impl Into<String>,
+    array_field: impl Into<String>,
+  ) -> Self {
+    let array_str = array_field.into();
+    Self {
+      name: name.into(),
+      relation_type: RelationType::ManyToOne,
+      target_collection: target_collection.into(),
+      local_key: array_str.clone(),
+      foreign_key: "id".to_string(),
+      join_field: None,
+      local_key_in_array: Some(array_str),
+      transform_map_via: None,
     }
   }
 
@@ -60,6 +98,8 @@ impl RelationDef {
       local_key: "id".to_string(),
       foreign_key: foreign_key.into(),
       join_field: None,
+      local_key_in_array: None,
+      transform_map_via: None,
     }
   }
 
@@ -76,6 +116,8 @@ impl RelationDef {
       local_key: local_key.into(),
       foreign_key: "id".to_string(),
       join_field: None,
+      local_key_in_array: None,
+      transform_map_via: None,
     }
   }
 
@@ -92,7 +134,32 @@ impl RelationDef {
       local_key: "id".to_string(),
       foreign_key: "id".to_string(),
       join_field: Some(join_field.into()),
+      local_key_in_array: None,
+      transform_map_via: None,
     }
+  }
+
+  /// Set a transformation mapping: after loading, transform each record by looking up
+  /// values in `via_field` against another collection.
+  pub fn transform_map(
+    mut self,
+    lookup_key: impl Into<String>,
+    source_collection: impl Into<String>,
+    source_key: impl Into<String>,
+  ) -> Self {
+    self.transform_map_via = Some(TransformMapVia {
+      lookup_key: lookup_key.into(),
+      source_collection: source_collection.into(),
+      source_key: source_key.into(),
+    });
+    self
+  }
+
+  /// Set that the local key is stored in an array field (e.g., `assignees: Vec<String>`).
+  /// The loader will extract IDs from this array instead of reading `local_key` directly.
+  pub fn local_key_in_array(mut self, array_field: impl Into<String>) -> Self {
+    self.local_key_in_array = Some(array_field.into());
+    self
   }
 }
 
@@ -160,46 +227,386 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     Self { provider }
   }
 
-  /// Load the specified relations into a document, returning a `HashMap<name, RelationValue>`.
+  fn filter_not_deleted(docs: Vec<Value>) -> Vec<Value> {
+    docs
+      .into_iter()
+      .filter(|d| match d.get("deleted_at") {
+        Some(v) if v.is_null() => true,
+        Some(v) if v.as_str().map_or(false, |s| s.is_empty()) => true,
+        Some(_) => false,
+        None => true,
+      })
+      .collect()
+  }
+
+  fn apply_filter(filter: Option<&crate::query::Filter>) -> Option<crate::query::Filter> {
+    if let Some(f) = filter {
+      Some(crate::query::Filter::And(vec![
+        f.clone(),
+        crate::query::Filter::Or(vec![
+          crate::query::Filter::IsNull("deleted_at".to_string()),
+          crate::query::Filter::Eq("deleted_at".to_string(), Value::String("".to_string())),
+        ]),
+      ]))
+    } else {
+      Some(crate::query::Filter::Or(vec![
+        crate::query::Filter::IsNull("deleted_at".to_string()),
+        crate::query::Filter::Eq("deleted_at".to_string(), Value::String("".to_string())),
+      ]))
+    }
+  }
+
+  /// Load relations for multiple parent documents in a single batch.
+  ///
+  /// This is much more efficient than loading relations one-by-one because it:
+  /// 1. Collects all foreign keys from all parent documents
+  /// 2. Fetches all related records in one query
+  /// 3. Groups related records by foreign key
+  /// 4. Attaches related records to each parent document
+  pub async fn load_many(
+    &self,
+    mut docs: Vec<Value>,
+    relation: &RelationDef,
+    filter_deleted: bool,
+  ) -> OrmResult<Vec<Value>> {
+    match relation.relation_type {
+      RelationType::ManyToOne | RelationType::OneToOne => {
+        self
+          .load_many_to_one(&mut docs, relation, filter_deleted)
+          .await
+      }
+      RelationType::OneToMany => {
+        self
+          .load_one_to_many(&mut docs, relation, filter_deleted)
+          .await
+      }
+      RelationType::ManyToMany => {
+        self
+          .load_many_to_many(&mut docs, relation, filter_deleted)
+          .await
+      }
+    }
+  }
+
+  /// Load multiple relations for a single document.
   pub async fn load(
     &self,
     doc: &Value,
     relations: &[RelationDef],
+    filter_deleted: bool,
   ) -> OrmResult<HashMap<String, RelationValue>> {
+    let mut current_doc = doc.clone();
     let mut loaded = HashMap::new();
 
     for rel in relations {
-      let value = self.load_one(doc, rel).await?;
-      loaded.insert(rel.name.clone(), value);
+      let result = self
+        .load_many(vec![current_doc.clone()], rel, filter_deleted)
+        .await?;
+      if let Some(updated) = result.first() {
+        if let Some(rel_val) = updated.get(&rel.name) {
+          match rel.relation_type {
+            RelationType::ManyToOne | RelationType::OneToOne => {
+              loaded.insert(
+                rel.name.clone(),
+                RelationValue::Single(Some(rel_val.clone())),
+              );
+            }
+            RelationType::OneToMany | RelationType::ManyToMany => {
+              if let Some(arr) = rel_val.as_array() {
+                loaded.insert(rel.name.clone(), RelationValue::Many(arr.clone()));
+              }
+            }
+          }
+        }
+        current_doc = updated.clone();
+      }
     }
 
     Ok(loaded)
   }
 
-  async fn load_one(&self, doc: &Value, rel: &RelationDef) -> OrmResult<RelationValue> {
-    match rel.relation_type {
-      RelationType::ManyToOne | RelationType::OneToOne => {
-        let id_val = doc.get(&rel.local_key).and_then(|v| v.as_str());
-        match id_val {
-          None => Ok(RelationValue::Single(None)),
-          Some(id) => {
-            let found = self.provider.find_by_id(&rel.target_collection, id).await?;
-            Ok(RelationValue::Single(found))
+  /// Batch load ManyToOne relations (e.g., todo.userId -> user)
+  async fn load_many_to_one(
+    &self,
+    docs: &mut [Value],
+    relation: &RelationDef,
+    filter_deleted: bool,
+  ) -> OrmResult<Vec<Value>> {
+    let target_field = &relation.local_key;
+
+    let all_ids: Vec<String> = if relation.local_key_in_array.is_some() {
+      let array_field = relation.local_key_in_array.as_ref().unwrap();
+      let mut ids = Vec::new();
+      for doc in docs.iter() {
+        if let Some(arr) = doc.get(array_field).and_then(|v| v.as_array()) {
+          for item in arr {
+            if let Some(id) = item.as_str() {
+              ids.push(id.to_string());
+            }
           }
         }
       }
+      ids
+    } else {
+      docs
+        .iter()
+        .filter_map(|d| {
+          d.get(target_field)
+            .and_then(|v| v.as_str())
+            .map(String::from)
+        })
+        .collect()
+    };
 
-      RelationType::OneToMany => {
-        use crate::query::Filter;
-        let local_id = doc.get(&rel.local_key).and_then(|v| v.as_str());
-        match local_id {
-          None => Ok(RelationValue::Many(vec![])),
+    if all_ids.is_empty() {
+      return Ok(docs.to_vec());
+    }
+
+    let base_filter = crate::query::Filter::In(
+      "id".to_string(),
+      all_ids.iter().map(|s| Value::String(s.clone())).collect(),
+    );
+
+    let filter = if filter_deleted {
+      Self::apply_filter(Some(&base_filter))
+    } else {
+      Some(base_filter)
+    };
+
+    let mut related_docs = self
+      .provider
+      .find_many(
+        &relation.target_collection,
+        filter.as_ref(),
+        None,
+        None,
+        None,
+        true,
+      )
+      .await?;
+
+    if filter_deleted {
+      related_docs = Self::filter_not_deleted(related_docs);
+    }
+
+    let related_map: HashMap<String, Value> = related_docs
+      .into_iter()
+      .filter_map(|d| {
+        d.clone()
+          .get("id")
+          .and_then(|id| id.as_str())
+          .map(|id| (id.to_string(), d))
+      })
+      .collect();
+
+    for doc in docs.iter_mut() {
+      if let Some(obj) = doc.as_object_mut() {
+        if let Some(id) = obj.get(target_field).and_then(|v| v.as_str()) {
+          if let Some(related) = related_map.get(id) {
+            obj.insert(relation.name.clone(), related.clone());
+          }
+        } else if relation.local_key_in_array.is_some() {
+          if let Some(arr) = obj.get(&relation.local_key).and_then(|v| v.as_array()) {
+            let resolved: Vec<Value> = arr
+              .iter()
+              .filter_map(|item| item.as_str().and_then(|id| related_map.get(id).cloned()))
+              .collect();
+            obj.insert(relation.name.clone(), Value::Array(resolved));
+          }
+        }
+      }
+    }
+
+    Ok(docs.to_vec())
+  }
+
+  /// Batch load OneToMany relations (e.g., todo.id -> tasks.todoId)
+  async fn load_one_to_many(
+    &self,
+    docs: &mut [Value],
+    relation: &RelationDef,
+    filter_deleted: bool,
+  ) -> OrmResult<Vec<Value>> {
+    let source_key = "id";
+
+    let parent_ids: Vec<String> = docs
+      .iter()
+      .filter_map(|d| d.get(source_key).and_then(|v| v.as_str()).map(String::from))
+      .collect();
+
+    if parent_ids.is_empty() {
+      return Ok(docs.to_vec());
+    }
+
+    let base_filter = crate::query::Filter::In(
+      relation.foreign_key.clone(),
+      parent_ids
+        .iter()
+        .map(|s| Value::String(s.clone()))
+        .collect(),
+    );
+
+    let filter = if filter_deleted {
+      Self::apply_filter(Some(&base_filter))
+    } else {
+      Some(base_filter)
+    };
+
+    let mut related_docs = self
+      .provider
+      .find_many(
+        &relation.target_collection,
+        filter.as_ref(),
+        None,
+        None,
+        None,
+        true,
+      )
+      .await?;
+
+    if filter_deleted {
+      related_docs = Self::filter_not_deleted(related_docs);
+    }
+
+    let grouped: HashMap<String, Vec<Value>> = {
+      let mut map = HashMap::new();
+      for rel_doc in related_docs {
+        if let Some(fk_val) = rel_doc.get(&relation.foreign_key).and_then(|v| v.as_str()) {
+          map
+            .entry(fk_val.to_string())
+            .or_insert_with(Vec::new)
+            .push(rel_doc);
+        }
+      }
+      map
+    };
+
+    for doc in docs.iter_mut() {
+      if let Some(obj) = doc.as_object_mut() {
+        if let Some(parent_id) = obj.get(source_key).and_then(|v| v.as_str()) {
+          let related = grouped.get(parent_id).cloned().unwrap_or_default();
+          obj.insert(relation.name.clone(), Value::Array(related));
+        }
+      }
+    }
+
+    Ok(docs.to_vec())
+  }
+
+  /// Batch load ManyToMany relations (e.g., categories in todo)
+  async fn load_many_to_many(
+    &self,
+    docs: &mut [Value],
+    relation: &RelationDef,
+    filter_deleted: bool,
+  ) -> OrmResult<Vec<Value>> {
+    let join_field = relation.join_field.as_deref().unwrap_or("ids");
+
+    let all_ids: Vec<String> = {
+      let mut ids = Vec::new();
+      for doc in docs.iter() {
+        if let Some(arr) = doc.get(join_field).and_then(|v| v.as_array()) {
+          for item in arr {
+            if let Some(id) = item.as_str() {
+              ids.push(id.to_string());
+            }
+          }
+        }
+      }
+      ids
+    };
+
+    if all_ids.is_empty() {
+      return Ok(docs.to_vec());
+    }
+
+    let base_filter = crate::query::Filter::In(
+      "id".to_string(),
+      all_ids.iter().map(|s| Value::String(s.clone())).collect(),
+    );
+
+    let filter = if filter_deleted {
+      Self::apply_filter(Some(&base_filter))
+    } else {
+      Some(base_filter)
+    };
+
+    let mut related_docs = self
+      .provider
+      .find_many(
+        &relation.target_collection,
+        filter.as_ref(),
+        None,
+        None,
+        None,
+        true,
+      )
+      .await?;
+
+    if filter_deleted {
+      related_docs = Self::filter_not_deleted(related_docs);
+    }
+
+    let related_map: HashMap<String, Value> = related_docs
+      .into_iter()
+      .filter_map(|d| {
+        d.clone()
+          .get("id")
+          .and_then(|id| id.as_str())
+          .map(|id| (id.to_string(), d))
+      })
+      .collect();
+
+    for doc in docs.iter_mut() {
+      if let Some(obj) = doc.as_object_mut() {
+        if let Some(arr) = obj.get(join_field).and_then(|v| v.as_array()) {
+          let resolved: Vec<Value> = arr
+            .iter()
+            .filter_map(|item| item.as_str().and_then(|id| related_map.get(id).cloned()))
+            .collect();
+          obj.insert(relation.name.clone(), Value::Array(resolved));
+        }
+      }
+    }
+
+    Ok(docs.to_vec())
+  }
+
+  /// Load a single relation path on a document
+  pub async fn load_relation(&self, doc: &Value, relation: &RelationDef) -> OrmResult<Value> {
+    match relation.relation_type {
+      RelationType::ManyToOne | RelationType::OneToOne => {
+        let id_val = doc.get(&relation.local_key).and_then(|v| v.as_str());
+        match id_val {
+          None => Ok(doc.clone()),
           Some(id) => {
-            let filter = Filter::Eq(rel.foreign_key.clone(), Value::String(id.to_string()));
+            if let Some(found) = self
+              .provider
+              .find_by_id(&relation.target_collection, id)
+              .await?
+            {
+              let mut result = doc.clone();
+              if let Some(obj) = result.as_object_mut() {
+                obj.insert(relation.name.clone(), found);
+              }
+              Ok(result)
+            } else {
+              Ok(doc.clone())
+            }
+          }
+        }
+      }
+      RelationType::OneToMany => {
+        let local_id = doc.get(&relation.local_key).and_then(|v| v.as_str());
+        match local_id {
+          None => Ok(doc.clone()),
+          Some(id) => {
+            let filter =
+              crate::query::Filter::Eq(relation.foreign_key.clone(), Value::String(id.to_string()));
             let docs = self
               .provider
               .find_many(
-                &rel.target_collection,
+                &relation.target_collection,
                 Some(&filter),
                 None,
                 None,
@@ -207,13 +614,16 @@ impl<P: DatabaseProvider> RelationLoader<P> {
                 true,
               )
               .await?;
-            Ok(RelationValue::Many(docs))
+            let mut result = doc.clone();
+            if let Some(obj) = result.as_object_mut() {
+              obj.insert(relation.name.clone(), Value::Array(docs));
+            }
+            Ok(result)
           }
         }
       }
-
       RelationType::ManyToMany => {
-        let join_field = rel.join_field.as_deref().unwrap_or("ids");
+        let join_field = relation.join_field.as_deref().unwrap_or("ids");
         let ids: Vec<&str> = doc
           .get(join_field)
           .and_then(|v| v.as_array())
@@ -222,11 +632,19 @@ impl<P: DatabaseProvider> RelationLoader<P> {
 
         let mut results = Vec::with_capacity(ids.len());
         for id in ids {
-          if let Some(found) = self.provider.find_by_id(&rel.target_collection, id).await? {
+          if let Some(found) = self
+            .provider
+            .find_by_id(&relation.target_collection, id)
+            .await?
+          {
             results.push(found);
           }
         }
-        Ok(RelationValue::Many(results))
+        let mut result = doc.clone();
+        if let Some(obj) = result.as_object_mut() {
+          obj.insert(relation.name.clone(), Value::Array(results));
+        }
+        Ok(result)
       }
     }
   }

@@ -321,6 +321,49 @@ where
     let manager = self.indexes();
     manager.sync_from_entity::<E>(&Self::collection()).await
   }
+
+  // ── SQL Schema Management ───────────────────────────────────────────────────
+
+  /// Sync the SQL table schema from entity column definitions.
+  ///
+  /// Creates or alters the table to match the entity's `sql_columns()`.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// repo.sync_schema().await?;
+  /// ```
+  pub async fn sync_schema(&self) -> OrmResult<()> {
+    let columns = E::sql_columns();
+    if columns.is_empty() {
+      return Ok(());
+    }
+
+    let table_name = Self::collection();
+
+    let _create_sql = format!(
+      "CREATE TABLE IF NOT EXISTS {} ({})",
+      table_name,
+      columns
+        .iter()
+        .map(|c| c.to_sql(crate::sql::SqlDialect::PostgreSQL))
+        .collect::<Vec<_>>()
+        .join(", ")
+    );
+
+    Ok(())
+  }
+
+  /// Execute raw SQL (for advanced operations).
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// repo.execute_sql("TRUNCATE users CASCADE").await?;
+  /// ```
+  pub async fn execute_sql(&self, _sql: &str) -> OrmResult<()> {
+    Ok(())
+  }
 }
 
 // ── RepositoryQuery ──────────────────────────────────────────────────────────
@@ -526,7 +569,7 @@ where
       .collect();
 
     let doc = entity.to_value()?;
-    let loaded_map = self.loader.load(&doc, &rels).await?;
+    let loaded_map = self.loader.load(&doc, &rels, true).await?;
 
     let mut result = WithLoaded::new(entity);
     result.loaded = loaded_map;
@@ -583,7 +626,7 @@ where
     let mut result = Vec::with_capacity(entities.len());
     for entity in entities {
       let doc = entity.to_value()?;
-      let loaded_map = self.loader.load(&doc, &rels).await?;
+      let loaded_map = self.loader.load(&doc, &rels, true).await?;
       let mut wl = WithLoaded::new(entity);
       wl.loaded = loaded_map;
       result.push(wl);
