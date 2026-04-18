@@ -1,4 +1,5 @@
 use crate::error::OrmResult;
+use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::query::Filter;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -84,5 +85,62 @@ pub trait DatabaseProvider: Send + Sync + Clone + 'static {
     self
       .find_many(collection, None, None, None, None, true)
       .await
+  }
+
+  // ── Index Management ────────────────────────────────────────────────────────
+
+  /// Create an index on a collection.
+  ///
+  /// # Arguments
+  /// * `collection` - Collection name.
+  /// * `index` - The index definition.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// provider.create_index(
+  ///     "users",
+  ///     &NosqlIndex::single("email", 1).unique(true)
+  /// ).await?;
+  /// ```
+  async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()>;
+
+  /// Drop an index by name.
+  ///
+  /// # Arguments
+  /// * `collection` - Collection name.
+  /// * `index_name` - Name of the index to drop.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// provider.drop_index("users", "idx_email").await?;
+  /// ```
+  async fn drop_index(&self, collection: &str, index_name: &str) -> OrmResult<()>;
+
+  /// List all indexes on a collection.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// let indexes = provider.list_indexes("users").await?;
+  /// for idx in indexes {
+  ///     println!("Index: {} - unique: {}", idx.name, idx.unique);
+  /// }
+  /// ```
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>>;
+
+  /// Check if an index exists by name.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// if provider.index_exists("users", "idx_email").await? {
+  ///     println!("Index exists!");
+  /// }
+  /// ```
+  async fn index_exists(&self, collection: &str, index_name: &str) -> OrmResult<bool> {
+    let indexes = self.list_indexes(collection).await?;
+    Ok(indexes.iter().any(|i| i.name == index_name))
   }
 }

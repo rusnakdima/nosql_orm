@@ -1,4 +1,5 @@
 use crate::error::OrmResult;
+use crate::nosql_index::NosqlIndex;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use std::fmt::Debug;
@@ -57,6 +58,24 @@ pub trait Entity: Serialize + DeserializeOwned + Debug + Clone + Send + Sync + '
   /// Check if this entity supports soft deletes.
   fn is_soft_deletable() -> bool {
     false
+  }
+
+  /// Returns indexes defined for this entity.
+  ///
+  /// Override this method to define indexes on your entity.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// fn indexes() -> Vec<NosqlIndex> {
+  ///     vec![
+  ///         NosqlIndex::single("email", 1).unique(true).name("idx_email"),
+  ///         NosqlIndex::ttl("created_at", 30 * 24 * 60 * 60).name("idx_ttl"),
+  ///     ]
+  /// }
+  /// ```
+  fn indexes() -> Vec<NosqlIndex> {
+    Vec::new()
   }
 }
 

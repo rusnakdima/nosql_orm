@@ -1,13 +1,15 @@
 use async_trait::async_trait;
 use mongodb::{
   bson::{doc, from_bson, to_bson, Bson, Document},
-  options::{ClientOptions, FindOptions},
-  Client, Database,
+  options::{ClientOptions, FindOptions, IndexOptions},
+  Client, Database, IndexModel,
 };
 use serde::{ser::Error, Deserialize, Serialize};
 use serde_json::Value;
+use std::time::Duration;
 
 use crate::error::{OrmError, OrmResult};
+use crate::nosql_index::{NosqlIndex, NosqlIndexInfo, NosqlIndexType};
 use crate::provider::{DatabaseProvider, ProviderConfig};
 use crate::query::Filter;
 use crate::utils::generate_id;
@@ -38,6 +40,143 @@ impl MongoProvider {
   pub async fn from_config(config: &ProviderConfig) -> OrmResult<Self> {
     let db_name = config.database.as_deref().unwrap_or("nosql_orm");
     Self::connect(&config.connection, db_name).await
+  }
+
+  // ── Index Management ────────────────────────────────────────────────────
+
+  /// Build MongoDB index keys document from a NosqlIndex.
+  fn build_index_keys(index: &NosqlIndex) -> Document {
+    let mut doc = Document::new();
+    for (field, order) in index.get_fields() {
+      let value: Bson = match index.get_index_type() {
+        NosqlIndexType::Geospatial2dsphere => Bson::Int32(1), // MongoDB uses 1 for 2dsphere
+        NosqlIndexType::Geospatial2d => Bson::Int32(1),
+        NosqlIndexType::Text => Bson::String("text".to_string()), // Text index uses "text"
+        NosqlIndexType::Hashed => Bson::String("hashed".to_string()),
+        _ => Bson::Int32(*order),
+      };
+      doc.insert(field, value);
+    }
+    doc
+  }
+
+  /// Build MongoDB index options from a NosqlIndex.
+  fn build_index_options(index: &NosqlIndex) -> IndexOptions {
+    let mut opts = IndexOptions::default();
+
+    if let Some(name) = index.get_name() {
+      opts.name = Some(name.to_string());
+    }
+
+    if index.is_unique() {
+      opts.unique = Some(true);
+    }
+
+    if index.is_sparse() {
+      opts.sparse = Some(true);
+    }
+
+    if let Some(ttl) = index.get_ttl_seconds() {
+      opts.expire_after = Some(Duration::from_secs(ttl as u64));
+    }
+
+    if let Some(ref partial_filter) = index.get_partial_filter() {
+      opts.partial_filter_expression = Some(Self::filter_to_doc(partial_filter));
+    }
+
+    if let Some(ref weights) = index.get_weights() {
+      let mut doc = Document::new();
+      for (field, weight) in weights.iter() {
+        doc.insert(field, *weight);
+      }
+      opts.weights = Some(doc);
+    }
+
+    if let Some(lang) = index.get_default_language() {
+      opts.default_language = Some(lang.to_string());
+    }
+
+    opts
+  }
+
+  /// Create a MongoDB index.
+  pub async fn create_mongo_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
+    let keys = Self::build_index_keys(index);
+    let opts = Self::build_index_options(index);
+
+    let model = IndexModel::builder().keys(keys).options(opts).build();
+
+    let coll = self.db.collection::<Document>(collection);
+    coll.create_index(model, None).await?;
+
+    Ok(())
+  }
+
+  /// Drop a MongoDB index by name.
+  pub async fn drop_mongo_index(&self, collection: &str, index_name: &str) -> OrmResult<()> {
+    let coll = self.db.collection::<Document>(collection);
+    coll.drop_index(index_name, None).await?;
+    Ok(())
+  }
+
+  /// List all MongoDB indexes on a collection.
+  pub async fn list_mongo_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+    use futures_util::TryStreamExt;
+
+    let coll = self.db.collection::<Document>(collection);
+    let mut cursor = coll.list_indexes(None).await?;
+
+    let mut indexes = Vec::new();
+    while let Some(idx) = cursor.try_next().await? {
+      let name = idx
+        .options
+        .as_ref()
+        .and_then(|o| o.name.clone())
+        .unwrap_or_default();
+      let namespace = format!("{}.{}", self.db.name(), collection);
+
+      let mut fields = Vec::new();
+      for (k, v) in &idx.keys {
+        let order = match v {
+          Bson::Int32(i) => *i as i32,
+          Bson::Int64(i) => *i as i32,
+          Bson::String(s) if s == "text" => 1i32,
+          _ => 1i32,
+        };
+        fields.push((k.to_string(), order));
+      }
+
+      let opts = idx.options.as_ref();
+      let unique = opts.and_then(|o| o.unique).unwrap_or(false);
+      let sparse = opts.and_then(|o| o.sparse).unwrap_or(false);
+      let version = opts
+        .and_then(|o| o.version.clone())
+        .map(|v| format!("{:?}", v));
+      let expire_secs = opts
+        .and_then(|o| o.expire_after.as_ref())
+        .map(|d| d.as_secs() as u32);
+
+      let index_type = if opts.and_then(|o| o.text_index_version.clone()).is_some() {
+        "text"
+      } else if fields.len() > 1 {
+        "compound"
+      } else {
+        "single"
+      };
+
+      indexes.push(NosqlIndexInfo {
+        name,
+        namespace,
+        unique,
+        sparse,
+        ttl_seconds: expire_secs,
+        version,
+        index_type: index_type.to_string(),
+        fields,
+      });
+    }
+
+    Ok(indexes)
   }
 
   // ── Conversions ────────────────────────────────────────────────────────
@@ -190,6 +329,18 @@ impl DatabaseProvider for MongoProvider {
     let query = filter.map(Self::filter_to_doc).unwrap_or_default();
     let coll = self.db.collection::<Document>(collection);
     coll.count_documents(query, None).await.map_err(Into::into)
+  }
+
+  async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
+    self.create_mongo_index(collection, index).await
+  }
+
+  async fn drop_index(&self, collection: &str, index_name: &str) -> OrmResult<()> {
+    self.drop_mongo_index(collection, index_name).await
+  }
+
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+    self.list_mongo_indexes(collection).await
   }
 }
 

@@ -260,6 +260,67 @@ where
     }
     Ok(results)
   }
+
+  // ── Index Management ────────────────────────────────────────────────────────
+
+  /// Get the index manager for this repository's collection.
+  pub fn indexes(&self) -> crate::nosql_index::IndexManager<P> {
+    crate::nosql_index::IndexManager::new(self.provider.clone())
+  }
+
+  /// Create an index on this collection.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// repo.create_index(NosqlIndex::single("email", 1).unique(true)).await?;
+  /// ```
+  pub async fn create_index(&self, index: crate::nosql_index::NosqlIndex) -> OrmResult<()> {
+    self
+      .provider
+      .create_index(&Self::collection(), &index)
+      .await
+  }
+
+  /// Drop an index by name.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// repo.drop_index("idx_email").await?;
+  /// ```
+  pub async fn drop_index(&self, name: &str) -> OrmResult<()> {
+    self.provider.drop_index(&Self::collection(), name).await
+  }
+
+  /// List all indexes on this collection.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// let indexes = repo.list_indexes().await?;
+  /// for idx in indexes {
+  ///     println!("Index: {}", idx.name);
+  /// }
+  /// ```
+  pub async fn list_indexes(&self) -> OrmResult<Vec<crate::nosql_index::NosqlIndexInfo>> {
+    self.provider.list_indexes(&Self::collection()).await
+  }
+
+  /// Sync indexes from entity definition.
+  ///
+  /// Creates any indexes defined on the entity that don't exist yet.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// let created = repo.sync_indexes().await?;
+  /// println!("Created {} indexes", created.len());
+  /// ```
+  pub async fn sync_indexes(&self) -> OrmResult<Vec<String>> {
+    let manager = self.indexes();
+    manager.sync_from_entity::<E>(&Self::collection()).await
+  }
 }
 
 // ── RepositoryQuery ──────────────────────────────────────────────────────────
@@ -353,10 +414,7 @@ where
       .await?;
 
     let docs = if let Some(ref projection) = self.builder.projection {
-      docs
-        .into_iter()
-        .map(|doc| projection.apply(&doc))
-        .collect()
+      docs.into_iter().map(|doc| projection.apply(&doc)).collect()
     } else {
       docs
     };
@@ -390,10 +448,7 @@ where
       .await?;
 
     Ok(if let Some(ref projection) = self.builder.projection {
-      docs
-        .into_iter()
-        .map(|doc| projection.apply(&doc))
-        .collect()
+      docs.into_iter().map(|doc| projection.apply(&doc)).collect()
     } else {
       docs
     })

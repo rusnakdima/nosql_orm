@@ -410,6 +410,27 @@ impl DatabaseProvider for PooledJson {
       .unwrap_or(0);
     Ok(count as u64)
   }
+
+  async fn create_index(
+    &self,
+    _collection: &str,
+    _index: &crate::nosql_index::NosqlIndex,
+  ) -> OrmResult<()> {
+    log::warn!("Indexes are not supported by the JSON provider");
+    Ok(())
+  }
+
+  async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
+    log::warn!("Indexes are not supported by the JSON provider");
+    Ok(())
+  }
+
+  async fn list_indexes(
+    &self,
+    _collection: &str,
+  ) -> OrmResult<Vec<crate::nosql_index::NosqlIndexInfo>> {
+    Ok(vec![])
+  }
 }
 
 fn compare_values(a: Option<&Value>, b: Option<&Value>) -> std::cmp::Ordering {

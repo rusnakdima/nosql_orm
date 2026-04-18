@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::error::{OrmError, OrmResult};
+use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::DatabaseProvider;
 use crate::query::Filter;
 use crate::utils::generate_id;
@@ -237,6 +238,28 @@ impl DatabaseProvider for JsonProvider {
       })
       .unwrap_or(0);
     Ok(count as u64)
+  }
+
+  // ── Index Management (No-op for JSON provider) ──────────────────────────────────
+
+  /// JSON provider does not support indexes natively.
+  /// This is a no-op that logs a warning.
+  async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
+    log::warn!("Indexes are not supported by the JSON provider");
+    Ok(())
+  }
+
+  /// JSON provider does not support indexes natively.
+  /// This is a no-op that logs a warning.
+  async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
+    log::warn!("Indexes are not supported by the JSON provider");
+    Ok(())
+  }
+
+  /// JSON provider does not support indexes natively.
+  /// Returns empty list.
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+    Ok(vec![])
   }
 }
 

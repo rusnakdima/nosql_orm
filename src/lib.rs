@@ -46,6 +46,7 @@ pub mod id;
 pub mod inheritance;
 pub mod lazy;
 pub mod migrations;
+pub mod nosql_index;
 pub mod pool;
 pub mod provider;
 pub mod query;
@@ -115,6 +116,8 @@ pub mod prelude {
 
   #[cfg(feature = "redis")]
   pub use crate::providers::redis::RedisProvider;
+
+  pub use crate::nosql_index::{IndexManager, NosqlIndex, NosqlIndexInfo, NosqlIndexType};
 
   #[cfg(feature = "query_cache")]
   pub use crate::cache::{CacheConfig, CacheStats, CachedResult, QueryCache};

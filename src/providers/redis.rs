@@ -1,4 +1,5 @@
 use crate::error::{OrmError, OrmResult};
+use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::DatabaseProvider;
 use crate::query::Filter;
 use async_trait::async_trait;
@@ -167,6 +168,28 @@ impl DatabaseProvider for RedisProvider {
     let mut conn = self.conn.clone();
     let exists: bool = conn.exists(&key).await?;
     Ok(exists)
+  }
+
+  // ── Index Management (No-op for Redis provider) ──────────────────────────────────
+
+  /// Redis does not support indexes in the same way as MongoDB.
+  /// This is a no-op that logs a warning.
+  async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
+    log::warn!("Indexes are not supported by the Redis provider");
+    Ok(())
+  }
+
+  /// Redis does not support indexes in the same way as MongoDB.
+  /// This is a no-op that logs a warning.
+  async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
+    log::warn!("Indexes are not supported by the Redis provider");
+    Ok(())
+  }
+
+  /// Redis does not support indexes in the same way as MongoDB.
+  /// Returns empty list.
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+    Ok(vec![])
   }
 }
 
