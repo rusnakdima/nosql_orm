@@ -323,6 +323,14 @@ where
     self.builder = self.builder.filter(f);
     self
   }
+  pub fn select(mut self, fields: &[&str]) -> Self {
+    self.builder = self.builder.select(fields);
+    self
+  }
+  pub fn exclude(mut self, fields: &[&str]) -> Self {
+    self.builder = self.builder.exclude(fields);
+    self
+  }
 
   /// Execute and return deserialized entities.
   pub async fn find(self) -> OrmResult<Vec<E>> {
@@ -343,12 +351,52 @@ where
         sort_asc,
       )
       .await?;
+
+    let docs = if let Some(ref projection) = self.builder.projection {
+      docs
+        .into_iter()
+        .map(|doc| projection.apply(&doc))
+        .collect()
+    } else {
+      docs
+    };
+
     docs.into_iter().map(E::from_value).collect()
   }
 
   /// Execute and return the first matching entity.
   pub async fn find_one(self) -> OrmResult<Option<E>> {
     Ok(self.limit(1).find().await?.into_iter().next())
+  }
+
+  /// Execute and return raw JSON values with projection applied.
+  pub async fn find_raw(self) -> OrmResult<Vec<Value>> {
+    let filter = self.builder.build_filter();
+    let (sort_field, sort_asc) = match &self.builder.order {
+      Some(o) => (Some(o.field.as_str()), o.direction == SortDirection::Asc),
+      None => (None, true),
+    };
+    let docs = self
+      .repo
+      .provider
+      .find_many(
+        &E::table_name(),
+        filter.as_ref(),
+        self.builder.skip,
+        self.builder.limit,
+        sort_field,
+        sort_asc,
+      )
+      .await?;
+
+    Ok(if let Some(ref projection) = self.builder.projection {
+      docs
+        .into_iter()
+        .map(|doc| projection.apply(&doc))
+        .collect()
+    } else {
+      docs
+    })
   }
 
   /// Execute and count matching entities.

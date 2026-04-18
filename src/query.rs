@@ -29,6 +29,81 @@ impl OrderBy {
   }
 }
 
+/// Field projection for selecting/excluding fields.
+#[derive(Debug, Clone)]
+pub struct Projection {
+  /// Fields to include (if Some). Cannot coexist with exclude.
+  pub select: Option<Vec<String>>,
+  /// Fields to exclude (if Some). Cannot coexist with select.
+  pub exclude: Option<Vec<String>>,
+}
+
+impl Projection {
+  pub fn new() -> Self {
+    Self {
+      select: None,
+      exclude: None,
+    }
+  }
+
+  /// Select only these fields (include all others implicitly).
+  pub fn select(fields: &[&str]) -> Self {
+    Self {
+      select: Some(fields.iter().map(|s| s.to_string()).collect()),
+      exclude: None,
+    }
+  }
+
+  /// Exclude these fields (include all others implicitly).
+  pub fn exclude(fields: &[&str]) -> Self {
+    Self {
+      select: None,
+      exclude: Some(fields.iter().map(|s| s.to_string()).collect()),
+    }
+  }
+
+  /// Returns true if projection is empty (no filtering needed).
+  pub fn is_empty(&self) -> bool {
+    self.select.is_none() && self.exclude.is_none()
+  }
+
+  /// Apply projection to a JSON document.
+  pub fn apply(&self, doc: &Value) -> Value {
+    if self.is_empty() {
+      return doc.clone();
+    }
+
+    let obj = match doc.as_object() {
+      Some(o) => o.clone(),
+      None => return doc.clone(),
+    };
+
+    if let Some(ref select_fields) = self.select {
+      let filtered: serde_json::Map<String, Value> = obj
+        .into_iter()
+        .filter(|(k, _)| select_fields.contains(k))
+        .collect();
+      return Value::Object(filtered);
+    }
+
+    if let Some(ref exclude_fields) = self.exclude {
+      let filtered: serde_json::Map<String, Value> = obj
+        .into_iter()
+        .filter(|(k, _)| !exclude_fields.contains(k))
+        .collect();
+      return Value::Object(filtered);
+    }
+
+    doc.clone()
+  }
+}
+
+impl Default for Projection {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 /// A composable filter condition.
 #[derive(Debug, Clone)]
 pub enum Filter {
@@ -131,6 +206,7 @@ pub struct QueryBuilder {
   pub(crate) skip: Option<u64>,
   pub(crate) limit: Option<u64>,
   pub(crate) relations: Vec<String>,
+  pub(crate) projection: Option<Projection>,
 }
 
 impl QueryBuilder {
@@ -218,6 +294,29 @@ impl QueryBuilder {
   pub fn with_relation(mut self, name: impl Into<String>) -> Self {
     self.relations.push(name.into());
     self
+  }
+
+  /// Select only these fields to be returned.
+  /// Use this when you only need specific fields from the entity.
+  ///
+  /// Example: `repo.query().select(&["id", "name"]).find().await?`
+  pub fn select(mut self, fields: &[&str]) -> Self {
+    self.projection = Some(Projection::select(fields));
+    self
+  }
+
+  /// Exclude these fields from the result.
+  /// Useful for excluding sensitive fields like passwords or tokens.
+  ///
+  /// Example: `repo.query().exclude(&["password", "token"]).find().await?`
+  pub fn exclude(mut self, fields: &[&str]) -> Self {
+    self.projection = Some(Projection::exclude(fields));
+    self
+  }
+
+  /// Get the projection if set.
+  pub fn get_projection(&self) -> Option<&Projection> {
+    self.projection.as_ref()
   }
 
   /// Build the combined filter (AND of all accumulated conditions).

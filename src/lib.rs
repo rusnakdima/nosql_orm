@@ -99,7 +99,7 @@ pub mod prelude {
   pub use crate::entity::{Entity, EntityMeta};
   pub use crate::error::{OrmError, OrmResult};
   pub use crate::provider::{DatabaseProvider, ProviderConfig};
-  pub use crate::query::{Filter, OrderBy, QueryBuilder, SortDirection};
+  pub use crate::query::{Filter, OrderBy, Projection, QueryBuilder, SortDirection};
   pub use crate::relations::{
     ManyToMany, ManyToOne, OneToMany, OneToOne, RelationDef, RelationLoader, RelationType,
     RelationValue, WithLoaded, WithRelations,
