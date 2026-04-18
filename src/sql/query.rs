@@ -18,17 +18,25 @@ impl SqlQueryBuilder {
     self.dialect
   }
 
-  pub fn build_create_table(&self, table: &SqlTableDef) -> String {
+  pub fn create_table_sql(&self, table: &SqlTableDef) -> String {
     table.to_sql(self.dialect)
   }
 
-  pub fn build_drop_table(&self, table_name: &str, if_exists: bool) -> String {
+  pub fn drop_table_sql(&self, table_name: &str) -> String {
     let name = self.dialect.quote_identifier(table_name);
-    if if_exists {
-      format!("DROP TABLE IF EXISTS {}", name)
-    } else {
-      format!("DROP TABLE {}", name)
-    }
+    format!("DROP TABLE {}", name)
+  }
+
+  pub fn create_index_sql(&self, table_name: &str, index: &SqlIndexDef) -> String {
+    let unique_str = if index.unique { "UNIQUE " } else { "" };
+    let columns = index
+      .columns
+      .iter()
+      .map(|c| self.dialect.quote_identifier(c))
+      .collect::<Vec<_>>()
+      .join(", ");
+    let name = self.dialect.quote_identifier(&index.name);
+    format!("CREATE {}INDEX {} ON {} ({})", unique_str, name, self.dialect.quote_identifier(table_name), columns)
   }
 
   pub fn build_create_index(&self, index: &SqlIndexDef) -> String {
@@ -58,6 +66,83 @@ impl SqlQueryBuilder {
       "INSERT INTO {} ({}) VALUES ({})",
       table_name, cols, placeholders
     )
+  }
+
+  pub fn build_create_table(&self, table: &SqlTableDef) -> String {
+    table.to_sql(self.dialect)
+  }
+
+  pub fn build_drop_table(&self, table_name: &str, if_exists: bool) -> String {
+    let name = self.dialect.quote_identifier(table_name);
+    if if_exists {
+      format!("DROP TABLE IF EXISTS {}", name)
+    } else {
+      format!("DROP TABLE {}", name)
+    }
+  }
+
+  pub fn insert_sql(&self, table: &str, data: &serde_json::Value) -> String {
+    let table_name = self.dialect.quote_identifier(table);
+    let obj = data.as_object().expect("data must be an object");
+    let columns: Vec<String> = obj.keys().map(|k| self.dialect.quote_identifier(k)).collect();
+    let placeholders: Vec<String> = obj.keys().map(|_| "?".to_string()).collect();
+    format!(
+      "INSERT INTO {} ({}) VALUES ({})",
+      table_name,
+      columns.join(", "),
+      placeholders.join(", ")
+    )
+  }
+
+  pub fn update_sql(&self, table: &str, data: &serde_json::Value, pk_field: &str, pk_value: &str) -> String {
+    let table_name = self.dialect.quote_identifier(table);
+    let obj = data.as_object().expect("data must be an object");
+    let set_clause = obj
+      .keys()
+      .map(|k| format!("{} = ?", self.dialect.quote_identifier(k)))
+      .collect::<Vec<_>>()
+      .join(", ");
+    format!(
+      "UPDATE {} SET {} WHERE {} = ?",
+      table_name,
+      set_clause,
+      self.dialect.quote_identifier(pk_field)
+    )
+  }
+
+  pub fn delete_sql(&self, table: &str, pk_field: &str, pk_value: &str) -> String {
+    let table_name = self.dialect.quote_identifier(table);
+    format!(
+      "DELETE FROM {} WHERE {} = ?",
+      table_name,
+      self.dialect.quote_identifier(pk_field)
+    )
+  }
+
+  pub fn select_sql(&self, table: &str, projection: Option<&[String]>, limit: Option<u32>, offset: Option<u64>) -> String {
+    let table_name = self.dialect.quote_identifier(table);
+    let select_clause = projection
+      .map(|p| {
+        if p.is_empty() {
+          "*".to_string()
+        } else {
+          p.iter()
+            .map(|f| self.dialect.quote_identifier(f))
+            .collect::<Vec<_>>()
+            .join(", ")
+        }
+      })
+      .unwrap_or_else(|| "*".to_string());
+
+    let mut sql = format!("SELECT {} FROM {}", select_clause, table_name);
+    sql.push_str(" ORDER BY id ASC");
+    if let Some(l) = limit {
+      sql.push_str(&format!(" LIMIT {}", l));
+    }
+    if let Some(o) = offset {
+      sql.push_str(&format!(" OFFSET {}", o));
+    }
+    sql
   }
 
   pub fn build_select(
@@ -367,7 +452,7 @@ mod tests {
   #[test]
   fn test_select_with_projection() {
     let builder = SqlQueryBuilder::new(SqlDialect::MySQL);
-    let projection = Projection::Select(vec!["id".to_string(), "name".to_string()]);
+    let projection = Projection { select: Some(vec!["id".to_string(), "name".to_string()]), exclude: None };
     let sql = builder.build_select("users", None, Some(&projection), None, None, None);
     assert_eq!(sql, "SELECT `id`, `name` FROM `users`");
   }
