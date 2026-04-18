@@ -21,6 +21,13 @@ redis = ["dep:redis"]
 full = ["json", "mongo", "redis"]
 query_cache = []
 
+validators = []
+
+sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:base64"]
+sql-sqlite = ["dep:rusqlite", "dep:base64"]
+sql-mysql = ["dep:mysql_async", "dep:base64"]
+sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -33,8 +40,14 @@ futures-util = { version = "0.3", optional = true }
 mongodb = { version = "2", optional = true }
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"], optional = true }
 regex = "1"
+log = "0.4"
 deadpool = "0.10"
 rand = "0.8"
+deadpool-postgres = { version = "0.12", optional = true }
+mysql_async = { version = "0.33", optional = true }
+tokio-postgres = { version = "0.7", optional = true }
+rusqlite = { version = "0.33", optional = true, features = ["bundled"] }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -48,3 +61,18 @@ path = "examples/json_example.rs"
 name = "mongo_example"
 path = "examples/mongo_example.rs"
 required-features = ["mongo"]
+
+[[example]]
+name = "sql_example"
+path = "examples/sql_example.rs"
+required-features = ["sql-sqlite"]
+
+[[example]]
+name = "sql_postgres_example"
+path = "examples/sql_postgres_example.rs"
+required-features = ["sql-postgres"]
+
+[[example]]
+name = "sql_mysql_example"
+path = "examples/sql_mysql_example.rs"
+required-features = ["sql-mysql"]
