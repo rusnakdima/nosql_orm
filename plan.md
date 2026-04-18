@@ -15,9 +15,9 @@ Library properly initialized as Rust library with `src/lib.rs`, prelude exports,
 | JSON Provider | ✅ Implemented | File-based JSON storage (embedded, zero-config) | NoSQL/Document |
 | MongoDB Provider | ✅ Implemented | MongoDB driver v2 | NoSQL/Document |
 | Redis Provider | ✅ Implemented | Caching, pub/sub, sessions, streams | NoSQL/Key-Value |
-| **PostgreSQL Provider** | 🔲 Planned | SQL relational | SQL |
-| **SQLite Provider** | 🔲 Planned | SQL relational | SQL |
-| **MySQL Provider** | 🔲 Planned | SQL relational | SQL |
+| PostgreSQL Provider | ✅ Implemented | tokio-postgres + deadpool-postgres | SQL |
+| SQLite Provider | ✅ Implemented | rusqlite (bundled) | SQL |
+| MySQL Provider | ✅ Implemented | mysql_async | SQL |
 
 ---
 
@@ -33,6 +33,7 @@ Library properly initialized as Rust library with `src/lib.rs`, prelude exports,
 | **Query Caching** | ✅ |
 | **Batch Operations** | ✅ |
 | **Field Projection (select/exclude)** | ✅ |
+| **SQL Database Support** | ✅ |
 
 ### Important
 | Feature | Status |
@@ -45,6 +46,7 @@ Library properly initialized as Rust library with `src/lib.rs`, prelude exports,
 | **Embedded Entities** | ✅ |
 | **Inheritance** | ✅ |
 | **NoSQL Indexes** | ✅ |
+| **Batch Relation Loading** | ✅ (RelationLoader) |
 
 ### Nice to Have
 | Feature | Status |
@@ -55,100 +57,45 @@ Library properly initialized as Rust library with `src/lib.rs`, prelude exports,
 | **Seeding/Fixtures** | ✅ |
 | **Full-text Search** | ✅ |
 | **Aggregation Pipeline** | ✅ |
-| **Change Data Capture** | ✅ |
+| **Change Data Capture (CDC)** | ✅ |
 
 ---
 
-## 4. SQL Database Support (New)
+## 4. SQL Database Support (Implemented ✅)
 
-### Motivation
+### Providers Implemented
 
-The user wants to use nosql_orm in **hybrid mode** - using SQL databases alongside NoSQL databases in the same application. This enables:
+| Provider | File | Status |
+|----------|------|--------|
+| PostgreSQL | `src/providers/sql/postgres.rs` | ✅ |
+| SQLite | `src/providers/sql/sqlite.rs` | ✅ |
+| MySQL | `src/providers/sql/mysql.rs` | ✅ |
 
-- **Symbiotic architecture**: SQL for transactional data, NoSQL for flexible documents
-- **Gradual migration**: Start with SQL, migrate to NoSQL for specific entities
-- **Best-of-both-worlds**: Use the right database for each use case
-- **Unified API**: Same Entity/Repository patterns across both database types
-
-### SQL Providers to Implement
-
-| Provider | Priority | Use Case |
-|----------|----------|----------|
-| **PostgreSQL** | High | Primary SQL backend, advanced features (JSONB, full-text) |
-| **SQLite** | High | Embedded/local apps, testing |
-| **MySQL** | Medium | Legacy systems, shared hosting |
-
-### Architecture
+### SQL Module Structure
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      Application                        │
-├─────────────────────────────────────────────────────────┤
-│  Entity<T> + Repository<T, P> + QueryBuilder           │
-├─────────────┬─────────────────┬────────────────────────┤
-│  JsonRepo   │   MongoRepo     │   SqlRepo              │
-├─────────────┼─────────────────┼────────────────────────┤
-│  JSON       │   MongoDB       │   PostgreSQL           │
-│  Provider   │   Provider      │   Provider             │
-└─────────────┴─────────────────┴────────────────────────┘
+src/sql/
+├── mod.rs          # Module exports
+├── types.rs        # SqlDialect, SqlColumnType, SqlColumnDef, SqlIndexDef, SqlTableDef
+└── query.rs        # SqlQueryBuilder for generating SQL strings
+
+src/providers/sql/
+├── mod.rs          # Provider exports (PostgresProvider, SqliteProvider, MySqlProvider)
+├── postgres.rs     # PostgreSQL implementation
+├── sqlite.rs       # SQLite implementation
+└── mysql.rs        # MySQL implementation
 ```
 
-### Key Design Decisions
-
-1. **Unified Entity Trait**: Same `Entity` trait works for all providers
-2. **Provider-Specific Configuration**: Each provider has its own config options
-3. **Schema Mapping**: SQL providers map entity to tables, NoSQL maps to collections
-4. **Transaction Unification**: Both SQL and NoSQL support ACID transactions
-5. **Index Abstraction**: SQL uses traditional indexes, NoSQL uses MongoDB-style indexes
-
----
-
-## 5. SQL Implementation Plan
-
-### Phase 1: Core Infrastructure
-
-**5.1 SQL Provider Trait**
-
-Create `src/providers/sql/mod.rs` with base SQL provider interface:
+### Key SQL Types
 
 ```rust
-/// SQL dialect enumeration
-pub enum SqlDialect {
-    PostgreSQL,
-    SQLite,
-    MySQL,
-}
+pub enum SqlDialect { PostgreSQL, SQLite, MySQL }
 
-/// SQL column types
 pub enum SqlColumnType {
-    Integer,
-    BigInt,
-    Text,
-    VarChar(u32),
-    Boolean,
-    Timestamp,
-    DateTime,
-    Json,
-    JsonB,
-    Blob,
+    Serial, Integer, BigInt, Text, VarChar(u32),
+    Boolean, Timestamp, DateTime, Json, JsonB, Blob
 }
 
-/// SQL index definition
-pub struct SqlIndexDef {
-    pub name: String,
-    pub columns: Vec<String>,
-    pub unique: bool,
-    pub index_type: SqlIndexType,
-}
-
-pub enum SqlIndexType {
-    BTree,     // Default, good for equality/range
-    Hash,      // Fast equality lookups
-    GiST,      // Geometric/experimental
-    GIN,       // Full-text search, JSON
-}
-
-/// SQL column definition
 pub struct SqlColumnDef {
     pub name: String,
     pub column_type: SqlColumnType,
@@ -159,113 +106,68 @@ pub struct SqlColumnDef {
 }
 ```
 
-**5.2 Add SQL features to Cargo.toml**
+### Usage Examples
 
-```toml
-[features]
-# ... existing ...
-sql = ["dep:sqlx", "dep:tokio-postgres"]
-sql-sqlite = ["dep:rusqlite"]
-sql-mysql = ["dep:mysql"]
+**SQLite:**
+```rust
+let provider = SqliteProvider::connect("db.sqlite").await?;
+let repo: Repository<User, _> = Repository::new(provider);
+repo.sync_schema().await?;
 ```
 
-### Phase 2: PostgreSQL Provider
-
-**New file: `src/providers/sql/postgres.rs`**
-
-Features:
-- Full SQL-92 support via `tokio-postgres` or `sqlx`
-- JSON/JSONB columns for hybrid storage
-- Full-text search indexes (GIN/GiST)
-- Connection pooling via deadpool
-- Transaction support with SAVEPOINTs
-
-Key methods to implement:
+**PostgreSQL:**
 ```rust
-pub struct PostgresProvider {
-    pool: Pool<PostgresConnectionManager>,
-}
-
-impl PostgresProvider {
-    pub async fn connect(connection_string: &str) -> OrmResult<Self>;
-    pub async fn execute_sql(&self, sql: &str) -> OrmResult<u64>;
-    pub async fn query_sql(&self, sql: &str) -> OrmResult<Vec<Row>>;
-    pub async fn create_table(&self, name: &str, columns: &[SqlColumnDef]) -> OrmResult<()>;
-    pub async fn drop_table(&self, name: &str) -> OrmResult<()>;
-    pub async fn create_index(&self, index: &SqlIndexDef) -> OrmResult<()>;
-    pub async fn alter_table_add_column(&self, table: &str, column: &SqlColumnDef) -> OrmResult<()>;
-}
+let provider = PostgresProvider::connect("postgres://user:pass@localhost/db").await?;
+let repo: Repository<User, _> = Repository::new(provider);
 ```
 
-### Phase 3: SQLite Provider
-
-**New file: `src/providers/sql/sqlite.rs`**
-
-Features:
-- Embedded database (no server needed)
-- Perfect for testing and local development
-- WAL mode for concurrent reads
-- Full-text search via FTS5 extension
-
-### Phase 4: MySQL Provider
-
-**New file: `src/providers/sql/mysql.rs`**
-
-Features:
-- `mysql_async` driver for async operations
-- Connection pooling
-- Limited JSON support (later versions have JSON type)
-
-### Phase 5: Unified Query Builder
-
-**Update `src/query.rs` to support SQL**
-
+**MySQL:**
 ```rust
-/// Query builder that works for both SQL and NoSQL
-pub struct QueryBuilder<P: DatabaseProvider> {
-    provider: P,
-    filter: Option<Filter>,
-    order_by: Vec<(String, SortDirection)>,
-    limit: Option<u32>,
-    offset: Option<u32>,
-    // SQL-specific
-    selected_fields: Option<Vec<String>>,
-    group_by: Option<Vec<String>>,
-    having: Option<Filter>,
-}
-
-/// Build SQL query string
-impl QueryBuilder<SqlProvider> {
-    pub fn build_select(&self, table: &str) -> String {
-        // Generate: SELECT ... FROM ... WHERE ... ORDER BY ... LIMIT ...
-    }
-
-    pub fn build_insert(&self, table: &str, data: &Value) -> String;
-    pub fn build_update(&self, table: &str, data: &Value, filter: &Filter) -> String;
-    pub fn build_delete(&self, table: &str, filter: &Filter) -> String;
-}
-```
-
-### Phase 6: Schema Manager Integration
-
-**Update `src/schema/schema.rs`**
-
-```rust
-/// Unified schema manager for both SQL and NoSQL
-pub struct SchemaManager<P: DatabaseProvider> {
-    provider: P,
-}
-
-impl<P: DatabaseProvider> SchemaManager<P> {
-    pub async fn create_collection(&self, name: &str) -> OrmResult<()>;
-    pub async fn drop_collection(&self, name: &str) -> OrmResult<()>;
-    pub async fn sync_entity<T: Entity>(&self) -> OrmResult<()>;
-}
+let provider = MySqlProvider::connect("mysql://user:pass@localhost/db").await?;
+let repo: Repository<User, _> = Repository::new(provider);
 ```
 
 ---
 
-## 6. NoSQL Indexes (Implemented)
+## 5. Relation Loading (Implemented ✅)
+
+### RelationLoader
+
+Batch loading with soft-delete filtering support:
+
+```rust
+// Load relations for multiple documents
+let docs = loader.load_many(docs, &relation, filter_deleted: true).await?;
+
+// Load relations for single document
+let loaded = loader.load(&doc, &relations, filter_deleted: true).await?;
+```
+
+### RelationDef Enhancements
+
+```rust
+// Standard relations
+RelationDef::one_to_many("tasks", "tasks", "todoId")
+RelationDef::many_to_one("user", "users", "userId")
+RelationDef::many_to_many("categories", "categories", "categories")
+
+// Array-based relations (e.g., assignees: Vec<String>)
+RelationDef::many_to_one_array("assignees", "profiles", "assignees")
+
+// Transform loaded relation via another collection
+RelationDef::many_to_one_array("assigneesProfiles", "profiles", "assignees")
+    .transform_map("userId", "profiles", "id")
+```
+
+### Soft-Delete Filtering
+
+RelationLoader automatically filters deleted records when `filter_deleted: true`:
+- Filters by `deleted_at IS NULL OR deleted_at = ''`
+- Post-fetches additional filtering when provider doesn't support complex filters
+
+---
+
+## 6. NoSQL Indexes (Implemented ✅)
 
 ### MongoDB Index Types
 
@@ -299,9 +201,7 @@ repo.sync_indexes().await?;
 
 ---
 
-## 7. Field Projection (SELECT/EXCLUDE)
-
-### Implemented ✅
+## 7. Field Projection (SELECT/EXCLUDE) - Implemented ✅
 
 ```rust
 // Select only specific fields
@@ -322,12 +222,6 @@ repo.query()
     .select(&["id", "name", "age"])
     .find()
     .await?;
-
-// Get raw JSON with projection
-repo.query()
-    .exclude(&["password"])
-    .find_raw()
-    .await?;
 ```
 
 ---
@@ -337,105 +231,137 @@ repo.query()
 | Version | Focus | Status |
 |---------|-------|--------|
 | 0.2.0 | Transactions + Pooling | ✅ |
-| 0.3.0 | Soft Deletes + Validators | ✅ |
+| 0.3.0 | Soft Deletes + Validators + NoSQL Indexes | ✅ |
 | 0.4.0 | Field Projection | ✅ |
 | 0.5.0 | Migration System + CLI | ✅ |
-| **0.6.0** | **SQL Providers (PostgreSQL, SQLite, MySQL)** | **🔲 Planned** |
-| 0.7.0 | SQL-NoSQL Hybrid Queries | 🔲 Planned |
-| 0.8.0 | Elasticsearch Provider | 🔲 Planned |
+| **0.6.0** | **SQL Providers (PostgreSQL, SQLite, MySQL)** | ✅ |
+| **0.7.0** | **Batch Relation Loading (RelationLoader)** | ✅ |
+| 0.8.0 | Advanced Relation Transformations | 🔲 Planned |
 | 1.0.0 | Stable API + Docs | 🔲 Planned |
 
 ---
 
 ## 9. Implementation Tasks
 
-### SQL Infrastructure
+### Completed Tasks
 
+#### SQL Infrastructure
 | Task | Priority | Status |
 |------|----------|--------|
-| Add SQL feature flags to Cargo.toml | High | 🔲 |
-| Create `src/providers/sql/mod.rs` base trait | High | 🔲 |
-| Implement `SqlDialect`, `SqlColumnType`, `SqlIndexDef` types | High | 🔲 |
-| Create `PostgresProvider` | High | 🔲 |
-| Create `SqliteProvider` | High | 🔲 |
-| Create `MySqlProvider` | Medium | 🔲 |
-| Update `DatabaseProvider` trait for SQL | High | 🔲 |
-| Implement `QueryBuilder.build_sql()` | Medium | 🔲 |
-| Update `Repository` for SQL providers | Medium | 🔲 |
-| Update `SchemaManager` for SQL | Medium | 🔲 |
-| Add SQL examples | Medium | 🔲 |
+| Add SQL feature flags to Cargo.toml | High | ✅ |
+| Create `src/sql/mod.rs` base trait | High | ✅ |
+| Implement `SqlDialect`, `SqlColumnType`, `SqlIndexDef` types | High | ✅ |
+| Create `PostgresProvider` | High | ✅ |
+| Create `SqliteProvider` | High | ✅ |
+| Create `MySqlProvider` | Medium | ✅ |
+| Update `DatabaseProvider` trait for SQL | High | ✅ |
+| Implement `SqlQueryBuilder` | High | ✅ |
+| Add SQL examples | Medium | ✅ |
 
-### Testing
+#### Relation Loading
+| Task | Priority | Status |
+|------|----------|--------|
+| Create `RelationLoader` struct | High | ✅ |
+| Implement `load_many` batch loading | High | ✅ |
+| Add soft-delete filtering | High | ✅ |
+| Add `local_key_in_array` support | High | ✅ |
+| Add `transform_map_via` support | High | ✅ |
 
+### Remaining Tasks
+
+#### Testing
 | Task | Priority | Status |
 |------|----------|--------|
 | Unit tests for SQL query generation | High | 🔲 |
 | Integration tests for PostgreSQL | High | 🔲 |
 | Integration tests for SQLite | High | 🔲 |
+| Integration tests for MySQL | Medium | 🔲 |
 | Hybrid query tests (SQL + NoSQL) | Medium | 🔲 |
+
+#### Advanced Relation Loading
+| Task | Priority | Status |
+|------|----------|--------|
+| Implement `transform_map` logic in RelationLoader | High | 🔲 |
+| Complete TaskFlow integration with RelationLoader | High | 🔲 |
 
 ---
 
-## 10. Usage Examples (Future)
+## 10. Feature Flags
 
-### PostgreSQL
+```toml
+[features]
+default = ["json"]
+json = []
+mongo = ["dep:mongodb", "dep:futures-util"]
+redis = ["dep:redis"]
+full = ["json", "mongo", "redis"]
+query_cache = []
+validators = []
 
-```rust
-use nosql_orm::prelude::*;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Entity)]
-pub struct User {
-    pub id: Option<i32>,
-    pub name: String,
-    pub email: String,
-}
-
-impl Entity for User {
-    fn meta() -> EntityMeta {
-        EntityMeta::new("users").sql_table("users")
-    }
-    fn get_id(&self) -> Option<i32> { self.id }
-    fn set_id(&mut self, id: i32) { self.id = Some(id); }
-}
-
-#[tokio::main]
-async fn main() -> OrmResult<()> {
-    let provider = PostgresProvider::connect("postgres://user:pass@localhost/db").await?;
-    let repo: Repository<User, _> = Repository::new(provider);
-
-    // Create table from entity
-    repo.sync_schema().await?;
-
-    // CRUD operations
-    let user = User { id: None, name: "Alice".into(), email: "alice@example.com".into() };
-    let saved = repo.save(user).await?;
-
-    // Query with filters
-    let users = repo.query()
-        .where_eq("email", serde_json::json!("alice@example.com"))
-        .find()
-        .await?;
-
-    Ok(())
-}
+# SQL Providers
+sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:base64"]
+sql-sqlite = ["dep:rusqlite", "dep:base64"]
+sql-mysql = ["dep:mysql_async", "dep:base64"]
+sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
 ```
 
-### Hybrid SQL + NoSQL
+---
+
+## 11. Module Structure
+
+```
+src/
+├── lib.rs                 # Main library exports
+├── entity.rs              # Entity trait
+├── error.rs               # OrmError, OrmResult
+├── query.rs               # Filter, QueryBuilder, SortDirection, Projection
+├── relations.rs           # RelationDef, RelationLoader, WithRelations
+├── repository.rs          # Repository, RelationRepository
+├── soft_delete.rs         # SoftDeletable trait
+├── schema.rs              # SchemaManager
+├── providers/
+│   ├── mod.rs             # Provider exports
+│   ├── json/              # JsonProvider
+│   ├── mongo/             # MongoProvider
+│   ├── redis/             # RedisProvider
+│   └── sql/               # PostgresProvider, SqliteProvider, MySqlProvider
+├── sql/
+│   ├── mod.rs             # SQL module exports
+│   ├── types.rs           # SqlDialect, SqlColumnType, SqlColumnDef, etc.
+│   └── query.rs           # SqlQueryBuilder
+├── cache/                 # QueryCache (query_cache feature)
+├── migrations/            # Migration system
+├── validators/            # Entity validation
+├── aggregation.rs         # Aggregation pipeline
+├── cdc/                   # Change Data Capture
+├── graphql/               # GraphQL integration
+├── lazy/                  # Lazy loading
+├── nosql_index/           # NoSQL indexes
+├── pool/                  # Connection pooling
+├── search/                # Full-text search
+├── subscription/          # Pub/sub
+└── transaction.rs         # Transaction support
+```
+
+---
+
+## 12. Examples
 
 ```rust
-use nosql_orm::prelude::*;
+// JSON (default)
+let provider = JsonProvider::new("./data").await?;
 
-// SQL provider for transactional data
-let pg = PostgresProvider::connect("postgres://...").await?;
-// NoSQL provider for flexible documents
-let mongo = MongoProvider::connect("mongodb://...").await?;
+// MongoDB
+let provider = MongoProvider::connect("mongodb://localhost:27017").await?;
 
-let user_repo: Repository<User, _> = Repository::new(pg);
-let document_repo: Repository<Document, _> = Repository::new(mongo);
+// PostgreSQL
+let provider = PostgresProvider::connect("postgres://user:pass@localhost/db").await?;
 
-// User data in PostgreSQL (structured, ACID)
-let user = user_repo.save(User { id: None, name: "Bob".into() }).await?;
+// SQLite
+let provider = SqliteProvider::connect("app.db").await?;
 
-// Document data in MongoDB (flexible schema)
-let doc = document_repo.save(Document { id: None, content: json!({...}) }).await?;
+// MySQL
+let provider = MySqlProvider::connect("mysql://user:pass@localhost/db").await?;
+
+let repo: Repository<Entity, _> = Repository::new(provider);
 ```
