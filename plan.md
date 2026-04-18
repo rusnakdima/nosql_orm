@@ -71,158 +71,218 @@ Library properly initialized as Rust library with `src/lib.rs`, prelude exports,
 | SQLite | `src/providers/sql/sqlite.rs` | ✅ |
 | MySQL | `src/providers/sql/mysql.rs` | ✅ |
 
-### SQL Module Structure
-
-```
-src/sql/
-├── mod.rs          # Module exports
-├── types.rs        # SqlDialect, SqlColumnType, SqlColumnDef, SqlIndexDef, SqlTableDef
-└── query.rs        # SqlQueryBuilder for generating SQL strings
-
-src/providers/sql/
-├── mod.rs          # Provider exports (PostgresProvider, SqliteProvider, MySqlProvider)
-├── postgres.rs     # PostgreSQL implementation
-├── sqlite.rs       # SQLite implementation
-└── mysql.rs        # MySQL implementation
-```
-
-### Key SQL Types
-
-```rust
-pub enum SqlDialect { PostgreSQL, SQLite, MySQL }
-
-pub enum SqlColumnType {
-    Serial, Integer, BigInt, Text, VarChar(u32),
-    Boolean, Timestamp, DateTime, Json, JsonB, Blob
-}
-
-pub struct SqlColumnDef {
-    pub name: String,
-    pub column_type: SqlColumnType,
-    pub nullable: bool,
-    pub primary_key: bool,
-    pub default: Option<String>,
-    pub unique: bool,
-}
-```
-
-### Usage Examples
-
-**SQLite:**
-```rust
-let provider = SqliteProvider::connect("db.sqlite").await?;
-let repo: Repository<User, _> = Repository::new(provider);
-repo.sync_schema().await?;
-```
-
-**PostgreSQL:**
-```rust
-let provider = PostgresProvider::connect("postgres://user:pass@localhost/db").await?;
-let repo: Repository<User, _> = Repository::new(provider);
-```
-
-**MySQL:**
-```rust
-let provider = MySqlProvider::connect("mysql://user:pass@localhost/db").await?;
-let repo: Repository<User, _> = Repository::new(provider);
-```
-
 ---
 
 ## 5. Relation Loading (Implemented ✅)
 
 ### RelationLoader
 
-Batch loading with soft-delete filtering support:
-
-```rust
-// Load relations for multiple documents
-let docs = loader.load_many(docs, &relation, filter_deleted: true).await?;
-
-// Load relations for single document
-let loaded = loader.load(&doc, &relations, filter_deleted: true).await?;
-```
-
-### RelationDef Enhancements
-
-```rust
-// Standard relations
-RelationDef::one_to_many("tasks", "tasks", "todoId")
-RelationDef::many_to_one("user", "users", "userId")
-RelationDef::many_to_many("categories", "categories", "categories")
-
-// Array-based relations (e.g., assignees: Vec<String>)
-RelationDef::many_to_one_array("assignees", "profiles", "assignees")
-
-// Transform loaded relation via another collection
-RelationDef::many_to_one_array("assigneesProfiles", "profiles", "assignees")
-    .transform_map("userId", "profiles", "id")
-```
-
-### Soft-Delete Filtering
-
-RelationLoader automatically filters deleted records when `filter_deleted: true`:
-- Filters by `deleted_at IS NULL OR deleted_at = ''`
-- Post-fetches additional filtering when provider doesn't support complex filters
+Batch loading with soft-delete filtering support.
 
 ---
 
 ## 6. NoSQL Indexes (Implemented ✅)
 
-### MongoDB Index Types
-
-| Index Type | Description |
-|------------|-------------|
-| **Single Field** | Basic queries on one field |
-| **Compound** | Multi-field queries |
-| **Text** | Full-text search |
-| **Geospatial** | Location queries (2dsphere, 2d) |
-| **TTL** | Auto-expiration |
-| **Hashed** | Hash-based for sharding |
-
-### Key Methods
-
-```rust
-// Create single field index
-repo.create_index(NosqlIndex::single("email", 1).unique(true)).await?;
-
-// Create compound index
-repo.create_index(NosqlIndex::compound(&[("user_id", 1), ("date", -1)])).await?;
-
-// Create TTL index (auto-delete)
-repo.create_index(NosqlIndex::ttl("created_at", 30 * 24 * 60 * 60)).await?;
-
-// Using IndexManager
-repo.indexes().create_text_index(&[("title", 10), ("body", 5)], Some("en")).await?;
-
-// Sync from entity definition
-repo.sync_indexes().await?;
-```
-
 ---
 
-## 7. Field Projection (SELECT/EXCLUDE) - Implemented ✅
+## 7. Planned Features (from Popular ORMs)
 
+Based on analysis of TypeORM, Django ORM, Prisma, SQLAlchemy, and Entity Framework.
+
+### High Priority Features
+
+#### 7.1 Query Builder Enhancements
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Chainable Query Methods** | Fluent API: `.where().orderBy().limit()` | 🔲 Planned |
+| **Complex OR/AND Filters** | Nested filter groups with `Filter::Or`, `Filter::And` | 🔲 Planned |
+| **Cursor-based Pagination** | More efficient than offset for large datasets | 🔲 Planned |
+| **Query Result Streaming** | Stream results instead of loading all into memory | 🔲 Planned |
+| **Raw Query Execution** | `repo.query().raw("SELECT * FROM users WHERE age > ?", &[18])` | 🔲 Planned |
+
+**Example:**
 ```rust
-// Select only specific fields
-repo.query()
-    .select(&["id", "name", "email"])
+// Chainable query
+let users = repo.query()
+    .where("age").gte(18)
+    .and("status").eq("active")
+    .order_by("created_at", SortDirection::Desc)
+    .limit(20)
+    .offset(40)
     .find()
     .await?;
 
-// Exclude specific fields (e.g., passwords)
-repo.query()
-    .exclude(&["password", "token"])
-    .find()
+// Cursor-based pagination
+let (users, next_cursor) = repo.query()
+    .where("age").gt(last_age)
+    .limit(20)
+    .find_with_cursor()
     .await?;
+```
 
-// Combine with filters
+#### 7.2 Bulk Data Operations
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Bulk Insert** | Insert multiple records in single query | 🔲 Planned |
+| **Bulk Update** | Update multiple records matching filter | 🔲 Planned |
+| **Bulk Upsert** | Insert or update based on unique constraint | 🔲 Planned |
+| **Batch Delete** | Delete multiple records efficiently | 🔲 Planned |
+
+**Example:**
+```rust
+// Bulk insert
+repo.insert_many(users_vec).await?;
+
+// Bulk upsert
+repo.upsert_many(users_vec, ["email"]).await?;
+
+// Batch update
+repo.update_many("users", filter, updates).await?;
+```
+
+#### 7.3 Change Tracking & Dirty Checking
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Entity Change Detection** | Track modified fields before save | 🔲 Planned |
+| **Optimistic Locking** | Version field for concurrent update detection | 🔲 Planned |
+| **Auto-timestamp Updates** | Update `updated_at` automatically on change | 🔲 Planned |
+
+**Example:**
+```rust
+// Dirty checking
+entity.name = "New Name";
+entity.age = 30;
+let changes = entity.get_changes(); // { name: "Old", age: 25 }
+repo.save(entity).await?; // Only updates changed fields
+
+// Optimistic locking
+#[entity]
+pub struct User {
+    #[column(version)]
+    pub version: i32,
+}
+// UPDATE users SET ... WHERE id = ? AND version = ?
+```
+
+#### 7.4 Advanced Filters
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Like/Contains/StartsWith/EndsWith** | String pattern matching | 🔲 Planned |
+| **Between** | Range queries for numbers/dates | 🔲 Planned |
+| **In/NOT In** | Array membership checks | 🔲 Planned |
+| **IsNull/IsNotNull** | Null checks | 🔲 Planned |
+| **Json Path Queries** | Query JSON fields deeply | 🔲 Planned |
+
+**Example:**
+```rust
 repo.query()
-    .where_gt("age", serde_json::json!(18))
-    .select(&["id", "name", "age"])
+    .where("name").like("%John%")
+    .where("age").between(18, 65)
+    .where("status").in_(["active", "pending"])
+    .where("meta").json_path("$.role").eq("admin")
     .find()
     .await?;
 ```
+
+### Medium Priority Features
+
+#### 7.5 Transaction Management
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Savepoints** | Nested transaction support | 🔲 Planned |
+| **Transaction Callbacks** | `with_transaction(\|tx\| async { ... })` | 🔲 Planned |
+| **Isolation Levels** | READ COMMITTED, SERIALIZABLE, etc. | 🔲 Planned |
+| **Retry on Deadlock** | Automatic retry logic for failed transactions | 🔲 Planned |
+
+**Example:**
+```rust
+// Transaction with callback
+repo.with_transaction(|tx| async {
+    tx.save(user).await?;
+    tx.insert(Order { user_id: user.id, .. }).await?;
+    Ok(())
+}).await?;
+
+// Isolation level
+repo.with_isolation(IsolationLevel::Serializable, |tx| async {
+    // ...
+}).await?;
+```
+
+#### 7.6 Query Logging & Debugging
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Query Logging** | Log all queries with timing | 🔲 Planned |
+| **Slow Query Alerts** | Warn on queries exceeding threshold | 🔲 Planned |
+| **Query Plan Viewer** | EXPLAIN output for SQL providers | 🔲 Planned |
+| **Debug Mode** | Pretty-print queries and parameters | 🔲 Planned |
+
+**Example:**
+```rust
+// Enable query logging
+Repository::builder()
+    .provider(provider)
+    .log_queries(LogLevel::Debug)
+    .slow_query_threshold(Duration::from_millis(100))
+    .build();
+```
+
+#### 7.7 Auto-Generated Migrations
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Diff-based Migration** | Generate migration from entity changes | 🔲 Planned |
+| **Migration Rollback** | `migrate down` to revert changes | 🔲 Planned |
+| **Migration Status** | Track which migrations applied | 🔲 Planned |
+
+**Example:**
+```rust
+// Generate migration from entity changes
+repo.diff_migration::<User>().await?;
+
+// Run migrations
+repo.migrate_up().await?;
+
+// Rollback last migration
+repo.migrate_down().await?;
+```
+
+#### 7.8 Global Filters (Multi-tenancy)
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Tenant Isolation** | Automatic filter by tenant_id | 🔲 Planned |
+| **Soft Delete Global Filter** | Default exclude deleted | 🔲 Planned |
+| **Custom Global Scopes** | Apply filters to all queries | 🔲 Planned |
+
+**Example:**
+```rust
+// Global tenant filter
+repo.add_global_filter("tenant_id", tenant_id);
+
+// All queries automatically filtered
+repo.find_all().await?; // WHERE tenant_id = '...'
+
+// Override for admin
+repo.find_all().without_global_filters().await?;
+```
+
+### Lower Priority (Nice to Have)
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Seed Data Management** | Load test/fixture data | 🔲 Planned |
+| **Soft Delete Restore** | Un-delete functionality | 🔲 Planned |
+| **Audit Log** | Track all changes to entities | 🔲 Planned |
+| **Query Memoization** | Cache repeated identical queries | 🔲 Planned |
+| **Entity Cloning** | Deep clone entity with new ID | 🔲 Planned |
+| **Pagination Metadata** | Return total count, has_next, has_prev | 🔲 Planned |
 
 ---
 
@@ -234,55 +294,44 @@ repo.query()
 | 0.3.0 | Soft Deletes + Validators + NoSQL Indexes | ✅ |
 | 0.4.0 | Field Projection | ✅ |
 | 0.5.0 | Migration System + CLI | ✅ |
-| **0.6.0** | **SQL Providers (PostgreSQL, SQLite, MySQL)** | ✅ |
-| **0.7.0** | **Batch Relation Loading (RelationLoader)** | ✅ |
-| 0.8.0 | Advanced Relation Transformations | 🔲 Planned |
+| 0.6.0 | SQL Providers (PostgreSQL, SQLite, MySQL) | ✅ |
+| 0.7.0 | Batch Relation Loading (RelationLoader) | ✅ |
+| **0.8.0** | **Query Builder Enhancements + Bulk Operations** | 🔲 Planned |
+| **0.9.0** | **Transaction Improvements + Global Filters** | 🔲 Planned |
 | 1.0.0 | Stable API + Docs | 🔲 Planned |
 
 ---
 
 ## 9. Implementation Tasks
 
-### Completed Tasks
+### SQL Infrastructure (Completed ✅)
+| Task | Status |
+|------|--------|
+| SQL feature flags | ✅ |
+| SQL types (SqlDialect, SqlColumnType, etc.) | ✅ |
+| PostgresProvider | ✅ |
+| SqliteProvider | ✅ |
+| MySqlProvider | ✅ |
+| SqlQueryBuilder | ✅ |
 
-#### SQL Infrastructure
+### Testing (In Progress)
+| Task | Status |
+|------|--------|
+| Unit tests for SQL query generation | ✅ |
+| Integration tests for PostgreSQL | 🔲 Planned |
+| Integration tests for SQLite | 🔲 Planned |
+| Integration tests for MySQL | 🔲 Planned |
+
+### High Priority Remaining
 | Task | Priority | Status |
 |------|----------|--------|
-| Add SQL feature flags to Cargo.toml | High | ✅ |
-| Create `src/sql/mod.rs` base trait | High | ✅ |
-| Implement `SqlDialect`, `SqlColumnType`, `SqlIndexDef` types | High | ✅ |
-| Create `PostgresProvider` | High | ✅ |
-| Create `SqliteProvider` | High | ✅ |
-| Create `MySqlProvider` | Medium | ✅ |
-| Update `DatabaseProvider` trait for SQL | High | ✅ |
-| Implement `SqlQueryBuilder` | High | ✅ |
-| Add SQL examples | Medium | ✅ |
-
-#### Relation Loading
-| Task | Priority | Status |
-|------|----------|--------|
-| Create `RelationLoader` struct | High | ✅ |
-| Implement `load_many` batch loading | High | ✅ |
-| Add soft-delete filtering | High | ✅ |
-| Add `local_key_in_array` support | High | ✅ |
-| Add `transform_map_via` support | High | ✅ |
-
-### Remaining Tasks
-
-#### Testing
-| Task | Priority | Status |
-|------|----------|--------|
-| Unit tests for SQL query generation | High | 🔲 |
-| Integration tests for PostgreSQL | High | 🔲 |
-| Integration tests for SQLite | High | 🔲 |
-| Integration tests for MySQL | Medium | 🔲 |
-| Hybrid query tests (SQL + NoSQL) | Medium | 🔲 |
-
-#### Advanced Relation Loading
-| Task | Priority | Status |
-|------|----------|--------|
-| Implement `transform_map` logic in RelationLoader | High | 🔲 |
-| Complete TaskFlow integration with RelationLoader | High | 🔲 |
+| Chainable query builder methods | High | 🔲 Planned |
+| Bulk insert/update/delete | High | 🔲 Planned |
+| Cursor-based pagination | High | 🔲 Planned |
+| Advanced filter operators (LIKE, BETWEEN, IN) | High | 🔲 Planned |
+| Complex OR/AND filter groups | High | 🔲 Planned |
+| Auto-timestamp updates | Medium | 🔲 Planned |
+| Query logging | Medium | 🔲 Planned |
 
 ---
 
@@ -345,7 +394,7 @@ src/
 
 ---
 
-## 12. Examples
+## 12. Usage Examples
 
 ```rust
 // JSON (default)
@@ -364,4 +413,77 @@ let provider = SqliteProvider::connect("app.db").await?;
 let provider = MySqlProvider::connect("mysql://user:pass@localhost/db").await?;
 
 let repo: Repository<Entity, _> = Repository::new(provider);
+```
+
+---
+
+## 13. Competitive Analysis
+
+### vs TypeORM (Node.js)
+
+| TypeORM Feature | nosql_orm Status |
+|-----------------|------------------|
+| Active record vs Data mapper | ✅ Data mapper done |
+| Relations (one-to-many, etc.) | ✅ Done |
+| Migrations | ✅ Done |
+| Transaction support | ✅ Done |
+| **Query builder** | 🔲 Planned |
+| **Bulk operations** | 🔲 Planned |
+| **Change tracking** | 🔲 Planned |
+
+### vs Prisma (Node.js)
+
+| Prisma Feature | nosql_orm Status |
+|---------------|------------------|
+| Type-safe client | ✅ Done |
+| Auto-generated migrations | 🔲 Planned |
+| Prisma schema | Our entity macros similar |
+| **Connection pooling** | ✅ Done |
+| **Transactional batching** | 🔲 Planned |
+
+### vs SQLAlchemy (Python)
+
+| SQLAlchemy Feature | nosql_orm Status |
+|-------------------|------------------|
+| ORM Expression language | 🔲 Planned |
+| Core query builder | ✅ Basic done |
+| Session management | ✅ Done |
+| **Eager loading** | ✅ Done |
+| **Lazy loading** | ✅ Done |
+| **Compiled SQL** | 🔲 Planned |
+
+---
+
+## 14. Recommendations for Next Implementation
+
+### Priority 1: Query Builder Enhancements
+
+The current query system works but lacks chainable methods and advanced filters. This affects usability:
+
+```rust
+// Current approach (works but verbose)
+let filter = Filter::And(vec![
+    Filter::Eq("age".to_string(), json!(18)),
+    Filter::Eq("status".to_string(), json!("active"))
+]);
+repo.find_many("users", Some(&filter), ...)
+
+// Improved approach (planned)
+repo.query()
+    .where("age").gte(18)
+    .and("status").eq("active")
+    .find("users")
+    .await?;
+```
+
+### Priority 2: Bulk Operations
+
+Many applications need to insert/update hundreds of records efficiently:
+
+```rust
+// Insert 1000 users efficiently
+repo.insert_many(users_vec).await?;
+
+// Update all matching records
+repo.update_many("users", filter, updates).await?;
 ```
