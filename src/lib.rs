@@ -55,6 +55,7 @@ pub mod repository;
 pub mod schema;
 pub mod search;
 pub mod soft_delete;
+pub mod sql;
 pub mod subscription;
 pub mod transaction;
 pub mod utils;
@@ -95,6 +96,11 @@ pub use validators::{
   ValidationError, ValidationResult,
 };
 
+pub use sql::{
+  SqlColumnDef, SqlColumnType, SqlDialect, SqlIndexDef, SqlIndexType, SqlPrimaryKey,
+  SqlQueryBuilder, SqlTableDef,
+};
+
 /// Re-exports everything you need for typical usage.
 pub mod prelude {
   pub use crate::entity::{Entity, EntityMeta};
@@ -118,6 +124,15 @@ pub mod prelude {
   pub use crate::providers::redis::RedisProvider;
 
   pub use crate::nosql_index::{IndexManager, NosqlIndex, NosqlIndexInfo, NosqlIndexType};
+
+  #[cfg(feature = "sql-postgres")]
+  pub use crate::providers::sql::PostgresProvider;
+
+  #[cfg(feature = "sql-sqlite")]
+  pub use crate::providers::sql::SqliteProvider;
+
+  #[cfg(feature = "sql-mysql")]
+  pub use crate::providers::sql::MySqlProvider;
 
   #[cfg(feature = "query_cache")]
   pub use crate::cache::{CacheConfig, CacheStats, CachedResult, QueryCache};

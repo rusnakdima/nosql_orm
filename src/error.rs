@@ -24,6 +24,12 @@ pub enum OrmError {
   #[error("Invalid query: {0}")]
   InvalidQuery(String),
 
+  #[error("Invalid input: {0}")]
+  InvalidInput(String),
+
+  #[error("Query error: {0}")]
+  Query(String),
+
   #[error("Connection error: {0}")]
   Connection(String),
 

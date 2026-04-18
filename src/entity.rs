@@ -1,5 +1,6 @@
 use crate::error::OrmResult;
 use crate::nosql_index::NosqlIndex;
+use crate::sql::{SqlColumnDef, SqlColumnType};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use std::fmt::Debug;
@@ -11,6 +12,8 @@ pub struct EntityMeta {
   pub table_name: String,
   /// The field used as primary key.
   pub id_field: String,
+  /// SQL column definitions (for SQL providers).
+  pub sql_columns: Option<Vec<SqlColumnDef>>,
 }
 
 impl EntityMeta {
@@ -18,12 +21,22 @@ impl EntityMeta {
     Self {
       table_name: table_name.into(),
       id_field: "id".to_string(),
+      sql_columns: None,
     }
   }
 
   pub fn with_id_field(mut self, field: impl Into<String>) -> Self {
     self.id_field = field.into();
     self
+  }
+
+  pub fn with_sql_columns(mut self, columns: Vec<SqlColumnDef>) -> Self {
+    self.sql_columns = Some(columns);
+    self
+  }
+
+  pub fn sql_table_name(&self) -> String {
+    self.table_name.clone()
   }
 }
 
@@ -75,6 +88,25 @@ pub trait Entity: Serialize + DeserializeOwned + Debug + Clone + Send + Sync + '
   /// }
   /// ```
   fn indexes() -> Vec<NosqlIndex> {
+    Vec::new()
+  }
+
+  /// Returns SQL column definitions for this entity (used by SQL providers).
+  ///
+  /// Override this method to define SQL table schema.
+  ///
+  /// # Example
+  ///
+  /// ```rust,ignore
+  /// fn sql_columns() -> Vec<SqlColumnDef> {
+  ///     vec![
+  ///         SqlColumnDef::new("id", SqlColumnType::Serial).primary_key(),
+  ///         SqlColumnDef::new("name", SqlColumnType::VarChar(255)),
+  ///         SqlColumnDef::new("email", SqlColumnType::VarChar(255)).unique(),
+  ///     ]
+  /// }
+  /// ```
+  fn sql_columns() -> Vec<SqlColumnDef> {
     Vec::new()
   }
 }
