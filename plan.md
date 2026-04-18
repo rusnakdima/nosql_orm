@@ -95,9 +95,9 @@ Based on analysis of TypeORM, Django ORM, Prisma, SQLAlchemy, and Entity Framewo
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Chainable Query Methods** | Fluent API: `.where().orderBy().limit()` | 🔲 Planned |
-| **Complex OR/AND Filters** | Nested filter groups with `Filter::Or`, `Filter::And` | 🔲 Planned |
-| **Cursor-based Pagination** | More efficient than offset for large datasets | 🔲 Planned |
+| **Chainable Query Methods** | Fluent API: `.where().orderBy().limit()` | ✅ Implemented |
+| **Complex OR/AND Filters** | Nested filter groups with `Filter::Or`, `Filter::And` | ✅ Implemented |
+| **Cursor-based Pagination** | More efficient than offset for large datasets | ✅ Implemented |
 | **Query Result Streaming** | Stream results instead of loading all into memory | 🔲 Planned |
 | **Raw Query Execution** | `repo.query().raw("SELECT * FROM users WHERE age > ?", &[18])` | 🔲 Planned |
 
@@ -125,10 +125,10 @@ let (users, next_cursor) = repo.query()
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Bulk Insert** | Insert multiple records in single query | 🔲 Planned |
-| **Bulk Update** | Update multiple records matching filter | 🔲 Planned |
-| **Bulk Upsert** | Insert or update based on unique constraint | 🔲 Planned |
-| **Batch Delete** | Delete multiple records efficiently | 🔲 Planned |
+| **Bulk Insert** | Insert multiple records in single query | ✅ Implemented |
+| **Bulk Update** | Update multiple records matching filter | ✅ Implemented |
+| **Bulk Upsert** | Insert or update based on unique constraint | ✅ Implemented |
+| **Batch Delete** | Delete multiple records efficiently | ✅ Implemented |
 
 **Example:**
 ```rust
@@ -148,7 +148,7 @@ repo.update_many("users", filter, updates).await?;
 |---------|-------------|--------|
 | **Entity Change Detection** | Track modified fields before save | 🔲 Planned |
 | **Optimistic Locking** | Version field for concurrent update detection | 🔲 Planned |
-| **Auto-timestamp Updates** | Update `updated_at` automatically on change | 🔲 Planned |
+| **Auto-timestamp Updates** | Update `updated_at` automatically on change | ✅ Implemented |
 
 **Example:**
 ```rust
@@ -171,10 +171,10 @@ pub struct User {
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Like/Contains/StartsWith/EndsWith** | String pattern matching | 🔲 Planned |
-| **Between** | Range queries for numbers/dates | 🔲 Planned |
-| **In/NOT In** | Array membership checks | 🔲 Planned |
-| **IsNull/IsNotNull** | Null checks | 🔲 Planned |
+| **Like/Contains/StartsWith/EndsWith** | String pattern matching | ✅ Implemented |
+| **Between** | Range queries for numbers/dates | ✅ Implemented |
+| **In/NOT In** | Array membership checks | ✅ Implemented |
+| **IsNull/IsNotNull** | Null checks | ✅ Implemented |
 | **Json Path Queries** | Query JSON fields deeply | 🔲 Planned |
 
 **Example:**
@@ -218,7 +218,7 @@ repo.with_isolation(IsolationLevel::Serializable, |tx| async {
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Query Logging** | Log all queries with timing | 🔲 Planned |
+| **Query Logging** | Log all queries with timing | ✅ Implemented |
 | **Slow Query Alerts** | Warn on queries exceeding threshold | 🔲 Planned |
 | **Query Plan Viewer** | EXPLAIN output for SQL providers | 🔲 Planned |
 | **Debug Mode** | Pretty-print queries and parameters | 🔲 Planned |
@@ -296,7 +296,7 @@ repo.find_all().without_global_filters().await?;
 | 0.5.0 | Migration System + CLI | ✅ |
 | 0.6.0 | SQL Providers (PostgreSQL, SQLite, MySQL) | ✅ |
 | 0.7.0 | Batch Relation Loading (RelationLoader) | ✅ |
-| **0.8.0** | **Query Builder Enhancements + Bulk Operations** | 🔲 Planned |
+| 0.8.0 | Query Builder Enhancements + Bulk Operations | ✅ |
 | **0.9.0** | **Transaction Improvements + Global Filters** | 🔲 Planned |
 | 1.0.0 | Stable API + Docs | 🔲 Planned |
 
@@ -325,13 +325,13 @@ repo.find_all().without_global_filters().await?;
 ### High Priority Remaining
 | Task | Priority | Status |
 |------|----------|--------|
-| Chainable query builder methods | High | 🔲 Planned |
-| Bulk insert/update/delete | High | 🔲 Planned |
-| Cursor-based pagination | High | 🔲 Planned |
-| Advanced filter operators (LIKE, BETWEEN, IN) | High | 🔲 Planned |
-| Complex OR/AND filter groups | High | 🔲 Planned |
-| Auto-timestamp updates | Medium | 🔲 Planned |
-| Query logging | Medium | 🔲 Planned |
+| Chainable query builder methods | High | ✅ Implemented |
+| Bulk insert/update/delete | High | ✅ Implemented |
+| Cursor-based pagination | High | ✅ Implemented |
+| Advanced filter operators (LIKE, BETWEEN, IN) | High | ✅ Implemented |
+| Complex OR/AND filter groups | High | ✅ Implemented |
+| Auto-timestamp updates | Medium | ✅ Implemented |
+| Query logging | Medium | ✅ Implemented |
 
 ---
 
