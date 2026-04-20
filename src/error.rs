@@ -36,6 +36,9 @@ pub enum OrmError {
   #[error("Transaction error: {0}")]
   Transaction(String),
 
+  #[error("Cascade delete restricted: cannot delete {entity} because it has related entities in relation '{relation}'")]
+  CascadeRestricted { entity: String, relation: String },
+
   #[cfg(feature = "mongo")]
   #[error("MongoDB error: {0}")]
   Mongo(#[from] mongodb::error::Error),

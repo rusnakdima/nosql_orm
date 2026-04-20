@@ -1,6 +1,7 @@
 use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
+use crate::sql::types::SqlOnDelete;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -34,6 +35,12 @@ pub struct RelationDef {
   /// When set, the loaded relation is transformed by looking up values in this map field
   /// from another collection. E.g., `assigneesProfiles` resolves `assignees` (user IDs) to profiles.
   pub transform_map_via: Option<TransformMapVia>,
+  /// ON DELETE action for SQL foreign keys. Inferred from SqlForeignKey if present.
+  pub on_delete: Option<SqlOnDelete>,
+  /// Whether to cascade soft delete to related entities.
+  pub cascade_soft_delete: bool,
+  /// Whether to cascade hard delete to related entities.
+  pub cascade_hard_delete: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +69,9 @@ impl RelationDef {
       join_field: None,
       local_key_in_array: None,
       transform_map_via: None,
+      on_delete: None,
+      cascade_soft_delete: false,
+      cascade_hard_delete: false,
     }
   }
 
@@ -82,6 +92,9 @@ impl RelationDef {
       join_field: None,
       local_key_in_array: Some(array_str),
       transform_map_via: None,
+      on_delete: None,
+      cascade_soft_delete: false,
+      cascade_hard_delete: false,
     }
   }
 
@@ -100,6 +113,9 @@ impl RelationDef {
       join_field: None,
       local_key_in_array: None,
       transform_map_via: None,
+      on_delete: None,
+      cascade_soft_delete: false,
+      cascade_hard_delete: false,
     }
   }
 
@@ -118,6 +134,9 @@ impl RelationDef {
       join_field: None,
       local_key_in_array: None,
       transform_map_via: None,
+      on_delete: None,
+      cascade_soft_delete: false,
+      cascade_hard_delete: false,
     }
   }
 
@@ -136,6 +155,9 @@ impl RelationDef {
       join_field: Some(join_field.into()),
       local_key_in_array: None,
       transform_map_via: None,
+      on_delete: None,
+      cascade_soft_delete: false,
+      cascade_hard_delete: false,
     }
   }
 
@@ -160,6 +182,44 @@ impl RelationDef {
   pub fn local_key_in_array(mut self, array_field: impl Into<String>) -> Self {
     self.local_key_in_array = Some(array_field.into());
     self
+  }
+
+  /// Set the ON DELETE action for this relation (used for SQL FK constraint generation).
+  pub fn on_delete(mut self, action: SqlOnDelete) -> Self {
+    self.on_delete = Some(action);
+    self.apply_on_delete_action(action);
+    self
+  }
+
+  /// Infer cascade settings from ON DELETE action.
+  fn apply_on_delete_action(&mut self, action: SqlOnDelete) {
+    match action {
+      SqlOnDelete::Cascade => {
+        self.cascade_hard_delete = true;
+        self.cascade_soft_delete = true;
+      }
+      SqlOnDelete::Restrict => {
+        // RESTRICT is checked before cascade, not automatically set
+      }
+      SqlOnDelete::SetNull | SqlOnDelete::SetDefault | SqlOnDelete::NoAction => {
+        // These don't imply cascade
+      }
+    }
+  }
+
+  /// Returns true if soft delete should cascade through this relation.
+  pub fn should_cascade_soft_delete(&self) -> bool {
+    self.cascade_soft_delete
+  }
+
+  /// Returns true if hard delete should cascade through this relation.
+  pub fn should_cascade_hard_delete(&self) -> bool {
+    self.cascade_hard_delete
+  }
+
+  /// Returns true if delete should be restricted if related entities exist.
+  pub fn should_restrict(&self) -> bool {
+    self.on_delete == Some(SqlOnDelete::Restrict)
   }
 }
 

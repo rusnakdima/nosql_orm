@@ -1,11 +1,14 @@
+use crate::cascade::CascadeManager;
 use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
 use crate::query::{Cursor, Filter, OrderBy, PaginatedResult, QueryBuilder, SortDirection};
 use crate::relations::{RelationDef, RelationLoader, WithLoaded, WithRelations};
+use crate::soft_delete::SoftDeletable;
 use crate::timestamps::apply_timestamps;
 use crate::utils::generate_id;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::marker::PhantomData;
 
 /// Generic repository providing full CRUD for any `Entity`.
@@ -167,12 +170,34 @@ where
   // ── Delete ───────────────────────────────────────────────────────────────
 
   /// Delete by id. Returns `true` if the record was found and removed.
-  pub async fn delete(&self, id: impl AsRef<str>) -> OrmResult<bool> {
-    self.provider.delete(&Self::collection(), id.as_ref()).await
+  /// If the entity implements `WithRelations` and has relations with cascade delete
+  /// enabled, related entities will also be deleted.
+  pub async fn delete(&self, id: impl AsRef<str>) -> OrmResult<bool>
+  where
+    E: WithRelations,
+  {
+    let id_str = id.as_ref();
+
+    let relations = E::relations();
+    let has_cascade = relations.iter().any(|r| r.should_cascade_hard_delete());
+    if has_cascade {
+      let cascade = CascadeManager::new(self.provider.clone());
+      let mut deleted = HashSet::new();
+      return cascade
+        .hard_delete_cascade::<E>(id_str, &relations, &mut deleted)
+        .await;
+    }
+
+    self.provider.delete(&Self::collection(), id_str).await
   }
 
   /// Delete an entity instance. Requires `get_id()` to return `Some`.
-  pub async fn remove(&self, entity: &E) -> OrmResult<bool> {
+  /// If the entity has relations with cascade delete enabled, related entities
+  /// will also be deleted.
+  pub async fn remove(&self, entity: &E) -> OrmResult<bool>
+  where
+    E: WithRelations,
+  {
     let id = entity
       .get_id()
       .ok_or_else(|| OrmError::InvalidQuery("Cannot remove entity without an id".to_string()))?;
@@ -218,11 +243,28 @@ where
   }
 
   /// Soft delete an entity by setting deleted_at timestamp.
-  pub async fn soft_delete(&self, id: impl AsRef<str>) -> OrmResult<bool> {
+  /// If the entity implements `WithRelations` and has relations with cascade soft delete
+  /// enabled, related entities will also be soft deleted.
+  pub async fn soft_delete(&self, id: impl AsRef<str>) -> OrmResult<bool>
+  where
+    E: WithRelations + SoftDeletable,
+  {
+    let id_str = id.as_ref();
+
+    let relations = E::relations();
+    let has_cascade = relations.iter().any(|r| r.should_cascade_soft_delete());
+    if has_cascade {
+      let cascade = CascadeManager::new(self.provider.clone());
+      let mut deleted = HashSet::new();
+      return cascade
+        .soft_delete_cascade::<E>(id_str, &relations, &mut deleted)
+        .await;
+    }
+
     let patch = serde_json::json!({ "deleted_at": chrono::Utc::now() });
     self
       .provider
-      .patch(&Self::collection(), id.as_ref(), patch)
+      .patch(&Self::collection(), id_str, patch)
       .await?;
     Ok(true)
   }
@@ -614,8 +656,28 @@ where
   pub async fn save(&self, entity: E) -> OrmResult<E> {
     self.inner.save(entity).await
   }
+
+  /// Delete by id with cascade support.
   pub async fn delete(&self, id: impl AsRef<str>) -> OrmResult<bool> {
     self.inner.delete(id).await
+  }
+
+  /// Soft delete by id with cascade support.
+  pub async fn soft_delete(&self, id: impl AsRef<str>) -> OrmResult<bool>
+  where
+    E: SoftDeletable,
+  {
+    self.inner.soft_delete(id).await
+  }
+}
+
+impl<E, P> RelationRepository<E, P>
+where
+  E: WithRelations + SoftDeletable,
+  P: DatabaseProvider,
+{
+  pub async fn soft_delete_cascade(&self, id: impl AsRef<str>) -> OrmResult<bool> {
+    self.inner.soft_delete(id).await
   }
 
   /// Find by id and eagerly load the specified relations.

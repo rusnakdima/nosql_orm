@@ -34,6 +34,7 @@
 //! ```
 
 pub mod aggregation;
+pub mod cascade;
 pub mod cdc;
 pub mod cli;
 pub mod constraints;
@@ -72,6 +73,7 @@ pub use aggregation::{
   Aggregation, AggregationPipeline, GroupStage, LimitStage, MatchStage, ProjectStage, SkipStage,
   SortStage, Stage,
 };
+pub use cascade::CascadeManager;
 pub use cdc::{AuditAction, AuditLog, Change, ChangeCapture, ChangeStream, ChangeType};
 pub use constraints::{
   CheckConstraintDef, ColumnConstraint, ColumnDef, ColumnType, IndexDef, IndexType,

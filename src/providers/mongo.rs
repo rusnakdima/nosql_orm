@@ -311,6 +311,7 @@ impl DatabaseProvider for MongoProvider {
     let coll = self.db.collection::<Document>(collection);
     let mut bson_doc = Self::json_to_bson(doc.clone())?;
     bson_doc.remove("id");
+    bson_doc.remove("_id");
     coll.replace_one(doc! { "_id": id }, bson_doc, None).await?;
     Ok(doc)
   }
