@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+use super::pipeline::Stage;
+
 pub struct MatchStage {
   pub filter: Value,
 }
@@ -7,6 +9,12 @@ pub struct MatchStage {
 impl MatchStage {
   pub fn new(filter: Value) -> Self {
     Self { filter }
+  }
+}
+
+impl From<MatchStage> for Stage {
+  fn from(stage: MatchStage) -> Self {
+    Stage::Match(stage.filter)
   }
 }
 
@@ -49,6 +57,15 @@ impl GroupStage {
       .accumulators
       .insert(field.to_string(), serde_json::json!({ "$max": expr }));
     self
+  }
+}
+
+impl From<GroupStage> for Stage {
+  fn from(stage: GroupStage) -> Self {
+    Stage::Group {
+      id: stage.id,
+      accumulators: stage.accumulators,
+    }
   }
 }
 
