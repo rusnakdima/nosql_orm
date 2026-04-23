@@ -230,6 +230,44 @@ pub trait WithRelations: Entity {
   }
 }
 
+/// Global registry mapping collection names to their relation definitions.
+/// This allows dynamic relation resolution instead of hardcoded path matching.
+use std::sync::RwLock;
+
+static RELATION_REGISTRY: RwLock<Option<HashMap<String, Vec<RelationDef>>>> = RwLock::new(None);
+
+/// Register relation definitions for a collection.
+pub fn register_collection_relations(collection: &str, relations: Vec<RelationDef>) {
+  let mut guard = RELATION_REGISTRY.write().unwrap();
+  let registry = guard.get_or_insert_with(HashMap::new);
+  registry.insert(collection.to_string(), relations);
+}
+
+/// Get all registered relations for a collection.
+pub fn get_collection_relations(collection: &str) -> Option<Vec<RelationDef>> {
+  let guard = RELATION_REGISTRY.read().unwrap();
+  guard
+    .as_ref()
+    .and_then(|registry| registry.get(collection).cloned())
+}
+
+/// Get a specific relation definition by collection and relation name.
+pub fn get_relation_def(collection: &str, relation_name: &str) -> Option<RelationDef> {
+  let guard = RELATION_REGISTRY.read().unwrap();
+  guard.as_ref().and_then(|registry| {
+    registry
+      .get(collection)
+      .and_then(|relations| relations.iter().find(|r| r.name == relation_name).cloned())
+  })
+}
+
+/// Clear all registered relations (useful for testing).
+#[allow(dead_code)]
+pub fn clear_relation_registry() {
+  let mut guard = RELATION_REGISTRY.write().unwrap();
+  *guard = None;
+}
+
 /// A loaded entity with its relations eagerly populated.
 #[derive(Debug, Clone)]
 pub struct WithLoaded<E: Entity> {
@@ -766,26 +804,11 @@ impl<P: DatabaseProvider> RelationLoader<P> {
       .and_then(|v| v.as_str())
       .unwrap_or("");
 
-    let target = match (collection, segment) {
-      ("todos", "tasks") => RelationDef::one_to_many("tasks", "tasks", "taskId"),
-      ("todos", "user") => RelationDef::many_to_one("user", "users", "userId"),
-      ("todos", "categories") => {
-        RelationDef::many_to_many("categories", "categories", "categories")
-      }
-      ("todos", "assignees") => RelationDef::many_to_many("assignees", "profiles", "assignees"),
-      ("tasks", "subtasks") => RelationDef::one_to_many("subtasks", "subtasks", "taskId"),
-      ("tasks", "comments") => RelationDef::one_to_many("comments", "comments", "taskId"),
-      ("tasks", "todo") => RelationDef::many_to_one("todo", "todos", "taskId"),
-      ("subtasks", "task") => RelationDef::many_to_one("task", "tasks", "taskId"),
-      ("subtasks", "comments") => RelationDef::one_to_many("comments", "comments", "subtaskId"),
-      ("comments", "task") => RelationDef::many_to_one("task", "tasks", "taskId"),
-      ("comments", "subtask") => RelationDef::many_to_one("subtask", "subtasks", "subtaskId"),
-      ("profiles", "user") => RelationDef::many_to_one("user", "users", "userId"),
-      ("users", "profile") => RelationDef::many_to_one("profile", "profiles", "profileId"),
-      ("categories", "user") => RelationDef::many_to_one("user", "users", "userId"),
-      _ => {
+    let target = match get_relation_def(collection, segment) {
+      Some(def) => def,
+      None => {
         return Err(OrmError::InvalidQuery(format!(
-          "Unknown relation path: collection='{}', segment='{}'",
+          "Unknown relation path: collection='{}', segment='{}'. Register relations using register_collection_relations().",
           collection, segment
         )));
       }

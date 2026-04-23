@@ -2,9 +2,9 @@
 //!
 //! Run: `cargo run --example json_example`
 
+use chrono::{DateTime, Utc};
 use nosql_orm::prelude::*;
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 
 // ── Entities ─────────────────────────────────────────────────────────────────
 
