@@ -4,6 +4,7 @@
 
 use nosql_orm::prelude::*;
 use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Utc};
 
 // ── Entities ─────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,12 @@ impl Entity for User {
   }
 }
 
+impl WithRelations for User {
+  fn relations() -> Vec<RelationDef> {
+    vec![]
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Post {
   pub id: Option<String>,
@@ -34,6 +41,7 @@ pub struct Post {
   pub body: String,
   pub author_id: String,    // FK → User.id
   pub tag_ids: Vec<String>, // FK[] → Tag.id  (many-to-many)
+  pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl Entity for Post {
@@ -57,10 +65,25 @@ impl WithRelations for Post {
   }
 }
 
+impl SoftDeletable for Post {
+  fn deleted_at(&self) -> Option<DateTime<Utc>> {
+    self.deleted_at
+  }
+  fn set_deleted_at(&mut self, deleted_at: Option<DateTime<Utc>>) {
+    self.deleted_at = deleted_at;
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
   pub id: Option<String>,
   pub name: String,
+}
+
+impl WithRelations for Tag {
+  fn relations() -> Vec<RelationDef> {
+    vec![]
+  }
 }
 
 impl Entity for Tag {
@@ -125,6 +148,7 @@ async fn main() -> OrmResult<()> {
       body: "Rust is amazing!".into(),
       author_id: alice.id.clone().unwrap(),
       tag_ids: vec![rust_tag.id.clone().unwrap()],
+      deleted_at: None,
     })
     .await?;
 
@@ -135,6 +159,7 @@ async fn main() -> OrmResult<()> {
       body: "Let's build a TypeORM clone in Rust.".into(),
       author_id: bob.id.clone().unwrap(),
       tag_ids: vec![rust_tag.id.clone().unwrap(), orm_tag.id.clone().unwrap()],
+      deleted_at: None,
     })
     .await?;
 
