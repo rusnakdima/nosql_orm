@@ -315,6 +315,27 @@ impl<E: Entity> WithLoaded<E> {
     self.loaded.get(path)
   }
 
+  /// Get all loaded relation keys for this entity.
+  pub fn keys(&self) -> Vec<&String> {
+    self.loaded.keys().collect()
+  }
+
+  /// Check if a relation was loaded.
+  pub fn has(&self, name: &str) -> bool {
+    self.loaded.contains_key(name)
+  }
+
+  /// Get nested data at path like "tasks.subtasks" and return as Vec.
+  /// This is a convenience method for deep loading results.
+  pub fn nested_many(&self, path: &str) -> OrmResult<Vec<Value>> {
+    self.many_at(path)
+  }
+
+  /// Get nested data at path like "tasks.subtasks" and return as Option.
+  pub fn nested_one(&self, path: &str) -> OrmResult<Option<Value>> {
+    self.one_at(path)
+  }
+
   fn value_to_entity<T: Entity>(&self, value: &Value) -> OrmResult<T> {
     T::from_value(value.clone())
   }
@@ -1009,9 +1030,16 @@ impl<P: DatabaseProvider> RelationLoader<P> {
 
   fn flatten_and_get_children(&self, docs: Vec<Value>, segment: &str) -> OrmResult<Vec<Value>> {
     let children: Vec<Value> = docs
-      .iter()
-      .filter_map(|d| d.get(segment).and_then(|v| v.as_array()).cloned())
-      .flatten()
+      .into_iter()
+      .filter_map(|mut d| {
+        if let Some(obj) = d.as_object_mut() {
+          if obj.get(segment).and_then(|v| v.as_array()).is_some() {
+            obj.insert("_collection".to_string(), Value::String(segment.to_string()));
+            return Some(d);
+          }
+        }
+        None
+      })
       .collect();
     Ok(children)
   }

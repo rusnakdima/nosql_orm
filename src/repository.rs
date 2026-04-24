@@ -3,7 +3,7 @@ use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
 use crate::query::{Cursor, Filter, OrderBy, PaginatedResult, QueryBuilder, SortDirection};
-use crate::relations::{RelationDef, RelationLoader, WithLoaded, WithRelations};
+use crate::relations::{RelationDef, RelationLoader, RelationValue, WithLoaded, WithRelations};
 use crate::soft_delete::SoftDeletable;
 use crate::timestamps::apply_timestamps;
 use crate::utils::generate_id;
@@ -697,7 +697,7 @@ where
       .filter(|r| relation_names.contains(&r.name.as_str()))
       .collect();
 
-    let doc = entity.to_value()?;
+    let mut doc = entity.to_value()?;
     let loaded_map = self.loader.load(&doc, &rels, true).await?;
 
     let mut result = WithLoaded::new(entity);
@@ -759,7 +759,7 @@ where
       None => return Ok(None),
     };
 
-    let doc = entity.to_value()?;
+    let mut doc = entity.to_value()?;
     let table = E::table_name();
     let results = self
       .loader
@@ -847,12 +847,168 @@ where
 
     let mut result = Vec::with_capacity(entities.len());
     for entity in entities {
-      let doc = entity.to_value()?;
+      let mut doc = entity.to_value()?;
       let loaded_map = self.loader.load(&doc, &rels, true).await?;
       let mut wl = WithLoaded::new(entity);
       wl.loaded = loaded_map;
       result.push(wl);
     }
     Ok(result)
+  }
+
+/// Find by id and load nested relations through N levels using dot-notation path.
+  ///
+  /// Path format: "tasks.subtasks" - loads tasks, then each task's subtasks
+  ///
+  /// # Example
+  /// ```rust,ignore
+  /// // Load Todo -> Tasks -> Subtasks
+  /// let result = todos_repo.find_with_nested(todo_id, "tasks.subtasks").await?;
+  /// let tasks = result.many("tasks")?;
+  /// let subtasks = result.many("subtasks")?;
+  /// ```
+  pub async fn find_with_nested(
+    &self,
+    id: impl AsRef<str>,
+    path: &str,
+  ) -> OrmResult<Option<WithLoaded<E>>> {
+    let entity = match self.inner.find_by_id(id).await? {
+      Some(e) => e,
+      None => return Ok(None),
+    };
+
+    let segments: Vec<&str> = path.split('.').filter(|s| !s.is_empty()).collect();
+    if segments.is_empty() {
+      return Ok(Some(WithLoaded::new(entity)));
+    }
+
+    let mut doc = entity.to_value()?;
+    let table = E::table_name();
+
+    if let Some(obj) = doc.as_object_mut() {
+      obj.insert("_collection".to_string(), Value::String(table.to_string()));
+    }
+
+    let mut docs = vec![doc];
+    let mut result = WithLoaded::new(entity);
+
+    for (i, level) in segments.iter().enumerate() {
+      let rel = E::relations()
+        .iter()
+        .find(|r| r.name.as_str() == *level)
+        .cloned();
+
+      if let Some(rel_def) = rel {
+        let rel_name = rel_def.name.clone();
+        docs = self.loader.load_many(docs, &rel_def, true).await?;
+
+        if let Some(updated) = docs.first().cloned() {
+          if let Some(val) = updated.get(&rel_name) {
+            match val {
+              Value::Array(arr) => {
+                result.loaded.insert(rel_name.clone(), RelationValue::Many(arr.clone()));
+
+                if i + 1 < segments.len() && !arr.is_empty() {
+                  let next_collection = &rel_def.target_collection;
+                  let child_rels = get_collection_relations(next_collection);
+                  if let Some(child_rels) = child_rels {
+                    let mut all_children = Vec::new();
+                    for child_doc in arr {
+                      if let Some(obj) = child_doc.as_object() {
+                        if let Some(child_id) = obj.get("id").and_then(|v| v.as_str()) {
+                          if let Ok(Some(child)) = self.inner.provider.find_by_id(next_collection, child_id).await {
+                            all_children.push(child);
+                          }
+                        }
+                      }
+                    }
+
+                    for child_rel in &child_rels {
+                      let child_rel_name = child_rel.name.clone();
+                      let mut loaded_children = Vec::new();
+                      for mut child_doc in all_children.clone() {
+                        if let Some(obj) = child_doc.as_object_mut() {
+                          obj.insert("_collection".to_string(), Value::String(next_collection.to_string()));
+                        }
+                        loaded_children.push(child_doc);
+                      }
+                      loaded_children = self.loader.load_many(loaded_children, child_rel, true).await?;
+
+                      for loaded_doc in &loaded_children {
+                        if let Some(child_val) = loaded_doc.get(&child_rel_name) {
+                          result.loaded.insert(
+                            child_rel_name.clone(),
+                            match child_val {
+                              Value::Array(ar) => RelationValue::Many(ar.clone()),
+                              other => RelationValue::Single(Some(other.clone())),
+                            },
+                          );
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              other => {
+                result.loaded.insert(rel_name.clone(), RelationValue::Single(Some(other.clone())));
+              }
+            }
+          }
+          docs = vec![updated];
+        }
+      }
+    }
+
+    Ok(Some(result))
+  }
+
+  /// Find all with nested relations using dot-notation path.
+  pub async fn find_all_with_nested(&self, path: &str) -> OrmResult<Vec<WithLoaded<E>>> {
+    let segments: Vec<&str> = path.split('.').filter(|s| !s.is_empty()).collect();
+    
+    let entities = self.inner.find_all().await?;
+    let table = E::table_name();
+    let mut results = Vec::with_capacity(entities.len());
+
+    for entity in entities {
+      let mut doc = entity.to_value()?;
+
+      if let Some(obj) = doc.as_object_mut() {
+        obj.insert("_collection".to_string(), Value::String(table.to_string()));
+      }
+
+      let mut docs = vec![doc];
+      let mut result = WithLoaded::new(entity);
+
+      for level in &segments {
+        let rel = E::relations()
+          .iter()
+          .find(|r| r.name.as_str() == *level)
+          .cloned();
+
+        if let Some(rel_def) = rel {
+          let rel_name = rel_def.name.clone();
+          docs = self.loader.load_many(docs, &rel_def, true).await?;
+
+          if let Some(updated) = docs.first().cloned() {
+            if let Some(val) = updated.get(&rel_name) {
+              match val {
+                Value::Array(arr) => {
+                  result.loaded.insert(rel_name.clone(), RelationValue::Many(arr.clone()));
+                }
+                other => {
+                  result.loaded.insert(rel_name.clone(), RelationValue::Single(Some(other.clone())));
+                }
+              }
+            }
+            docs = vec![updated];
+          }
+        }
+      }
+
+      results.push(result);
+    }
+
+    Ok(results)
   }
 }
