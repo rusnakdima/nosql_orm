@@ -2,10 +2,10 @@
 name = "nosql_orm"
 version = "0.5.2"
 edition = "2021"
-authors = ["nosql_orm contributors"]
+authors = ["Dmitriy303"]
 description = "A TypeORM-inspired ORM for NoSQL databases (JSON files, MongoDB, Redis)"
 license = "MIT"
-repository = "https://github.com/yourname/nosql_orm"
+repository = "https://github.com/rusnakdima/nosql_orm"
 keywords = ["orm", "mongodb", "json", "nosql", "database", "redis"]
 categories = ["database", "data-structures"]
 
@@ -48,6 +48,7 @@ mysql_async = { version = "0.33", optional = true }
 tokio-postgres = { version = "0.7", optional = true }
 rusqlite = { version = "0.33", optional = true, features = ["bundled"] }
 base64 = { version = "0.22", optional = true }
+nosql_orm_derive = { path = "nosql_orm_derive" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

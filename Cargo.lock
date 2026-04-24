@@ -1686,6 +1686,7 @@ dependencies = [
  "log",
  "mongodb",
  "mysql_async",
+ "nosql_orm_derive",
  "rand 0.8.5",
  "redis",
  "regex",
@@ -1697,6 +1698,15 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "uuid",
+]
+
+[[package]]
+name = "nosql_orm_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

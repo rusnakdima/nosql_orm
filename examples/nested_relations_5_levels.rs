@@ -399,60 +399,11 @@ async fn main() -> OrmResult<()> {
 
   let all_posts = posts.find_all_with_relations(&["author"]).await?;
 
+  println!("=== RAW JSON DATA ===\n");
+
   for post_item in &all_posts {
-    println!("Post: '{}'", post_item.entity.title);
-
-    if let Some(author_val) = post_item.one("author")? {
-      let author_id = author_val
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
-      println!("  Level 1 - Author: id={}", author_id);
-
-      if let Ok(Some(author_entity)) = users.repo().find_by_id(author_id).await {
-        println!(
-          "    Level 1 Data: user_name={}, email={}",
-          author_entity.user_name, author_entity.email
-        );
-
-        let profile_id = &author_entity.profile_id;
-        println!("    Level 2 - Profile ID: {}", profile_id);
-
-        if let Ok(Some(profile_entity)) = profiles.repo().find_by_id(profile_id).await {
-          println!("      Level 2 Data: bio={}", profile_entity.bio);
-
-          let company_id = &profile_entity.company_id;
-          println!("      Level 3 - Company ID: {}", company_id);
-
-          if let Ok(Some(company_entity)) = companies.repo().find_by_id(company_id).await {
-            println!(
-              "        Level 3 Data: company_name={}",
-              company_entity.company_name
-            );
-
-            let department_id = &company_entity.department_id;
-            println!("        Level 4 - Department ID: {}", department_id);
-
-            if let Ok(Some(dept_entity)) = departments.repo().find_by_id(department_id).await {
-              println!(
-                "          Level 4 Data: department_name={}",
-                dept_entity.department_name
-              );
-
-              let manager_id = &dept_entity.manager_id;
-              println!("          Level 5 - Manager ID: {}", manager_id);
-
-              if let Some(manager_entity) = managers.find_by_id(manager_id).await? {
-                println!(
-                  "            Level 5 Data: manager_name={}, email={}",
-                  manager_entity.manager_name, manager_entity.email
-                );
-              }
-            }
-          }
-        }
-      }
-    }
+    let data = serde_json::to_value(post_item).unwrap();
+    println!("{}", serde_json::to_string_pretty(&data).unwrap());
     println!();
   }
 

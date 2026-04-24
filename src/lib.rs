@@ -69,6 +69,8 @@ pub mod providers;
 #[cfg(feature = "query_cache")]
 pub mod cache;
 
+pub use nosql_orm_derive::Entity;
+
 pub use aggregation::{
   Aggregation, AggregationPipeline, GroupStage, LimitStage, MatchStage, ProjectStage, SkipStage,
   SortStage, Stage,
