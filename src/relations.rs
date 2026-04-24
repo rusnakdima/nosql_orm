@@ -290,7 +290,6 @@ impl<E: Entity> WithLoaded<E> {
     }
   }
 
-  /// Get a single-record relation (OneToOne, ManyToOne).
   pub fn one(&self, name: &str) -> OrmResult<Option<&Value>> {
     match self.loaded.get(name) {
       Some(RelationValue::Single(v)) => Ok(v.as_ref()),
@@ -302,7 +301,6 @@ impl<E: Entity> WithLoaded<E> {
     }
   }
 
-  /// Get a multi-record relation (OneToMany, ManyToMany).
   pub fn many(&self, name: &str) -> OrmResult<&[Value]> {
     match self.loaded.get(name) {
       Some(RelationValue::Many(v)) => Ok(v.as_slice()),
@@ -312,6 +310,118 @@ impl<E: Entity> WithLoaded<E> {
       ))),
       None => Ok(&[]),
     }
+  }
+
+  pub fn get(&self, path: &str) -> Option<&RelationValue> {
+    self.loaded.get(path)
+  }
+
+  fn value_to_entity<T: Entity>(&self, value: &Value) -> OrmResult<T> {
+    T::from_value(value.clone())
+  }
+
+  pub fn one_at(&self, path: &str) -> OrmResult<Option<Value>> {
+    let segments: Vec<&str> = path.split('.').collect();
+
+    if segments.len() == 1 {
+      return self.one(segments[0]).map(|opt| opt.cloned());
+    }
+
+    let mut current = match self.loaded.get(segments[0]) {
+      Some(RelationValue::Single(v)) => match v {
+        Some(val) => val.clone(),
+        None => return Ok(None),
+      },
+      Some(RelationValue::Many(arr)) => {
+        if arr.is_empty() {
+          return Ok(None);
+        }
+        Value::Array(arr.clone())
+      }
+      None => return Ok(None),
+    };
+
+    for seg in &segments[1..] {
+      match current {
+        Value::Object(ref obj) => {
+          current = match obj.get(*seg) {
+            Some(v) => v.clone(),
+            None => return Ok(None),
+          };
+        }
+        Value::Array(ref arr) => {
+          let mut results = Vec::new();
+          for item in arr {
+            if let Value::Object(ref obj) = item {
+              if let Some(v) = obj.get(*seg) {
+                results.push(v.clone());
+              }
+            }
+          }
+          current = Value::Array(results);
+        }
+        _ => return Ok(None),
+      }
+    }
+
+    Ok(Some(current))
+  }
+
+  pub fn many_at(&self, path: &str) -> OrmResult<Vec<Value>> {
+    let segments: Vec<&str> = path.split('.').collect();
+
+    if segments.len() == 1 {
+      return Ok(self.many(segments[0])?.to_vec());
+    }
+
+    let mut current = match self.loaded.get(segments[0]) {
+      Some(RelationValue::Single(v)) => match v {
+        Some(val) => Value::Array(vec![val.clone()]),
+        None => Value::Array(vec![]),
+      },
+      Some(RelationValue::Many(arr)) => Value::Array(arr.clone()),
+      None => Value::Array(vec![]),
+    };
+
+    for seg in &segments[1..] {
+      match current {
+        Value::Object(ref obj) => {
+          current = match obj.get(*seg) {
+            Some(v) => v.clone(),
+            None => Value::Array(vec![]),
+          };
+        }
+        Value::Array(ref arr) => {
+          let mut results = Vec::new();
+          for item in arr {
+            if let Value::Object(ref obj) = item {
+              if let Some(v) = obj.get(*seg) {
+                match v {
+                  Value::Array(nested) => results.extend(nested.clone()),
+                  other => results.push(other.clone()),
+                }
+              }
+            }
+          }
+          current = Value::Array(results);
+        }
+        _ => current = Value::Array(vec![]),
+      }
+    }
+
+    match current {
+      Value::Array(arr) => Ok(arr),
+      other => Ok(vec![other]),
+    }
+  }
+
+  pub fn relation_at<T: Entity>(&self, path: &str) -> OrmResult<Vec<T>> {
+    let values = self.many_at(path)?;
+    let mut results = Vec::with_capacity(values.len());
+    for v in values {
+      results.push(self.value_to_entity(&v)?);
+    }
+    Ok(results)
   }
 }
 
@@ -948,6 +1058,98 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     }
 
     Ok(docs)
+  }
+
+  /// Load cascade nested relations for a single entity (as Value).
+  ///
+  /// Returns a HashMap with compound keys like "tasks", "tasks.subtasks", etc.
+  pub async fn load_cascade_for_entity(
+    &self,
+    entity_doc: &Value,
+    table: &str,
+    path: &str,
+    filter_deleted: bool,
+  ) -> OrmResult<HashMap<String, RelationValue>> {
+    let mut results = HashMap::new();
+    let segments: Vec<&str> = path.split('.').collect();
+
+    if segments.is_empty() {
+      return Ok(results);
+    }
+
+    let first = segments[0];
+    let rel_def = get_relation_def(table, first).ok_or_else(|| {
+      OrmError::InvalidQuery(format!("Unknown relation '{}' on '{}'", first, table))
+    })?;
+
+    let mut doc_with_collection = entity_doc.clone();
+    if let Some(obj) = doc_with_collection.as_object_mut() {
+      obj.insert("_collection".to_string(), Value::String(table.to_string()));
+    }
+
+    let loaded = self
+      .load(
+        &doc_with_collection,
+        std::slice::from_ref(&rel_def),
+        filter_deleted,
+      )
+      .await?;
+
+    if let Some(value) = loaded.get(first) {
+      results.insert(first.to_string(), value.clone());
+
+      if segments.len() > 1 {
+        let related_docs: Vec<Value> = match value {
+          RelationValue::Single(v) => v.as_ref().map(|v| vec![v.clone()]).unwrap_or_default(),
+          RelationValue::Many(arr) => arr.clone(),
+        };
+
+        if !related_docs.is_empty() {
+          let mut docs_with_meta = related_docs;
+          for d in &mut docs_with_meta {
+            if let Some(obj) = d.as_object_mut() {
+              obj.insert(
+                "_collection".to_string(),
+                Value::String(rel_def.target_collection.clone()),
+              );
+            }
+          }
+
+          let nested_docs = self
+            .load_nested(docs_with_meta, &segments[1..], filter_deleted)
+            .await?;
+
+          let mut level_docs: Vec<Vec<Value>> = vec![];
+
+          for seg in &segments {
+            let seg_docs: Vec<Value> = nested_docs
+              .iter()
+              .filter_map(|d| d.get(*seg as &str).and_then(|v| v.as_array()))
+              .flatten()
+              .cloned()
+              .collect();
+
+            level_docs.push(seg_docs.clone());
+          }
+
+          for (i, _) in segments.iter().enumerate().skip(1) {
+            let mut prefix = String::new();
+            for j in 0..=i {
+              if j > 0 {
+                prefix.push('.');
+              }
+              prefix.push_str(segments[j]);
+            }
+
+            if i < level_docs.len() && !level_docs[i].is_empty() {
+              results.insert(prefix, RelationValue::Many(level_docs[i].clone()));
+            }
+          }
+        }
+      }
+    }
+
+    Ok(results)
   }
 }
 

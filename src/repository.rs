@@ -741,6 +741,99 @@ where
     self.hydrate(entities?, relation_names).await
   }
 
+  /// Find entity by ID and load nested relations (TypeORM-style cascade).
+  ///
+  /// # Example
+  /// ```
+  /// let todo = repo.find_with_cascade("123", "tasks.subtasks").await?;
+  /// // Access nested via key "tasks.subtasks"
+  /// let subtasks = todo.loaded.get("tasks.subtasks");
+  /// ```
+  pub async fn find_with_cascade(
+    &self,
+    id: impl AsRef<str>,
+    path: &str,
+  ) -> OrmResult<Option<WithLoaded<E>>> {
+    let entity = match self.inner.find_by_id(id).await? {
+      Some(e) => e,
+      None => return Ok(None),
+    };
+
+    let doc = entity.to_value()?;
+    let table = E::table_name();
+    let results = self
+      .loader
+      .load_cascade_for_entity(&doc, &table, path, true)
+      .await?;
+
+    let mut result = WithLoaded::new(entity);
+    result.loaded = results;
+    Ok(Some(result))
+  }
+
+  /// Find all entities with nested relations.
+  pub async fn find_all_with_cascade(&self, path: &str) -> OrmResult<Vec<WithLoaded<E>>> {
+    let docs = self.inner.find_all().await?;
+    let table = E::table_name();
+    let mut results = Vec::with_capacity(docs.len());
+
+    for doc in docs {
+      let doc_value = doc.to_value()?;
+      let result_map = self
+        .loader
+        .load_cascade_for_entity(&doc_value, &table, path, true)
+        .await?;
+      let entity = E::from_value(doc_value)?;
+      let mut wl = WithLoaded::new(entity);
+      wl.loaded = result_map;
+      results.push(wl);
+    }
+
+    Ok(results)
+  }
+
+  /// Query with nested relations.
+  pub async fn query_with_cascade(
+    &self,
+    builder: QueryBuilder,
+    path: &str,
+  ) -> OrmResult<Vec<WithLoaded<E>>> {
+    let filter = builder.build_filter();
+    let (sort_field, sort_asc) = match &builder.order {
+      Some(o) => (Some(o.field.clone()), o.direction == SortDirection::Asc),
+      None => (None, true),
+    };
+    let docs = self
+      .inner
+      .provider
+      .find_many(
+        &E::table_name(),
+        filter.as_ref(),
+        builder.skip,
+        builder.limit,
+        sort_field.as_deref(),
+        sort_asc,
+      )
+      .await?;
+
+    let table = E::table_name();
+    let mut results = Vec::with_capacity(docs.len());
+
+    for doc in docs {
+      let doc_value = doc.clone();
+      let result_map = self
+        .loader
+        .load_cascade_for_entity(&doc_value, &table, path, true)
+        .await?;
+      let entity = E::from_value(doc_value)?;
+      let mut wl = WithLoaded::new(entity);
+      wl.loaded = result_map;
+      results.push(wl);
+    }
+
+    Ok(results)
+  }
+
   async fn hydrate(
     &self,
     entities: Vec<E>,
