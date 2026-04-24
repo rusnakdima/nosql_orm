@@ -2,6 +2,7 @@ use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
 use crate::sql::types::SqlOnDelete;
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -274,11 +275,58 @@ pub struct WithLoaded<E: Entity> {
   pub loaded: HashMap<String, RelationValue>,
 }
 
+impl<E: Entity> Serialize for WithLoaded<E> {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    use serde::ser::SerializeMap;
+    let mut map = serializer.serialize_map(None)?;
+
+    if let Ok(value) = self.entity.to_value() {
+      if let Some(obj) = value.as_object() {
+        for (k, v) in obj {
+          map.serialize_entry(k, v)?;
+        }
+      }
+    }
+
+    for (key, rel_val) in &self.loaded {
+      match rel_val {
+        RelationValue::Single(Some(v)) => {
+          map.serialize_entry(key, v)?;
+        }
+        RelationValue::Single(None) => {
+          map.serialize_entry(key, &serde_json::Value::Null)?;
+        }
+        RelationValue::Many(arr) => {
+          map.serialize_entry(key, arr)?;
+        }
+      }
+    }
+
+    map.end()
+  }
+}
+
 /// The value attached to a loaded relation.
 #[derive(Debug, Clone)]
 pub enum RelationValue {
   Single(Option<Value>),
   Many(Vec<Value>),
+}
+
+impl Serialize for RelationValue {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    match self {
+      RelationValue::Single(Some(v)) => v.serialize(serializer),
+      RelationValue::Single(None) => serializer.serialize_none(),
+      RelationValue::Many(arr) => arr.serialize(serializer),
+    }
+  }
 }
 
 impl<E: Entity> WithLoaded<E> {
@@ -323,125 +371,6 @@ impl<E: Entity> WithLoaded<E> {
   /// Check if a relation was loaded.
   pub fn has(&self, name: &str) -> bool {
     self.loaded.contains_key(name)
-  }
-
-  /// Get nested data at path like "tasks.subtasks" and return as Vec.
-  /// This is a convenience method for deep loading results.
-  pub fn nested_many(&self, path: &str) -> OrmResult<Vec<Value>> {
-    self.many_at(path)
-  }
-
-  /// Get nested data at path like "tasks.subtasks" and return as Option.
-  pub fn nested_one(&self, path: &str) -> OrmResult<Option<Value>> {
-    self.one_at(path)
-  }
-
-  fn value_to_entity<T: Entity>(&self, value: &Value) -> OrmResult<T> {
-    T::from_value(value.clone())
-  }
-
-  pub fn one_at(&self, path: &str) -> OrmResult<Option<Value>> {
-    let segments: Vec<&str> = path.split('.').collect();
-
-    if segments.len() == 1 {
-      return self.one(segments[0]).map(|opt| opt.cloned());
-    }
-
-    let mut current = match self.loaded.get(segments[0]) {
-      Some(RelationValue::Single(v)) => match v {
-        Some(val) => val.clone(),
-        None => return Ok(None),
-      },
-      Some(RelationValue::Many(arr)) => {
-        if arr.is_empty() {
-          return Ok(None);
-        }
-        Value::Array(arr.clone())
-      }
-      None => return Ok(None),
-    };
-
-    for seg in &segments[1..] {
-      match current {
-        Value::Object(ref obj) => {
-          current = match obj.get(*seg) {
-            Some(v) => v.clone(),
-            None => return Ok(None),
-          };
-        }
-        Value::Array(ref arr) => {
-          let mut results = Vec::new();
-          for item in arr {
-            if let Value::Object(ref obj) = item {
-              if let Some(v) = obj.get(*seg) {
-                results.push(v.clone());
-              }
-            }
-          }
-          current = Value::Array(results);
-        }
-        _ => return Ok(None),
-      }
-    }
-
-    Ok(Some(current))
-  }
-
-  pub fn many_at(&self, path: &str) -> OrmResult<Vec<Value>> {
-    let segments: Vec<&str> = path.split('.').collect();
-
-    if segments.len() == 1 {
-      return Ok(self.many(segments[0])?.to_vec());
-    }
-
-    let mut current = match self.loaded.get(segments[0]) {
-      Some(RelationValue::Single(v)) => match v {
-        Some(val) => Value::Array(vec![val.clone()]),
-        None => Value::Array(vec![]),
-      },
-      Some(RelationValue::Many(arr)) => Value::Array(arr.clone()),
-      None => Value::Array(vec![]),
-    };
-
-    for seg in &segments[1..] {
-      match current {
-        Value::Object(ref obj) => {
-          current = match obj.get(*seg) {
-            Some(v) => v.clone(),
-            None => Value::Array(vec![]),
-          };
-        }
-        Value::Array(ref arr) => {
-          let mut results = Vec::new();
-          for item in arr {
-            if let Value::Object(ref obj) = item {
-              if let Some(v) = obj.get(*seg) {
-                match v {
-                  Value::Array(nested) => results.extend(nested.clone()),
-                  other => results.push(other.clone()),
-                }
-              }
-            }
-          }
-          current = Value::Array(results);
-        }
-        _ => current = Value::Array(vec![]),
-      }
-    }
-
-    match current {
-      Value::Array(arr) => Ok(arr),
-      other => Ok(vec![other]),
-    }
-  }
-
-  pub fn relation_at<T: Entity>(&self, path: &str) -> OrmResult<Vec<T>> {
-    let values = self.many_at(path)?;
-    let mut results = Vec::with_capacity(values.len());
-    for v in values {
-      results.push(self.value_to_entity(&v)?);
-    }
-    Ok(results)
   }
 }
 
@@ -1034,7 +963,10 @@ impl<P: DatabaseProvider> RelationLoader<P> {
       .filter_map(|mut d| {
         if let Some(obj) = d.as_object_mut() {
           if obj.get(segment).and_then(|v| v.as_array()).is_some() {
-            obj.insert("_collection".to_string(), Value::String(segment.to_string()));
+            obj.insert(
+              "_collection".to_string(),
+              Value::String(segment.to_string()),
+            );
             return Some(d);
           }
         }

@@ -3,7 +3,9 @@ use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
 use crate::query::{Cursor, Filter, OrderBy, PaginatedResult, QueryBuilder, SortDirection};
-use crate::relations::{RelationDef, RelationLoader, RelationValue, WithLoaded, WithRelations};
+use crate::relations::{
+  RelationDef, RelationLoader, RelationType, RelationValue, WithLoaded, WithRelations,
+};
 use crate::soft_delete::SoftDeletable;
 use crate::timestamps::apply_timestamps;
 use crate::utils::generate_id;
@@ -646,29 +648,6 @@ where
   pub fn repo(&self) -> &Repository<E, P> {
     &self.inner
   }
-
-  pub async fn insert(&self, entity: E) -> OrmResult<E> {
-    self.inner.insert(entity).await
-  }
-  pub async fn update(&self, entity: E) -> OrmResult<E> {
-    self.inner.update(entity).await
-  }
-  pub async fn save(&self, entity: E) -> OrmResult<E> {
-    self.inner.save(entity).await
-  }
-
-  /// Delete by id with cascade support.
-  pub async fn delete(&self, id: impl AsRef<str>) -> OrmResult<bool> {
-    self.inner.delete(id).await
-  }
-
-  /// Soft delete by id with cascade support.
-  pub async fn soft_delete(&self, id: impl AsRef<str>) -> OrmResult<bool>
-  where
-    E: SoftDeletable,
-  {
-    self.inner.soft_delete(id).await
-  }
 }
 
 impl<E, P> RelationRepository<E, P>
@@ -680,335 +659,263 @@ where
     self.inner.soft_delete(id).await
   }
 
-  /// Find by id and eagerly load the specified relations.
+  /// Find by id and eagerly load relations (supports nested paths like "tasks.subtasks").
+  ///
+  /// # Example
+  /// ```
+  /// let todo = repo.find_with_relations("123", &["tasks.subtasks"]).await?;
+  /// ```
   pub async fn find_with_relations(
     &self,
     id: impl AsRef<str>,
-    relation_names: &[&str],
+    relation_paths: &[&str],
   ) -> OrmResult<Option<WithLoaded<E>>> {
     let entity = match self.inner.find_by_id(id).await? {
       Some(e) => e,
       None => return Ok(None),
     };
 
-    let all_rels = E::relations();
-    let rels: Vec<RelationDef> = all_rels
-      .into_iter()
-      .filter(|r| relation_names.contains(&r.name.as_str()))
-      .collect();
-
-    let mut doc = entity.to_value()?;
-    let loaded_map = self.loader.load(&doc, &rels, true).await?;
-
     let mut result = WithLoaded::new(entity);
-    result.loaded = loaded_map;
+    let doc = result.entity.to_value()?;
+
+    for path in relation_paths {
+      let segments: Vec<&str> = path.split('.').filter(|s| !s.is_empty()).collect();
+      self
+        .load_nested_path(&doc, &segments, &mut result.loaded)
+        .await?;
+    }
+
     Ok(Some(result))
   }
 
-  /// Find all entities and eagerly load specified relations for each.
+  /// Find all entities and eagerly load relations for each (supports nested paths).
+  ///
+  /// # Example
+  /// ```
+  /// let todos = repo.find_all_with_relations(&["tasks.subtasks"]).await?;
+  /// ```
   pub async fn find_all_with_relations(
     &self,
-    relation_names: &[&str],
+    relation_paths: &[&str],
   ) -> OrmResult<Vec<WithLoaded<E>>> {
     let entities = self.inner.find_all().await?;
-    self.hydrate(entities, relation_names).await
-  }
-
-  /// Run a query and eagerly load relations for the results.
-  pub async fn query_with_relations(
-    &self,
-    builder: QueryBuilder,
-    relation_names: &[&str],
-  ) -> OrmResult<Vec<WithLoaded<E>>> {
-    let filter = builder.build_filter();
-    let (sort_field, sort_asc) = match &builder.order {
-      Some(o) => (Some(o.field.clone()), o.direction == SortDirection::Asc),
-      None => (None, true),
-    };
-    let docs = self
-      .inner
-      .provider
-      .find_many(
-        &E::table_name(),
-        filter.as_ref(),
-        builder.skip,
-        builder.limit,
-        sort_field.as_deref(),
-        sort_asc,
-      )
-      .await?;
-    let entities: OrmResult<Vec<E>> = docs.into_iter().map(E::from_value).collect();
-    self.hydrate(entities?, relation_names).await
-  }
-
-  /// Find entity by ID and load nested relations (TypeORM-style cascade).
-  ///
-  /// # Example
-  /// ```
-  /// let todo = repo.find_with_cascade("123", "tasks.subtasks").await?;
-  /// // Access nested via key "tasks.subtasks"
-  /// let subtasks = todo.loaded.get("tasks.subtasks");
-  /// ```
-  pub async fn find_with_cascade(
-    &self,
-    id: impl AsRef<str>,
-    path: &str,
-  ) -> OrmResult<Option<WithLoaded<E>>> {
-    let entity = match self.inner.find_by_id(id).await? {
-      Some(e) => e,
-      None => return Ok(None),
-    };
-
-    let mut doc = entity.to_value()?;
-    let table = E::table_name();
-    let results = self
-      .loader
-      .load_cascade_for_entity(&doc, &table, path, true)
-      .await?;
-
-    let mut result = WithLoaded::new(entity);
-    result.loaded = results;
-    Ok(Some(result))
-  }
-
-  /// Find all entities with nested relations.
-  pub async fn find_all_with_cascade(&self, path: &str) -> OrmResult<Vec<WithLoaded<E>>> {
-    let docs = self.inner.find_all().await?;
-    let table = E::table_name();
-    let mut results = Vec::with_capacity(docs.len());
-
-    for doc in docs {
-      let doc_value = doc.to_value()?;
-      let result_map = self
-        .loader
-        .load_cascade_for_entity(&doc_value, &table, path, true)
-        .await?;
-      let entity = E::from_value(doc_value)?;
-      let mut wl = WithLoaded::new(entity);
-      wl.loaded = result_map;
-      results.push(wl);
-    }
-
-    Ok(results)
-  }
-
-  /// Query with nested relations.
-  pub async fn query_with_cascade(
-    &self,
-    builder: QueryBuilder,
-    path: &str,
-  ) -> OrmResult<Vec<WithLoaded<E>>> {
-    let filter = builder.build_filter();
-    let (sort_field, sort_asc) = match &builder.order {
-      Some(o) => (Some(o.field.clone()), o.direction == SortDirection::Asc),
-      None => (None, true),
-    };
-    let docs = self
-      .inner
-      .provider
-      .find_many(
-        &E::table_name(),
-        filter.as_ref(),
-        builder.skip,
-        builder.limit,
-        sort_field.as_deref(),
-        sort_asc,
-      )
-      .await?;
-
-    let table = E::table_name();
-    let mut results = Vec::with_capacity(docs.len());
-
-    for doc in docs {
-      let doc_value = doc.clone();
-      let result_map = self
-        .loader
-        .load_cascade_for_entity(&doc_value, &table, path, true)
-        .await?;
-      let entity = E::from_value(doc_value)?;
-      let mut wl = WithLoaded::new(entity);
-      wl.loaded = result_map;
-      results.push(wl);
-    }
-
-    Ok(results)
-  }
-
-  async fn hydrate(
-    &self,
-    entities: Vec<E>,
-    relation_names: &[&str],
-  ) -> OrmResult<Vec<WithLoaded<E>>> {
-    let all_rels = E::relations();
-    let rels: Vec<RelationDef> = all_rels
-      .into_iter()
-      .filter(|r| relation_names.contains(&r.name.as_str()))
-      .collect();
-
-    let mut result = Vec::with_capacity(entities.len());
-    for entity in entities {
-      let mut doc = entity.to_value()?;
-      let loaded_map = self.loader.load(&doc, &rels, true).await?;
-      let mut wl = WithLoaded::new(entity);
-      wl.loaded = loaded_map;
-      result.push(wl);
-    }
-    Ok(result)
-  }
-
-/// Find by id and load nested relations through N levels using dot-notation path.
-  ///
-  /// Path format: "tasks.subtasks" - loads tasks, then each task's subtasks
-  ///
-  /// # Example
-  /// ```rust,ignore
-  /// // Load Todo -> Tasks -> Subtasks
-  /// let result = todos_repo.find_with_nested(todo_id, "tasks.subtasks").await?;
-  /// let tasks = result.many("tasks")?;
-  /// let subtasks = result.many("subtasks")?;
-  /// ```
-  pub async fn find_with_nested(
-    &self,
-    id: impl AsRef<str>,
-    path: &str,
-  ) -> OrmResult<Option<WithLoaded<E>>> {
-    let entity = match self.inner.find_by_id(id).await? {
-      Some(e) => e,
-      None => return Ok(None),
-    };
-
-    let segments: Vec<&str> = path.split('.').filter(|s| !s.is_empty()).collect();
-    if segments.is_empty() {
-      return Ok(Some(WithLoaded::new(entity)));
-    }
-
-    let mut doc = entity.to_value()?;
-    let table = E::table_name();
-
-    if let Some(obj) = doc.as_object_mut() {
-      obj.insert("_collection".to_string(), Value::String(table.to_string()));
-    }
-
-    let mut docs = vec![doc];
-    let mut result = WithLoaded::new(entity);
-
-    for (i, level) in segments.iter().enumerate() {
-      let rel = E::relations()
-        .iter()
-        .find(|r| r.name.as_str() == *level)
-        .cloned();
-
-      if let Some(rel_def) = rel {
-        let rel_name = rel_def.name.clone();
-        docs = self.loader.load_many(docs, &rel_def, true).await?;
-
-        if let Some(updated) = docs.first().cloned() {
-          if let Some(val) = updated.get(&rel_name) {
-            match val {
-              Value::Array(arr) => {
-                result.loaded.insert(rel_name.clone(), RelationValue::Many(arr.clone()));
-
-                if i + 1 < segments.len() && !arr.is_empty() {
-                  let next_collection = &rel_def.target_collection;
-                  let child_rels = get_collection_relations(next_collection);
-                  if let Some(child_rels) = child_rels {
-                    let mut all_children = Vec::new();
-                    for child_doc in arr {
-                      if let Some(obj) = child_doc.as_object() {
-                        if let Some(child_id) = obj.get("id").and_then(|v| v.as_str()) {
-                          if let Ok(Some(child)) = self.inner.provider.find_by_id(next_collection, child_id).await {
-                            all_children.push(child);
-                          }
-                        }
-                      }
-                    }
-
-                    for child_rel in &child_rels {
-                      let child_rel_name = child_rel.name.clone();
-                      let mut loaded_children = Vec::new();
-                      for mut child_doc in all_children.clone() {
-                        if let Some(obj) = child_doc.as_object_mut() {
-                          obj.insert("_collection".to_string(), Value::String(next_collection.to_string()));
-                        }
-                        loaded_children.push(child_doc);
-                      }
-                      loaded_children = self.loader.load_many(loaded_children, child_rel, true).await?;
-
-                      for loaded_doc in &loaded_children {
-                        if let Some(child_val) = loaded_doc.get(&child_rel_name) {
-                          result.loaded.insert(
-                            child_rel_name.clone(),
-                            match child_val {
-                              Value::Array(ar) => RelationValue::Many(ar.clone()),
-                              other => RelationValue::Single(Some(other.clone())),
-                            },
-                          );
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-              other => {
-                result.loaded.insert(rel_name.clone(), RelationValue::Single(Some(other.clone())));
-              }
-            }
-          }
-          docs = vec![updated];
-        }
-      }
-    }
-
-    Ok(Some(result))
-  }
-
-  /// Find all with nested relations using dot-notation path.
-  pub async fn find_all_with_nested(&self, path: &str) -> OrmResult<Vec<WithLoaded<E>>> {
-    let segments: Vec<&str> = path.split('.').filter(|s| !s.is_empty()).collect();
-    
-    let entities = self.inner.find_all().await?;
-    let table = E::table_name();
     let mut results = Vec::with_capacity(entities.len());
 
     for entity in entities {
-      let mut doc = entity.to_value()?;
-
-      if let Some(obj) = doc.as_object_mut() {
-        obj.insert("_collection".to_string(), Value::String(table.to_string()));
-      }
-
-      let mut docs = vec![doc];
       let mut result = WithLoaded::new(entity);
+      let doc = result.entity.to_value()?;
 
-      for level in &segments {
-        let rel = E::relations()
-          .iter()
-          .find(|r| r.name.as_str() == *level)
-          .cloned();
-
-        if let Some(rel_def) = rel {
-          let rel_name = rel_def.name.clone();
-          docs = self.loader.load_many(docs, &rel_def, true).await?;
-
-          if let Some(updated) = docs.first().cloned() {
-            if let Some(val) = updated.get(&rel_name) {
-              match val {
-                Value::Array(arr) => {
-                  result.loaded.insert(rel_name.clone(), RelationValue::Many(arr.clone()));
-                }
-                other => {
-                  result.loaded.insert(rel_name.clone(), RelationValue::Single(Some(other.clone())));
-                }
-              }
-            }
-            docs = vec![updated];
-          }
-        }
+      for path in relation_paths {
+        let segments: Vec<&str> = path.split('.').filter(|s| !s.is_empty()).collect();
+        self
+          .load_nested_path(&doc, &segments, &mut result.loaded)
+          .await?;
       }
 
       results.push(result);
     }
 
     Ok(results)
+  }
+
+  /// Run a query and eagerly load relations for the results (supports nested paths).
+  pub async fn query_with_relations(
+    &self,
+    builder: QueryBuilder,
+    relation_paths: &[&str],
+  ) -> OrmResult<Vec<WithLoaded<E>>> {
+    let filter = builder.build_filter();
+    let (sort_field, sort_asc) = match &builder.order {
+      Some(o) => (Some(o.field.clone()), o.direction == SortDirection::Asc),
+      None => (None, true),
+    };
+    let docs = self
+      .inner
+      .provider
+      .find_many(
+        &E::table_name(),
+        filter.as_ref(),
+        builder.skip,
+        builder.limit,
+        sort_field.as_deref(),
+        sort_asc,
+      )
+      .await?;
+
+    let mut results = Vec::with_capacity(docs.len());
+
+    for doc in docs {
+      let entity = E::from_value(doc.clone())?;
+      let mut result = WithLoaded::new(entity);
+
+      for path in relation_paths {
+        let segments: Vec<&str> = path.split('.').filter(|s| !s.is_empty()).collect();
+        self
+          .load_nested_path(&doc, &segments, &mut result.loaded)
+          .await?;
+      }
+
+      results.push(result);
+    }
+
+    Ok(results)
+  }
+
+  /// Recursively load nested relations following a path like ["tasks", "subtasks", "labels"].
+  /// Dynamically loads relations at any depth with proper hierarchical re-attachment.
+  ///
+  /// Algorithm:
+  /// 1. Load relation via load_many on current_docs
+  /// 2. For nested paths: load next relation on CHILDREN directly
+  /// 3. Build result with children containing nested data
+  /// 4. Use children (with nested data embedded) as current_docs for next segment
+  /// 5. Repeat until all segments processed
+  async fn load_nested_path(
+    &self,
+    doc: &Value,
+    segments: &[&str],
+    loaded: &mut std::collections::HashMap<String, RelationValue>,
+  ) -> OrmResult<()> {
+    if segments.is_empty() {
+      return Ok(());
+    }
+
+    let hierarchy_depth = segments.len();
+    if hierarchy_depth > 5 {
+      eprintln!(
+        "WARNING: Deep nested relation load: {} levels. Consider using shallower paths.",
+        hierarchy_depth
+      );
+    }
+
+    let mut current_docs = vec![doc.clone()];
+    let mut segment_idx = 0;
+
+    while segment_idx < segments.len() {
+      let segment = segments[segment_idx];
+
+      let rel_def = E::relations()
+        .iter()
+        .find(|r| r.name.as_str() == segment)
+        .cloned();
+
+      let Some(rel_def) = rel_def else {
+        segment_idx += 1;
+        continue;
+      };
+
+      let enriched = self
+        .loader
+        .load_many(current_docs.clone(), &rel_def, true)
+        .await?;
+
+      if enriched.is_empty() {
+        loaded.insert(segment.to_string(), RelationValue::Many(vec![]));
+        segment_idx += 1;
+        continue;
+      }
+
+      if segment_idx + 1 < segments.len() {
+        let next_segment = segments[segment_idx + 1];
+
+        let next_rel_def = crate::relations::get_collection_relations(&rel_def.target_collection)
+          .and_then(|rels| {
+            rels
+              .iter()
+              .find(|r| r.name.as_str() == next_segment)
+              .cloned()
+          });
+
+        if let Some(next_rel_def) = next_rel_def {
+          let children: Vec<Value> = enriched
+            .iter()
+            .filter_map(|d| d.get(segment).and_then(|v| v.as_array()))
+            .flatten()
+            .cloned()
+            .collect();
+
+          if !children.is_empty() {
+            let children_enriched = self.loader.load_many(children, &next_rel_def, true).await?;
+
+            let child_map: std::collections::HashMap<String, Value> = children_enriched
+              .clone()
+              .into_iter()
+              .filter_map(|d| {
+                d.clone()
+                  .get("id")
+                  .and_then(|v| v.as_str())
+                  .map(|id| (id.to_string(), d))
+              })
+              .collect();
+
+            let mut result_with_nested = Vec::new();
+            for parent in enriched {
+              if let Some(arr) = parent.get(segment).and_then(|v| v.as_array()) {
+                let mut new_children = Vec::new();
+
+                for child in arr {
+                  if let Some(child_id) = child.get("id").and_then(|v| v.as_str()) {
+                    if let Some(enriched_child) = child_map.get(child_id) {
+                      new_children.push(enriched_child.clone());
+                    } else {
+                      new_children.push(child.clone());
+                    }
+                  } else {
+                    new_children.push(child.clone());
+                  }
+                }
+
+                let mut updated_parent = parent.clone();
+                if let Some(obj) = updated_parent.as_object_mut() {
+                  obj.insert(segment.to_string(), Value::Array(new_children));
+                }
+                result_with_nested.push(updated_parent);
+              } else {
+                result_with_nested.push(parent.clone());
+              }
+            }
+
+            let tasks_to_store = if rel_def.relation_type == RelationType::OneToMany {
+              children_enriched.clone()
+            } else {
+              result_with_nested.clone()
+            };
+            loaded.insert(segment.to_string(), RelationValue::Many(tasks_to_store));
+
+            current_docs = children_enriched;
+            segment_idx += 1;
+            continue;
+          }
+        }
+
+        let children: Vec<Value> = match rel_def.relation_type {
+          RelationType::OneToMany | RelationType::ManyToMany => enriched
+            .iter()
+            .filter_map(|d| d.get(segment).and_then(|v| v.as_array()))
+            .flatten()
+            .cloned()
+            .collect(),
+          _ => enriched.clone(),
+        };
+        loaded.insert(segment.to_string(), RelationValue::Many(children));
+        current_docs = enriched;
+        segment_idx += 1;
+        continue;
+      }
+
+      let children: Vec<Value> = match rel_def.relation_type {
+        RelationType::OneToMany | RelationType::ManyToMany => enriched
+          .iter()
+          .filter_map(|d| d.get(segment).and_then(|v| v.as_array()))
+          .flatten()
+          .cloned()
+          .collect(),
+        _ => enriched.clone(),
+      };
+      loaded.insert(segment.to_string(), RelationValue::Many(children));
+      break;
+    }
+
+    Ok(())
   }
 }
