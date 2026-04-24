@@ -63,7 +63,7 @@ impl<P: DatabaseProvider> DatabaseProvider for QueryLogger<P> {
     debug!("[Query] FIND_BY_ID '{}' id={}", collection, id);
     let result = self.inner.find_by_id(collection, id).await;
     match &result {
-      Ok(Some(v)) => info!("[Query] FIND_BY_ID '{}' id={} -> found", collection, id),
+      Ok(Some(_v)) => info!("[Query] FIND_BY_ID '{}' id={} -> found", collection, id),
       Ok(None) => info!("[Query] FIND_BY_ID '{}' id={} -> not found", collection, id),
       Err(e) => warn!(
         "[Query] FIND_BY_ID '{}' id={} FAILED: {}",
@@ -97,7 +97,7 @@ impl<P: DatabaseProvider> DatabaseProvider for QueryLogger<P> {
     debug!("[Query] UPDATE '{}' id={}", collection, id);
     let result = self.inner.update(collection, id, doc).await;
     match &result {
-      Ok(v) => info!("[Query] UPDATE '{}' id={} -> success", collection, id),
+      Ok(_v) => info!("[Query] UPDATE '{}' id={} -> success", collection, id),
       Err(e) => warn!("[Query] UPDATE '{}' id={} FAILED: {}", collection, id, e),
     }
     result
@@ -107,7 +107,7 @@ impl<P: DatabaseProvider> DatabaseProvider for QueryLogger<P> {
     debug!("[Query] PATCH '{}' id={}", collection, id);
     let result = self.inner.patch(collection, id, patch).await;
     match &result {
-      Ok(v) => info!("[Query] PATCH '{}' id={} -> success", collection, id),
+      Ok(_v) => info!("[Query] PATCH '{}' id={} -> success", collection, id),
       Err(e) => warn!("[Query] PATCH '{}' id={} FAILED: {}", collection, id, e),
     }
     result

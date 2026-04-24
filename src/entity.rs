@@ -1,6 +1,6 @@
 use crate::error::OrmResult;
 use crate::nosql_index::NosqlIndex;
-use crate::sql::{SqlColumnDef, SqlColumnType};
+use crate::sql::SqlColumnDef;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use std::fmt::Debug;

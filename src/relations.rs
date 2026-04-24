@@ -2,7 +2,6 @@ use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
 use crate::sql::types::SqlOnDelete;
-use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -868,7 +867,7 @@ impl<P: DatabaseProvider> RelationLoader<P> {
   /// Works for unlimited depth (N levels).
   pub async fn load_nested(
     &self,
-    mut docs: Vec<Value>,
+    docs: Vec<Value>,
     path_segments: &[&str],
     filter_deleted: bool,
   ) -> OrmResult<Vec<Value>> {

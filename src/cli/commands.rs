@@ -135,7 +135,7 @@ Options:
           println!("  {} {} (v{})", applied, m.name, m.version);
         }
       }
-      CliCommand::Seed { seeder_class } => {
+      CliCommand::Seed { seeder_class: _ } => {
         println!("Running seeders...");
         println!("Seeders completed");
       }

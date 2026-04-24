@@ -1,7 +1,7 @@
 //! SQL query builder for generating SQL statements.
 
 use crate::query::{Filter, OrderBy, Projection, SortDirection};
-use crate::sql::types::{SqlColumnDef, SqlDialect, SqlIndexDef, SqlIndexType, SqlTableDef};
+use crate::sql::types::{SqlDialect, SqlIndexDef, SqlTableDef};
 
 /// SQL query builder for generating SQL statements from filters and projections.
 #[derive(Clone)]
@@ -108,7 +108,7 @@ impl SqlQueryBuilder {
     table: &str,
     data: &serde_json::Value,
     pk_field: &str,
-    pk_value: &str,
+    _pk_value: &str,
   ) -> String {
     let table_name = self.dialect.quote_identifier(table);
     let obj = data.as_object().expect("data must be an object");
@@ -125,7 +125,7 @@ impl SqlQueryBuilder {
     )
   }
 
-  pub fn delete_sql(&self, table: &str, pk_field: &str, pk_value: &str) -> String {
+  pub fn delete_sql(&self, table: &str, pk_field: &str, _pk_value: &str) -> String {
     let table_name = self.dialect.quote_identifier(table);
     format!(
       "DELETE FROM {} WHERE {} = ?",

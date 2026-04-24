@@ -137,7 +137,7 @@ pub trait GraphQLEntity {
 
 impl GraphQLEntity for serde_json::Value {
   fn to_graphql_type() -> GraphQLTypeDef {
-    let mut def = GraphQLTypeDef::new("JSON");
+    let def = GraphQLTypeDef::new("JSON");
     def.field("value", "String")
   }
 

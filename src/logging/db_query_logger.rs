@@ -186,7 +186,7 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
     let duration_ms = start.elapsed().as_millis() as u64;
 
     match &result {
-      Ok(Some(doc)) => {
+      Ok(Some(_doc)) => {
         let log_entry = self.build_log_entry(
           "DEBUG",
           "FIND_BY_ID",
@@ -290,7 +290,7 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
     let duration_ms = start.elapsed().as_millis() as u64;
 
     match &result {
-      Ok(v) => {
+      Ok(_v) => {
         let log_entry = self.build_log_entry(
           "INFO",
           "UPDATE",
@@ -329,7 +329,7 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
     let duration_ms = start.elapsed().as_millis() as u64;
 
     match &result {
-      Ok(v) => {
+      Ok(_v) => {
         let log_entry = self.build_log_entry(
           "INFO",
           "PATCH",
