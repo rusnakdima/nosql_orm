@@ -264,7 +264,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let department = departments
+  let department: Department = departments
+    .repo()
     .save(Department {
       id: None,
       department_name: "Engineering".to_string(),
@@ -273,7 +274,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let company = companies
+  let company: Company = companies
+    .repo()
     .save(Company {
       id: None,
       company_name: "Tech Corp".to_string(),
@@ -282,7 +284,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let profile = profiles
+  let profile: Profile = profiles
+    .repo()
     .save(Profile {
       id: None,
       bio: "Senior Rust Developer".to_string(),
@@ -292,7 +295,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let user = users
+  let user: User = users
+    .repo()
     .save(User {
       id: None,
       user_name: "Alice Developer".to_string(),
@@ -302,7 +306,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let post = posts
+  let post: Post = posts
+    .repo()
     .save(Post {
       id: None,
       title: "Building nested relations in Rust ORM".to_string(),

@@ -386,7 +386,8 @@ async fn main() -> OrmResult<()> {
       .map(|&idx| created_subtasks[idx].id.clone().unwrap())
       .collect();
 
-    let task = tasks_repo
+    let task: Task = tasks_repo
+      .repo()
       .save(Task {
         id: None,
         task_title: title.to_string(),
@@ -401,7 +402,8 @@ async fn main() -> OrmResult<()> {
 
   let task_ids: Vec<String> = created_tasks.iter().filter_map(|t| t.id.clone()).collect();
 
-  let todo = todos_repo
+  let todo: Todo = todos_repo
+    .repo()
     .save(Todo {
       id: None,
       todo_title: "Complete Rust ORM Implementation".to_string(),

@@ -30,6 +30,12 @@ impl Entity for SoftDeletableUser {
   }
 }
 
+impl WithRelations for SoftDeletableUser {
+  fn relations() -> Vec<RelationDef> {
+    vec![]
+  }
+}
+
 impl SoftDeletable for SoftDeletableUser {
   fn deleted_at(&self) -> Option<DateTime<Utc>> {
     self.deleted_at

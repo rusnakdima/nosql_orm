@@ -370,7 +370,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let l4 = repo4
+  let l4: Level4 = repo4
+    .repo()
     .save(Level4 {
       id: None,
       level4_name: "Level 4".to_string(),
@@ -379,7 +380,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let l3 = repo3
+  let l3: Level3 = repo3
+    .repo()
     .save(Level3 {
       id: None,
       level3_name: "Level 3".to_string(),
@@ -388,7 +390,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let l2 = repo2
+  let l2: Level2 = repo2
+    .repo()
     .save(Level2 {
       id: None,
       level2_name: "Level 2".to_string(),
@@ -397,7 +400,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let l1 = repo1
+  let l1: Level1 = repo1
+    .repo()
     .save(Level1 {
       id: None,
       level1_name: "Level 1".to_string(),
@@ -406,7 +410,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let root = repo_root
+  let root: RootEntity = repo_root
+    .repo()
     .save(RootEntity {
       id: None,
       root_name: "Root Entity".to_string(),

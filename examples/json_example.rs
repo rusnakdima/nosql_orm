@@ -141,7 +141,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let post1 = posts
+  let post1: Post = posts
+    .repo()
     .save(Post {
       id: None,
       title: "Hello Rust".into(),
@@ -152,7 +153,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let _post2 = posts
+  let _post2: Post = posts
+    .repo()
     .save(Post {
       id: None,
       title: "Building an ORM".into(),

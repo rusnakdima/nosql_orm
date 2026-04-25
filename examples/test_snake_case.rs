@@ -179,7 +179,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let user = users
+  let user: User = users
+    .repo()
     .save(User {
       id: None,
       user_name: "Alice Johnson".to_string(),
@@ -189,7 +190,7 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let tag1 = tags
+  let tag1: Tag = tags
     .save(Tag {
       id: None,
       tag_name: "Rust".to_string(),
@@ -197,7 +198,7 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let tag2 = tags
+  let tag2: Tag = tags
     .save(Tag {
       id: None,
       tag_name: "ORM".to_string(),
@@ -205,7 +206,8 @@ async fn main() -> OrmResult<()> {
     })
     .await?;
 
-  let post = posts
+  let post: Post = posts
+    .repo()
     .save(Post {
       id: None,
       title: "Hello Rust".to_string(),

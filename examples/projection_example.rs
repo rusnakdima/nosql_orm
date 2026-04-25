@@ -45,7 +45,7 @@ async fn main() -> OrmResult<()> {
     bio: Some("Rust developer".to_string()),
   };
   let saved = repo.save(user).await?;
-  println!("Created user: {:?}", saved.id().unwrap());
+  println!("Created user: {:?}", saved.get_id().unwrap());
 
   // === SELECT specific fields ===
   // Only get id and name
