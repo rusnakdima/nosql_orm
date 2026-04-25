@@ -70,6 +70,7 @@ pub mod providers;
 pub mod cache;
 
 pub use nosql_orm_derive::Entity;
+pub use nosql_orm_derive::Validate;
 
 pub use aggregation::{
   Aggregation, AggregationPipeline, GroupStage, LimitStage, MatchStage, ProjectStage, SkipStage,
@@ -109,7 +110,7 @@ pub use sql::{
 
 /// Re-exports everything you need for typical usage.
 pub mod prelude {
-  pub use crate::entity::{Entity, EntityMeta};
+  pub use crate::entity::{Entity, EntityMeta, FrontendProjection};
   pub use crate::error::{OrmError, OrmResult};
   pub use crate::provider::{DatabaseProvider, ProviderConfig};
   pub use crate::query::{Filter, OrderBy, Projection, QueryBuilder, SortDirection};
@@ -118,7 +119,7 @@ pub mod prelude {
     register_relations_for_entity, ManyToMany, ManyToOne, OneToMany, OneToOne, RelationDef,
     RelationLoader, RelationType, RelationValue, WithLoaded, WithRelations,
   };
-  pub use crate::repository::{RelationRepository, Repository};
+  pub use crate::repository::{RelationRepository, Repository, SyncResult};
   pub use crate::soft_delete::SoftDeletable;
 
   #[cfg(feature = "json")]
@@ -131,6 +132,8 @@ pub mod prelude {
   pub use crate::providers::redis::RedisProvider;
 
   pub use crate::nosql_index::{IndexManager, NosqlIndex, NosqlIndexInfo, NosqlIndexType};
+  pub use crate::timestamps::{apply_timestamps, Timestamps};
+  pub use crate::Validate;
 
   #[cfg(feature = "sql-postgres")]
   pub use crate::providers::sql::PostgresProvider;

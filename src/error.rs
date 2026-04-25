@@ -46,6 +46,9 @@ pub enum OrmError {
   #[cfg(feature = "redis")]
   #[error("Redis error: {0}")]
   Redis(#[from] redis::RedisError),
+
+  #[error("Validation error: {0}")]
+  Validation(String),
 }
 
 /// Convenience alias for `Result<T, OrmError>`.
