@@ -232,15 +232,42 @@ pub trait WithRelations: Entity {
 
 /// Global registry mapping collection names to their relation definitions.
 /// This allows dynamic relation resolution instead of hardcoded path matching.
-use std::sync::RwLock;
+static RELATION_REGISTRY: std::sync::RwLock<Option<std::collections::HashMap<String, Vec<RelationDef>>>> =
+  std::sync::RwLock::new(None);
 
-static RELATION_REGISTRY: RwLock<Option<HashMap<String, Vec<RelationDef>>>> = RwLock::new(None);
+static REGISTERED_COLLECTIONS: std::sync::RwLock<Option<std::collections::HashMap<String, bool>>> =
+  std::sync::RwLock::new(None);
 
 /// Register relation definitions for a collection.
+/// Automatically registers if not already registered.
 pub fn register_collection_relations(collection: &str, relations: Vec<RelationDef>) {
+  let mut registered = REGISTERED_COLLECTIONS.write().unwrap();
+  if registered.as_ref().map_or(false, |r| r.contains_key(collection)) {
+    return;
+  }
+
   let mut guard = RELATION_REGISTRY.write().unwrap();
-  let registry = guard.get_or_insert_with(HashMap::new);
-  registry.insert(collection.to_string(), relations);
+  if guard.is_none() {
+    *guard = Some(std::collections::HashMap::new());
+  }
+  if let Some(registry) = guard.as_mut() {
+    registry.insert(collection.to_string(), relations);
+  }
+  drop(guard);
+
+  if registered.is_none() {
+    *registered = Some(std::collections::HashMap::new());
+  }
+  if let Some(registered) = registered.as_mut() {
+    registered.insert(collection.to_string(), true);
+  }
+}
+
+pub fn get_registered_collection_relations(collection: &str) -> Option<Vec<RelationDef>> {
+  let guard = RELATION_REGISTRY.read().unwrap();
+  guard
+    .as_ref()
+    .and_then(|registry| registry.get(collection).cloned())
 }
 
 /// Get all registered relations for a collection.
@@ -249,6 +276,16 @@ pub fn get_collection_relations(collection: &str) -> Option<Vec<RelationDef>> {
   guard
     .as_ref()
     .and_then(|registry| registry.get(collection).cloned())
+}
+
+/// Register relations for an entity type that implements WithRelations.
+/// This is useful when using WithRelations directly (not via proc macros).
+pub fn register_relations_for_entity<E: WithRelations + Entity>() {
+  let collection = E::table_name();
+  let relations = E::relations();
+  if !relations.is_empty() {
+    register_collection_relations(&collection, relations);
+  }
 }
 
 /// Get a specific relation definition by collection and relation name.
@@ -997,6 +1034,69 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     }
 
     Ok(current_docs)
+  }
+
+  pub async fn load_nested_relations(
+    &self,
+    mut docs: Vec<Value>,
+    path_segments: &[&str],
+    parent_relation: &RelationDef,
+    filter_deleted: bool,
+  ) -> OrmResult<Vec<Value>> {
+    if path_segments.is_empty() {
+      return Ok(docs);
+    }
+
+    for (i, segment) in path_segments.iter().enumerate() {
+      let child_relation = self.find_child_relation(parent_relation, segment)?;
+
+      for doc in docs.iter_mut() {
+        if let Some(obj) = doc.as_object_mut() {
+          obj.insert("_collection".to_string(), serde_json::Value::String(child_relation.target_collection.clone()));
+        }
+      }
+
+      docs = self.load_many(docs, &child_relation, filter_deleted).await?;
+
+      if i + 1 < path_segments.len() {
+        docs = self
+          .propagate_nested_to_children_iterative(
+            docs,
+            segment,
+            &path_segments[i + 1..],
+            filter_deleted,
+          )
+          .await?;
+      }
+    }
+
+    Ok(docs)
+  }
+
+  fn find_child_relation(&self, parent_relation: &RelationDef, segment: &str) -> OrmResult<RelationDef> {
+    let target_collection = &parent_relation.target_collection;
+
+    if let Some(child_relations) = get_collection_relations(target_collection) {
+      if let Some(rel) = child_relations.iter().find(|r| r.name.as_str() == segment) {
+        return Ok(rel.clone());
+      }
+    }
+
+    let relations_from_def = Self::get_relations_for_collection(target_collection);
+    if let Some(rel) = relations_from_def.iter().find(|r| r.name.as_str() == segment) {
+      return Ok(rel.clone());
+    }
+
+    Err(OrmError::InvalidQuery(format!(
+      "Unknown relation '{}' on collection '{}'. Available relations: {:?}",
+      segment,
+      target_collection,
+      relations_from_def.iter().map(|r| r.name.as_str()).collect::<Vec<_>>()
+    )))
+  }
+
+  pub fn get_relations_for_collection(collection: &str) -> Vec<RelationDef> {
+    get_collection_relations(collection).unwrap_or_default()
   }
 
   fn get_relation_def_for_path(&self, docs: &[Value], segment: &str) -> OrmResult<RelationDef> {

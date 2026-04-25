@@ -686,11 +686,9 @@ where
     visited.insert(E::table_name());
 
     for path in relation_paths {
-      let rel_name = path.split('.').next().unwrap_or(path);
-
       if let Some(rel_def) = E::relations()
         .iter()
-        .find(|r| r.name.as_str() == rel_name)
+        .find(|r| r.name.as_str() == *path)
         .cloned()
       {
         let enriched = self
@@ -699,24 +697,24 @@ where
           .await?;
 
         if let Some(updated) = enriched.into_iter().next() {
-          if let Some(rel_val) = updated.get(rel_name) {
+          doc = updated;
+          result.entity = E::from_value(doc.clone())?;
+
+          if let Some(rel_val) = doc.get(*path) {
             match rel_def.relation_type {
               RelationType::ManyToOne | RelationType::OneToOne => {
                 result.loaded.insert(
-                  rel_name.to_string(),
+                  path.to_string(),
                   RelationValue::Single(Some(rel_val.clone())),
                 );
               }
               RelationType::OneToMany | RelationType::ManyToMany => {
                 if let Some(arr) = rel_val.as_array() {
-                  result
-                    .loaded
-                    .insert(rel_name.to_string(), RelationValue::Many(arr.clone()));
+                  result.loaded.insert(path.to_string(), RelationValue::Many(arr.clone()));
                 }
               }
             }
           }
-          doc = updated;
         }
       }
     }

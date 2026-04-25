@@ -114,9 +114,9 @@ pub mod prelude {
   pub use crate::provider::{DatabaseProvider, ProviderConfig};
   pub use crate::query::{Filter, OrderBy, Projection, QueryBuilder, SortDirection};
   pub use crate::relations::{
-    get_collection_relations, get_relation_def, register_collection_relations, ManyToMany,
-    ManyToOne, OneToMany, OneToOne, RelationDef, RelationLoader, RelationType, RelationValue,
-    WithLoaded, WithRelations,
+    get_collection_relations, get_relation_def, register_collection_relations,
+    register_relations_for_entity, ManyToMany, ManyToOne, OneToMany, OneToOne, RelationDef,
+    RelationLoader, RelationType, RelationValue, WithLoaded, WithRelations,
   };
   pub use crate::repository::{RelationRepository, Repository};
   pub use crate::soft_delete::SoftDeletable;
