@@ -1,6 +1,6 @@
 [package]
 name = "nosql_orm"
-version = "0.5.6"
+version = "0.5.7"
 edition = "2021"
 authors = ["Dmitriy303"]
 description = "A TypeORM-inspired ORM for NoSQL databases (JSON files, MongoDB, Redis)"
