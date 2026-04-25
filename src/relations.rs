@@ -583,6 +583,16 @@ impl<P: DatabaseProvider> RelationLoader<P> {
       )
       .await?;
 
+    // Add _collection metadata to loaded documents for nested relation support
+    for doc in &mut related_docs {
+      if let Some(obj) = doc.as_object_mut() {
+        obj.insert(
+          "_collection".to_string(),
+          Value::String(relation.target_collection.clone()),
+        );
+      }
+    }
+
     if filter_deleted {
       related_docs = Self::filter_not_deleted(related_docs);
     }
@@ -662,6 +672,16 @@ impl<P: DatabaseProvider> RelationLoader<P> {
       )
       .await?;
 
+    // Add _collection metadata to loaded documents for nested relation support
+    for doc in &mut related_docs {
+      if let Some(obj) = doc.as_object_mut() {
+        obj.insert(
+          "_collection".to_string(),
+          Value::String(relation.target_collection.clone()),
+        );
+      }
+    }
+
     if filter_deleted {
       related_docs = Self::filter_not_deleted(related_docs);
     }
@@ -740,6 +760,16 @@ impl<P: DatabaseProvider> RelationLoader<P> {
         true,
       )
       .await?;
+
+    // Add _collection metadata to loaded documents for nested relation support
+    for doc in &mut related_docs {
+      if let Some(obj) = doc.as_object_mut() {
+        obj.insert(
+          "_collection".to_string(),
+          Value::String(relation.target_collection.clone()),
+        );
+      }
+    }
 
     if filter_deleted {
       related_docs = Self::filter_not_deleted(related_docs);
