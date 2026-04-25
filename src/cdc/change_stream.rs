@@ -1,5 +1,4 @@
 use crate::cdc::Change;
-use crate::error::OrmResult;
 
 pub struct ChangeStream {
   changes: Vec<Change>,
@@ -13,9 +12,9 @@ impl ChangeStream {
   #[cfg(feature = "mongo")]
   pub async fn from_mongo_stream<T: serde::de::DeserializeOwned + Unpin>(
     _stream: mongodb::change_stream::ChangeStream<T>,
-  ) -> OrmResult<Self> {
-    let mut changes = Vec::new();
-    Ok(Self { changes })
+  ) -> Self {
+    let changes = Vec::new();
+    Self { changes }
   }
 
   pub fn filter_collection(mut self, collection: &str) -> Self {
