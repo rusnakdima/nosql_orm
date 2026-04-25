@@ -1,4 +1,5 @@
 use crate::cdc::Change;
+use crate::error::OrmResult;
 
 pub struct ChangeStream {
   changes: Vec<Change>,
