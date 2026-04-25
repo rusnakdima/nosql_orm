@@ -1,3 +1,4 @@
+use crate::error::{OrmError, OrmResult};
 use serde_json::Value;
 
 /// Sort direction for query ordering.
@@ -141,6 +142,25 @@ impl Projection {
 
     doc.clone()
   }
+
+  pub fn apply_recursive<'a>(&self, doc: &'a Value) -> Value
+  where
+    'a: 'a,
+  {
+    let mut filtered = self.apply(doc);
+
+    if let Some(obj) = filtered.as_object_mut() {
+      for (_key, val) in obj.iter_mut() {
+        *val = self.apply_recursive(val);
+      }
+    } else if let Some(arr) = filtered.as_array_mut() {
+      for item in arr.iter_mut() {
+        *item = self.apply_recursive(item);
+      }
+    }
+
+    filtered
+  }
 }
 
 impl Default for Projection {
@@ -237,6 +257,119 @@ impl Filter {
         }
       }
     }
+  }
+
+  pub fn from_json(value: &Value) -> OrmResult<Filter> {
+    match value {
+      Value::Object(obj) => {
+        if obj.len() == 1 {
+          for (key, val) in obj {
+            match key.as_str() {
+              "$and" => {
+                if let Value::Array(arr) = val {
+                  let filters: OrmResult<Vec<Filter>> = arr.iter().map(Filter::from_json).collect();
+                  return Ok(Filter::And(filters?));
+                }
+              }
+              "$or" => {
+                if let Value::Array(arr) = val {
+                  let filters: OrmResult<Vec<Filter>> = arr.iter().map(Filter::from_json).collect();
+                  return Ok(Filter::Or(filters?));
+                }
+              }
+              "$not" => {
+                let inner = Filter::from_json(val)?;
+                return Ok(Filter::Not(Box::new(inner)));
+              }
+              _ => {
+                return parse_field_filter(key, val);
+              }
+            }
+          }
+        }
+        let mut filters = Vec::new();
+        for (key, val) in obj {
+          filters.push(parse_field_filter(key, val)?);
+        }
+        if filters.len() == 1 {
+          Ok(filters.remove(0))
+        } else {
+          Ok(Filter::And(filters))
+        }
+      }
+      _ => Err(OrmError::InvalidInput(
+        "Filter must be a JSON object".to_string(),
+      )),
+    }
+  }
+}
+
+fn parse_field_filter(field: &str, value: &Value) -> OrmResult<Filter> {
+  match value {
+    Value::Object(obj) => {
+      if obj.len() == 1 {
+        for (op, val) in obj {
+          match op.as_str() {
+            "$eq" => return Ok(Filter::Eq(field.to_string(), val.clone())),
+            "$ne" => return Ok(Filter::Ne(field.to_string(), val.clone())),
+            "$gt" => return Ok(Filter::Gt(field.to_string(), val.clone())),
+            "$gte" => return Ok(Filter::Gte(field.to_string(), val.clone())),
+            "$lt" => return Ok(Filter::Lt(field.to_string(), val.clone())),
+            "$lte" => return Ok(Filter::Lte(field.to_string(), val.clone())),
+            "$in" => {
+              if let Value::Array(arr) = val {
+                return Ok(Filter::In(field.to_string(), arr.clone()));
+              }
+            }
+            "$notIn" => {
+              if let Value::Array(arr) = val {
+                return Ok(Filter::NotIn(field.to_string(), arr.clone()));
+              }
+            }
+            "$contains" => {
+              if let Some(s) = val.as_str() {
+                return Ok(Filter::Contains(field.to_string(), s.to_string()));
+              }
+            }
+            "$startsWith" => {
+              if let Some(s) = val.as_str() {
+                return Ok(Filter::StartsWith(field.to_string(), s.to_string()));
+              }
+            }
+            "$endsWith" => {
+              if let Some(s) = val.as_str() {
+                return Ok(Filter::EndsWith(field.to_string(), s.to_string()));
+              }
+            }
+            "$like" => {
+              if let Some(s) = val.as_str() {
+                return Ok(Filter::Like(field.to_string(), s.to_string()));
+              }
+            }
+            "$isNull" => {
+              return Ok(Filter::IsNull(field.to_string()));
+            }
+            "$isNotNull" => {
+              return Ok(Filter::IsNotNull(field.to_string()));
+            }
+            "$between" => {
+              if let Value::Array(arr) = val {
+                if arr.len() == 2 {
+                  return Ok(Filter::Between(
+                    field.to_string(),
+                    arr[0].clone(),
+                    arr[1].clone(),
+                  ));
+                }
+              }
+            }
+            _ => {}
+          }
+        }
+      }
+      Ok(Filter::Eq(field.to_string(), value.clone()))
+    }
+    _ => Ok(Filter::Eq(field.to_string(), value.clone())),
   }
 }
 

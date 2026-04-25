@@ -1,17 +1,49 @@
 use crate::cascade::CascadeManager;
-use crate::entity::Entity;
+use crate::entity::{Entity, FrontendProjection};
 use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
-use crate::query::{Cursor, Filter, OrderBy, PaginatedResult, QueryBuilder, SortDirection};
-use crate::relations::{
-  RelationDef, RelationLoader, RelationType, RelationValue, WithLoaded, WithRelations,
+use crate::query::{
+  Cursor, Filter, OrderBy, PaginatedResult, Projection, QueryBuilder, SortDirection,
 };
+use crate::relations::{RelationLoader, RelationType, RelationValue, WithLoaded, WithRelations};
 use crate::soft_delete::SoftDeletable;
 use crate::timestamps::apply_timestamps;
 use crate::utils::generate_id;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::marker::PhantomData;
+
+#[derive(Debug, Clone)]
+pub struct SyncResult {
+  pub synced_count: usize,
+  pub skipped_count: usize,
+  pub errors: Vec<String>,
+}
+
+impl SyncResult {
+  pub fn new() -> Self {
+    Self {
+      synced_count: 0,
+      skipped_count: 0,
+      errors: Vec::new(),
+    }
+  }
+
+  pub fn with_error(mut self, error: String) -> Self {
+    self.errors.push(error);
+    self
+  }
+
+  pub fn is_success(&self) -> bool {
+    self.errors.is_empty()
+  }
+}
+
+impl Default for SyncResult {
+  fn default() -> Self {
+    Self::new()
+  }
+}
 
 /// Generic repository providing full CRUD for any `Entity`.
 ///
@@ -289,6 +321,37 @@ where
   /// Returns `true` if an entity with the given id exists.
   pub async fn exists(&self, id: impl AsRef<str>) -> OrmResult<bool> {
     self.provider.exists(&Self::collection(), id.as_ref()).await
+  }
+
+  pub async fn find_for_frontend(&self) -> OrmResult<Vec<E>>
+  where
+    E: FrontendProjection,
+  {
+    let projection = Projection::exclude(E::frontend_excluded_fields().as_slice());
+    let docs = self.provider.find_all(&Self::collection()).await?;
+    let filtered: Vec<Value> = docs
+      .into_iter()
+      .map(|doc| projection.apply_recursive(&doc))
+      .collect();
+    filtered.into_iter().map(E::from_value).collect()
+  }
+
+  pub async fn find_by_id_for_frontend(&self, id: impl AsRef<str>) -> OrmResult<Option<E>>
+  where
+    E: FrontendProjection,
+  {
+    let projection = Projection::exclude(E::frontend_excluded_fields().as_slice());
+    match self
+      .provider
+      .find_by_id(&Self::collection(), id.as_ref())
+      .await?
+    {
+      Some(v) => {
+        let filtered = projection.apply_recursive(&v);
+        Ok(Some(E::from_value(filtered)?))
+      }
+      None => Ok(None),
+    }
   }
 
   // ── Query builder entry point ─────────────────────────────────────────────
@@ -710,7 +773,9 @@ where
               }
               RelationType::OneToMany | RelationType::ManyToMany => {
                 if let Some(arr) = rel_val.as_array() {
-                  result.loaded.insert(path.to_string(), RelationValue::Many(arr.clone()));
+                  result
+                    .loaded
+                    .insert(path.to_string(), RelationValue::Many(arr.clone()));
                 }
               }
             }

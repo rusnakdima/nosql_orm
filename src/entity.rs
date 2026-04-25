@@ -40,6 +40,26 @@ impl EntityMeta {
   }
 }
 
+pub trait FrontendProjection: Entity {
+  fn frontend_excluded_fields() -> Vec<&'static str> {
+    Vec::new()
+  }
+
+  fn filter_for_frontend(&self) -> Value {
+    let mut value = self.to_value().unwrap_or(Value::Null);
+    let excluded = Self::frontend_excluded_fields();
+    if excluded.is_empty() {
+      return value;
+    }
+    if let Some(obj) = value.as_object_mut() {
+      for field in excluded {
+        obj.remove(field);
+      }
+    }
+    value
+  }
+}
+
 /// Core trait every ORM-managed struct must implement.
 ///
 /// Typically derived via the `#[derive(Entity)]` macro (or implemented manually).
