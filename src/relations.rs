@@ -232,8 +232,9 @@ pub trait WithRelations: Entity {
 
 /// Global registry mapping collection names to their relation definitions.
 /// This allows dynamic relation resolution instead of hardcoded path matching.
-static RELATION_REGISTRY: std::sync::RwLock<Option<std::collections::HashMap<String, Vec<RelationDef>>>> =
-  std::sync::RwLock::new(None);
+static RELATION_REGISTRY: std::sync::RwLock<
+  Option<std::collections::HashMap<String, Vec<RelationDef>>>,
+> = std::sync::RwLock::new(None);
 
 static REGISTERED_COLLECTIONS: std::sync::RwLock<Option<std::collections::HashMap<String, bool>>> =
   std::sync::RwLock::new(None);
@@ -242,7 +243,10 @@ static REGISTERED_COLLECTIONS: std::sync::RwLock<Option<std::collections::HashMa
 /// Automatically registers if not already registered.
 pub fn register_collection_relations(collection: &str, relations: Vec<RelationDef>) {
   let mut registered = REGISTERED_COLLECTIONS.write().unwrap();
-  if registered.as_ref().map_or(false, |r| r.contains_key(collection)) {
+  if registered
+    .as_ref()
+    .map_or(false, |r| r.contains_key(collection))
+  {
     return;
   }
 
@@ -1052,11 +1056,16 @@ impl<P: DatabaseProvider> RelationLoader<P> {
 
       for doc in docs.iter_mut() {
         if let Some(obj) = doc.as_object_mut() {
-          obj.insert("_collection".to_string(), serde_json::Value::String(child_relation.target_collection.clone()));
+          obj.insert(
+            "_collection".to_string(),
+            serde_json::Value::String(child_relation.target_collection.clone()),
+          );
         }
       }
 
-      docs = self.load_many(docs, &child_relation, filter_deleted).await?;
+      docs = self
+        .load_many(docs, &child_relation, filter_deleted)
+        .await?;
 
       if i + 1 < path_segments.len() {
         docs = self
@@ -1073,7 +1082,11 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     Ok(docs)
   }
 
-  fn find_child_relation(&self, parent_relation: &RelationDef, segment: &str) -> OrmResult<RelationDef> {
+  fn find_child_relation(
+    &self,
+    parent_relation: &RelationDef,
+    segment: &str,
+  ) -> OrmResult<RelationDef> {
     let target_collection = &parent_relation.target_collection;
 
     if let Some(child_relations) = get_collection_relations(target_collection) {
@@ -1083,7 +1096,10 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     }
 
     let relations_from_def = Self::get_relations_for_collection(target_collection);
-    if let Some(rel) = relations_from_def.iter().find(|r| r.name.as_str() == segment) {
+    if let Some(rel) = relations_from_def
+      .iter()
+      .find(|r| r.name.as_str() == segment)
+    {
       return Ok(rel.clone());
     }
 
@@ -1091,7 +1107,10 @@ impl<P: DatabaseProvider> RelationLoader<P> {
       "Unknown relation '{}' on collection '{}'. Available relations: {:?}",
       segment,
       target_collection,
-      relations_from_def.iter().map(|r| r.name.as_str()).collect::<Vec<_>>()
+      relations_from_def
+        .iter()
+        .map(|r| r.name.as_str())
+        .collect::<Vec<_>>()
     )))
   }
 
