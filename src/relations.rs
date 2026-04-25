@@ -806,6 +806,156 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     }
   }
 
+  /// Recursively load a relation and auto-load nested relations from target entity.
+  ///
+  /// This method:
+  /// 1. Checks for circular references using visited set
+  /// 2. Loads the relation via load_many
+  /// 3. For each loaded document, automatically loads its relations (if target entity has WithRelations)
+  /// 4. Backtracks to allow different paths to reach same collection
+  ///
+  /// # Arguments
+  /// * `docs` - Parent documents to load relation for
+  /// * `relation` - The relation definition to load
+  /// * `visited` - Set of already-visited collections to detect loops (modified in-place for backtracking)
+  ///
+  /// # Returns
+  /// Documents with the relation loaded and nested relations auto-loaded
+  pub async fn load_relation_recursive(
+    &self,
+    docs: Vec<Value>,
+    relation: &RelationDef,
+    visited: &mut std::collections::HashSet<String>,
+  ) -> OrmResult<Vec<Value>> {
+    let target = relation.target_collection.clone();
+
+    if visited.contains(&target) {
+      log::debug!(
+        "Skipping relation '{}' -> '{}': loop detected",
+        relation.name,
+        target
+      );
+      return Ok(docs);
+    }
+
+    visited.insert(target.clone());
+
+    let mut result_docs = self.load_many(docs, relation, true).await?;
+
+    if let Some(child_relations) = get_collection_relations(&target) {
+      for child_rel in child_relations {
+        let child_target = child_rel.target_collection.clone();
+
+        if visited.contains(&child_target) {
+          log::debug!(
+            "Skipping nested relation '{}' -> '{}': loop detected",
+            child_rel.name,
+            child_target
+          );
+          continue;
+        }
+
+        visited.insert(child_target.clone());
+
+        let child_docs: Vec<Value> = result_docs
+          .iter()
+          .filter_map(|d| d.get(&relation.name).and_then(|v| v.as_array()).cloned())
+          .flatten()
+          .collect();
+
+        if child_docs.is_empty() {
+          visited.remove(&child_target);
+          continue;
+        }
+
+        let enriched = self.load_many(child_docs, &child_rel, true).await?;
+
+        let mut to_process = vec![(
+          enriched.clone(),
+          child_target.clone(),
+          child_rel.name.clone(),
+        )];
+
+        while let Some((current_docs, current_target, current_rel_name)) = to_process.pop() {
+          if let Some(grandchild_relations) = get_collection_relations(&current_target) {
+            for grandchild_rel in grandchild_relations {
+              let grandchild_target = grandchild_rel.target_collection.clone();
+
+              if visited.contains(&grandchild_target) {
+                log::debug!(
+                  "Skipping grandchild relation '{}' -> '{}': loop detected",
+                  grandchild_rel.name,
+                  grandchild_target
+                );
+                continue;
+              }
+
+              visited.insert(grandchild_target.clone());
+
+              let grandchild_docs: Vec<Value> = current_docs
+                .iter()
+                .filter_map(|d| d.get(&current_rel_name).and_then(|v| v.as_array()).cloned())
+                .flatten()
+                .collect();
+
+              if !grandchild_docs.is_empty() {
+                let grandchild_enriched = self
+                  .load_many(grandchild_docs, &grandchild_rel, true)
+                  .await?;
+
+                if let Some(gc_relations) = get_collection_relations(&grandchild_target) {
+                  for gc_rel in gc_relations {
+                    to_process.push((
+                      grandchild_enriched.clone(),
+                      gc_rel.target_collection.clone(),
+                      gc_rel.name.clone(),
+                    ));
+                  }
+                }
+              }
+
+              visited.remove(&grandchild_target);
+            }
+          }
+        }
+
+        let child_map: std::collections::HashMap<String, Value> = enriched
+          .into_iter()
+          .filter_map(|d| {
+            d.clone()
+              .get("id")
+              .and_then(|v| v.as_str())
+              .map(|id| (id.to_string(), d))
+          })
+          .collect();
+
+        for doc in result_docs.iter_mut() {
+          if let Some(obj) = doc.as_object_mut() {
+            if let Some(arr) = obj.get_mut(&relation.name) {
+              if let Some(arr_mut) = arr.as_array_mut() {
+                for item in arr_mut.iter_mut() {
+                  if let Some(obj_item) = item.as_object_mut() {
+                    if let Some(item_id) = obj_item.get("id").and_then(|v| v.as_str()) {
+                      if let Some(enriched_child) = child_map.get(item_id) {
+                        *item = enriched_child.clone();
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        visited.remove(&child_target);
+      }
+    }
+
+    visited.remove(&target);
+
+    Ok(result_docs)
+  }
+
   /// Load nested relations by dot-notation path with batch loading at each level.
   ///
   /// Example: load_nested(docs, ["tasks", "subtasks", "comments"], true)
