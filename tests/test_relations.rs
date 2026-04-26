@@ -106,12 +106,12 @@ fn test_relation_def_on_delete_set_null() {
 
 #[test]
 fn test_relation_registry_register_and_get() {
-  clear_relation_registry();
+    clear_relation_registry();
 
   let relations = vec![
     RelationDef::one_to_many("posts", "posts", "author_id"),
     RelationDef::many_to_one("author", "users", "author_id"),
-  ];
+    ];
   register_collection_relations("articles", relations);
 
   let stored = get_collection_relations("articles");
