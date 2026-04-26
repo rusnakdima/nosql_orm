@@ -1165,11 +1165,16 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     let target = match get_relation_def(collection, segment) {
       Some(def) => def,
       None => {
-        let available_relations = if let Some(rels) = get_registered_collection_relations(collection) {
-          rels.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(", ")
-        } else {
-          "none".to_string()
-        };
+        let available_relations =
+          if let Some(rels) = get_registered_collection_relations(collection) {
+            rels
+              .iter()
+              .map(|r| r.name.as_str())
+              .collect::<Vec<_>>()
+              .join(", ")
+          } else {
+            "none".to_string()
+          };
         return Err(OrmError::InvalidQuery(format!(
           "Unknown relation path: collection='{}', segment='{}'. Available relations: [{}]. Register relations using register_collection_relations().",
           collection, segment, available_relations

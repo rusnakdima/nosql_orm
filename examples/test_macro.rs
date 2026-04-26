@@ -5,12 +5,15 @@ use serde::{Deserialize, Serialize};
 #[table_name("test_users")]
 #[soft_delete]
 pub struct TestUser {
-    pub id: Option<String>,
-    pub name: String,
-    pub email: String,
+  pub id: Option<String>,
+  pub name: String,
+  pub email: String,
 }
 
 fn main() {
-    println!("TestUser table_name: {}", TestUser::table_name());
-    println!("TestUser is_soft_deletable: {}", TestUser::is_soft_deletable());
+  println!("TestUser table_name: {}", TestUser::table_name());
+  println!(
+    "TestUser is_soft_deletable: {}",
+    TestUser::is_soft_deletable()
+  );
 }
