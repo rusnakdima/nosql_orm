@@ -1,4 +1,5 @@
 use crate::error::OrmResult;
+use crate::field_meta::{EntityFieldMeta, EntityFields, FieldMeta};
 use crate::nosql_index::NosqlIndex;
 use crate::sql::SqlColumnDef;
 use serde::{de::DeserializeOwned, Serialize};
@@ -66,6 +67,12 @@ pub trait FrontendProjection: Entity {
 pub trait Entity: Serialize + DeserializeOwned + Debug + Clone + Send + Sync + 'static {
   /// Returns the metadata describing this entity.
   fn meta() -> EntityMeta;
+
+  /// Returns all field metadata for this entity.
+  /// This includes column fields, ID field, relations, and validation rules.
+  fn fields() -> Vec<FieldMeta> {
+    Vec::new()
+  }
 
   /// Returns the entity's primary-key value (as an `Option<String>`).
   fn get_id(&self) -> Option<String>;

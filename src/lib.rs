@@ -42,6 +42,7 @@ pub mod embedded;
 pub mod entity;
 pub mod error;
 pub mod events;
+pub mod field_meta;
 pub mod graphql;
 pub mod id;
 pub mod inheritance;
@@ -63,13 +64,16 @@ pub mod transaction;
 pub mod utils;
 pub mod validators;
 
+pub use entity::Entity;
+pub use entity::EntityMeta;
+
 pub mod logging;
 pub mod providers;
 
 #[cfg(feature = "query_cache")]
 pub mod cache;
 
-pub use nosql_orm_derive::Entity;
+pub use nosql_orm_derive::Model;
 pub use nosql_orm_derive::Validate;
 
 pub use aggregation::{
@@ -112,6 +116,10 @@ pub use sql::{
 pub mod prelude {
   pub use crate::entity::{Entity, EntityMeta, FrontendProjection};
   pub use crate::error::{OrmError, OrmResult};
+  pub use crate::field_meta::{
+    EntityFieldMeta, EntityFields, FieldMeta, FieldType, RelationFieldType, RelationMeta,
+    ValidateMeta, ValidatorType,
+  };
   pub use crate::provider::{DatabaseProvider, ProviderConfig};
   pub use crate::query::{Filter, OrderBy, Projection, QueryBuilder, SortDirection};
   pub use crate::relations::{
