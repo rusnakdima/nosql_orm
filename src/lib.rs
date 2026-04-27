@@ -66,6 +66,8 @@ pub mod validators;
 
 pub use entity::Entity;
 pub use entity::EntityMeta;
+pub use entity::FrontendProjection;
+pub use timestamps::Timestamps;
 
 pub mod logging;
 pub mod providers;
