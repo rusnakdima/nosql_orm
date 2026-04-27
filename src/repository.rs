@@ -573,12 +573,6 @@ where
       )
       .await?;
 
-    let docs = if let Some(ref projection) = self.builder.projection {
-      docs.into_iter().map(|doc| projection.apply(&doc)).collect()
-    } else {
-      docs
-    };
-
     docs.into_iter().map(E::from_value).collect()
   }
 
@@ -621,12 +615,6 @@ where
       })
     });
 
-    let docs = if let Some(ref projection) = builder.projection {
-      docs.into_iter().map(|doc| projection.apply(&doc)).collect()
-    } else {
-      docs
-    };
-
     let entities: Vec<E> = docs
       .into_iter()
       .map(E::from_value)
@@ -651,7 +639,7 @@ where
       Some(o) => (Some(o.field.as_str()), o.direction == SortDirection::Asc),
       None => (None, true),
     };
-    let docs = self
+    self
       .repo
       .provider
       .find_many(
@@ -662,13 +650,7 @@ where
         sort_field,
         sort_asc,
       )
-      .await?;
-
-    Ok(if let Some(ref projection) = self.builder.projection {
-      docs.into_iter().map(|doc| projection.apply(&doc)).collect()
-    } else {
-      docs
-    })
+      .await
   }
 
   /// Execute and count matching entities.

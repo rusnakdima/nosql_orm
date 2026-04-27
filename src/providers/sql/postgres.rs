@@ -3,6 +3,7 @@
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::{DatabaseProvider, ProviderConfig};
+use crate::providers::sql::{row, utils};
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
@@ -48,53 +49,9 @@ impl PostgresProvider {
     Self::connect(&config.connection).await
   }
 
-  fn row_to_json(row: &Row) -> Value {
-    let mut map = serde_json::Map::new();
-    let columns = row.columns();
-    for i in 0..columns.len() {
-      let col = &columns[i];
-      let col_name = col.name();
-      let col_type = col.type_();
-      let json_val = match *col_type {
-        tokio_postgres::types::Type::BOOL => {
-          serde_json::json!(row.get::<_, bool>(i))
-        }
-        tokio_postgres::types::Type::INT4 => {
-          serde_json::json!(row.get::<_, i32>(i))
-        }
-        tokio_postgres::types::Type::INT8 => {
-          serde_json::json!(row.get::<_, i64>(i))
-        }
-        tokio_postgres::types::Type::FLOAT4 => {
-          serde_json::json!(row.get::<_, f32>(i))
-        }
-        tokio_postgres::types::Type::FLOAT8 => {
-          serde_json::json!(row.get::<_, f64>(i))
-        }
-        tokio_postgres::types::Type::TEXT | tokio_postgres::types::Type::VARCHAR => {
-          serde_json::json!(row.get::<_, String>(i))
-        }
-        tokio_postgres::types::Type::JSON | tokio_postgres::types::Type::JSONB => {
-          serde_json::from_str(&row.get::<_, String>(i)).unwrap_or(serde_json::Value::Null)
-        }
-        tokio_postgres::types::Type::BYTEA => {
-          serde_json::json!(base64_encode(&row.get::<_, Vec<u8>>(i)))
-        }
-        _ => serde_json::Value::Null,
-      };
-      map.insert(col_name.to_string(), json_val);
-    }
-    serde_json::Value::Object(map)
-  }
-
   pub fn dialect(&self) -> SqlDialect {
     self.dialect
   }
-}
-
-fn base64_encode(data: &[u8]) -> String {
-  use base64::{engine::general_purpose, Engine as _};
-  general_purpose::STANDARD.encode(data)
 }
 
 #[async_trait]
@@ -143,7 +100,7 @@ impl DatabaseProvider for PostgresProvider {
       .await
       .map_err(|e| OrmError::Query(e.to_string()))?;
 
-    Ok(Self::row_to_json(&row))
+    Ok(row::row_to_json_postgres(&row))
   }
 
   async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
@@ -163,7 +120,7 @@ impl DatabaseProvider for PostgresProvider {
       .await
       .map_err(|e| OrmError::Query(e.to_string()))?;
 
-    Ok(row.map(|r| Self::row_to_json(&r)))
+    Ok(row.map(|r| row::row_to_json_postgres(&r)))
   }
 
   async fn find_many(
@@ -215,7 +172,7 @@ impl DatabaseProvider for PostgresProvider {
       .await
       .map_err(|e| OrmError::Query(e.to_string()))?;
 
-    Ok(rows.iter().map(|r| Self::row_to_json(r)).collect())
+    Ok(rows.iter().map(|r| row::row_to_json_postgres(r)).collect())
   }
 
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
@@ -252,7 +209,7 @@ impl DatabaseProvider for PostgresProvider {
       .await
       .map_err(|e| OrmError::Query(e.to_string()))?;
 
-    Ok(Self::row_to_json(&row))
+    Ok(row::row_to_json_postgres(&row))
   }
 
   async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
@@ -288,7 +245,7 @@ impl DatabaseProvider for PostgresProvider {
       .await
       .map_err(|e| OrmError::Query(e.to_string()))?;
 
-    Ok(Self::row_to_json(&row))
+    Ok(row::row_to_json_postgres(&row))
   }
 
   async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {

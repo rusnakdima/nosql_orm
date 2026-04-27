@@ -2,6 +2,9 @@
 //!
 //! Provides implementations for PostgreSQL, SQLite, and MySQL.
 
+pub mod row;
+pub mod utils;
+
 #[cfg(feature = "sql-sqlite")]
 pub mod sqlite;
 

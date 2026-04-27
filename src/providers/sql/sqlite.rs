@@ -3,6 +3,7 @@
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::{DatabaseProvider, ProviderConfig};
+use crate::providers::sql::{row, utils};
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
@@ -59,33 +60,7 @@ impl SqliteProvider {
   }
 }
 
-fn base64_encode(data: &[u8]) -> String {
-  use base64::{engine::general_purpose, Engine as _};
-  general_purpose::STANDARD.encode(data)
-}
-
-fn row_to_json(row: &rusqlite::Row) -> Result<Value, rusqlite::Error> {
-  let mut map = serde_json::Map::new();
-
-  for idx in 0..16 {
-    let col_name = format!("col_{}", idx);
-    let value = match row.get_ref(idx) {
-      Ok(rusqlite::types::ValueRef::Null) => serde_json::Value::Null,
-      Ok(rusqlite::types::ValueRef::Integer(i)) => serde_json::json!(i),
-      Ok(rusqlite::types::ValueRef::Real(f)) => serde_json::json!(f),
-      Ok(rusqlite::types::ValueRef::Text(s)) => {
-        serde_json::json!(std::str::from_utf8(s).unwrap_or(""))
-      }
-      Ok(rusqlite::types::ValueRef::Blob(b)) => {
-        serde_json::json!(base64_encode(&b))
-      }
-      Err(_) => break,
-    };
-    map.insert(col_name, value);
-  }
-
-  Ok(serde_json::Value::Object(map))
-}
+use crate::providers::sql::utils::base64_encode;
 
 #[async_trait]
 impl DatabaseProvider for SqliteProvider {
@@ -141,7 +116,7 @@ impl DatabaseProvider for SqliteProvider {
       let mut stmt = conn_guard
         .prepare(&sql)
         .map_err(|e| OrmError::Query(e.to_string()))?;
-      let result = stmt.query_row([id_clone], |row| row_to_json(row));
+      let result = stmt.query_row([id_clone], |row| row::row_to_json_sqlite(row));
 
       match result {
         Ok(value) => Ok(value),
@@ -168,7 +143,7 @@ impl DatabaseProvider for SqliteProvider {
       let mut stmt = conn_guard
         .prepare(&sql)
         .map_err(|e| OrmError::Query(e.to_string()))?;
-      let result = stmt.query_row([id_owned], |row| row_to_json(row));
+      let result = stmt.query_row([id_owned], |row| row::row_to_json_sqlite(row));
 
       match result {
         Ok(value) => Ok(Some(value)),
@@ -224,7 +199,7 @@ impl DatabaseProvider for SqliteProvider {
       let mut results = Vec::new();
       let mut rows = stmt.query([]).map_err(|e| OrmError::Query(e.to_string()))?;
       while let Some(row) = rows.next().map_err(|e| OrmError::Query(e.to_string()))? {
-        if let Ok(value) = row_to_json(row) {
+        if let Ok(value) = row::row_to_json_sqlite(row) {
           results.push(value);
         }
       }
@@ -274,7 +249,7 @@ impl DatabaseProvider for SqliteProvider {
       let mut stmt = conn_guard
         .prepare(&sql)
         .map_err(|e| OrmError::Query(e.to_string()))?;
-      let result = stmt.query_row([id_owned.as_str()], |row| row_to_json(row));
+      let result = stmt.query_row([id_owned.as_str()], |row| row::row_to_json_sqlite(row));
 
       match result {
         Ok(value) => Ok(value),
@@ -327,7 +302,7 @@ impl DatabaseProvider for SqliteProvider {
       let mut stmt = conn_guard
         .prepare(&sql)
         .map_err(|e| OrmError::Query(e.to_string()))?;
-      let result = stmt.query_row([id_owned.as_str()], |row| row_to_json(row));
+      let result = stmt.query_row([id_owned.as_str()], |row| row::row_to_json_sqlite(row));
 
       match result {
         Ok(value) => Ok(value),

@@ -3,6 +3,7 @@
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::{DatabaseProvider, ProviderConfig};
+use crate::providers::sql::{row, utils};
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
@@ -36,40 +37,6 @@ impl MySqlProvider {
 
   pub async fn from_config(config: &ProviderConfig) -> OrmResult<Self> {
     Self::connect(&config.connection).await
-  }
-
-  fn row_to_json(row: Row) -> JsonValue {
-    let mut map = serde_json::Map::new();
-    let columns = row.columns();
-    let len = columns.len();
-
-    for i in 0..len {
-      if let Some(col) = columns.get(i) {
-        let col_name = col.name_str().as_ref().to_string();
-        let col_value = match row.get::<i64, _>(i) {
-          Some(v) => serde_json::json!(v),
-          None => match row.get::<f64, _>(i) {
-            Some(v) => serde_json::json!(v),
-            None => match row.get::<String, _>(i) {
-              Some(v) => serde_json::json!(v),
-              None => match row.get::<Vec<u8>, _>(i) {
-                Some(b) => {
-                  if let Ok(s) = std::str::from_utf8(&b) {
-                    serde_json::Value::String(s.to_string())
-                  } else {
-                    serde_json::Value::Null
-                  }
-                }
-                None => serde_json::Value::Null,
-              },
-            },
-          },
-        };
-        map.insert(col_name, col_value);
-      }
-    }
-
-    serde_json::Value::Object(map)
   }
 
   pub fn dialect(&self) -> SqlDialect {
@@ -154,7 +121,7 @@ impl DatabaseProvider for MySqlProvider {
       .map_err(|e| OrmError::Query(e.to_string()))?;
 
     match result {
-      Some(r) => Ok(Some(Self::row_to_json(r))),
+      Some(r) => Ok(Some(row::row_to_json_mysql(r))),
       None => Ok(None),
     }
   }
@@ -210,7 +177,7 @@ impl DatabaseProvider for MySqlProvider {
 
     let mut results = Vec::new();
     for row in result {
-      results.push(Self::row_to_json(row));
+      results.push(row::row_to_json_mysql(row));
     }
 
     Ok(results)
