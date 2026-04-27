@@ -12,45 +12,23 @@ pub struct DecoratorUser {
   pub name: String,
   pub email: String,
   pub age: u32,
-  // These fields are automatically added by the attributes:
-  // #[soft_delete] -> pub deleted_at: Option<DateTime<Utc>>
-  // #[timestamp] -> pub created_at: Option<DateTime<Utc>>,
-  //              -> pub updated_at: Option<DateTime<Utc>>
-}
-
-// Manual implementation of SoftDeletable for DecoratorUser
-// In a real implementation, the Model derive would add this automatically
-impl SoftDeletable for DecoratorUser {
-  fn deleted_at(&self) -> Option<DateTime<Utc>> {
-    None // Placeholder - in real implementation this would be a field
-  }
-  fn set_deleted_at(&mut self, deleted_at: Option<DateTime<Utc>>) {
-    // Placeholder - in real implementation this would set a field
-  }
+  pub deleted_at: Option<DateTime<Utc>>,
+  pub created_at: Option<DateTime<Utc>>,
+  pub updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Model)]
 #[table_name("decorator_posts")]
 #[many_to_one("author", "DecoratorUser", "id")]
 #[many_to_many("categories", "DecoratorCategory", "category_ids")]
-#[soft_delete] // Needed for find_with_relations to work
+#[soft_delete]
 pub struct DecoratorPost {
   pub id: Option<String>,
   pub title: String,
   pub body: String,
-  pub author_id: String,                 // Maps to many_to_one relation
-  pub category_ids: Vec<String>,         // Maps to many_to_many relation
-  pub deleted_at: Option<DateTime<Utc>>, // Required for SoftDeletable
-}
-
-// Manual implementation of SoftDeletable for DecoratorPost
-impl SoftDeletable for DecoratorPost {
-  fn deleted_at(&self) -> Option<DateTime<Utc>> {
-    self.deleted_at
-  }
-  fn set_deleted_at(&mut self, deleted_at: Option<DateTime<Utc>>) {
-    self.deleted_at = deleted_at;
-  }
+  pub author_id: String,
+  pub category_ids: Vec<String>,
+  pub deleted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Model)]
@@ -76,6 +54,9 @@ async fn main() -> OrmResult<()> {
       name: "John Doe".into(),
       email: "john@example.com".into(),
       age: 30,
+      deleted_at: None,
+      created_at: None,
+      updated_at: None,
     })
     .await?;
 
