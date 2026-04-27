@@ -307,6 +307,8 @@ pub fn get_relation_def(collection: &str, relation_name: &str) -> Option<Relatio
 pub fn clear_relation_registry() {
   let mut guard = RELATION_REGISTRY.write().unwrap();
   *guard = None;
+  let mut registered = REGISTERED_COLLECTIONS.write().unwrap();
+  *registered = None;
 }
 
 /// A loaded entity with its relations eagerly populated.
@@ -688,7 +690,13 @@ impl<P: DatabaseProvider> RelationLoader<P> {
 
     let grouped: HashMap<String, Vec<Value>> = {
       let mut map = HashMap::new();
-      for rel_doc in related_docs {
+      for mut rel_doc in related_docs {
+        if let Some(obj) = rel_doc.as_object_mut() {
+          obj.insert(
+            "_collection".to_string(),
+            Value::String(relation.target_collection.clone()),
+          );
+        }
         if let Some(fk_val) = rel_doc.get(&relation.foreign_key).and_then(|v| v.as_str()) {
           map
             .entry(fk_val.to_string())
@@ -702,7 +710,18 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     for doc in docs.iter_mut() {
       if let Some(obj) = doc.as_object_mut() {
         if let Some(parent_id) = obj.get(source_key).and_then(|v| v.as_str()) {
-          let related = grouped.get(parent_id).cloned().unwrap_or_default();
+          let mut related = grouped.get(parent_id).cloned().unwrap_or_default();
+          // Add _collection to each related doc in the array
+          for rel_doc in &mut related {
+            if let Some(rel_obj) = rel_doc.as_object_mut() {
+              if rel_obj.get("_collection").is_none() {
+                rel_obj.insert(
+                  "_collection".to_string(),
+                  Value::String(relation.target_collection.clone()),
+                );
+              }
+            }
+          }
           obj.insert(relation.name.clone(), Value::Array(related));
         }
       }
@@ -788,10 +807,19 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     for doc in docs.iter_mut() {
       if let Some(obj) = doc.as_object_mut() {
         if let Some(arr) = obj.get(join_field).and_then(|v| v.as_array()) {
-          let resolved: Vec<Value> = arr
+          let mut resolved: Vec<Value> = arr
             .iter()
             .filter_map(|item| item.as_str().and_then(|id| related_map.get(id).cloned()))
             .collect();
+          // Add _collection to resolved items
+          for rel_doc in &mut resolved {
+            if let Some(rel_obj) = rel_doc.as_object_mut() {
+              rel_obj.insert(
+                "_collection".to_string(),
+                Value::String(relation.target_collection.clone()),
+              );
+            }
+          }
           obj.insert(relation.name.clone(), Value::Array(resolved));
         }
       }
@@ -1027,6 +1055,245 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     Ok(result_docs)
   }
 
+  /// Recursive nested relation loading - clean algorithm.
+  ///
+  /// Loads nested relations using an iterative stack-based approach.
+  ///
+  /// Auto-load all relations for a collection based on entity macro definitions.
+  ///
+  /// When entity defines relations via #[one_to_many], #[many_to_one], etc. macros,
+  /// this method loads all of them automatically using iterative processing.
+  ///
+  /// # Arguments
+  /// * `docs` - The parent documents to load relations for
+  /// * `collection` - The collection name (e.g., "todos")
+  /// * `filter_deleted` - Whether to filter out soft-deleted related entities
+  ///
+  /// # Returns
+  /// Documents with ALL relations from entity macros auto-loaded (recursively)
+  pub async fn load_all_relations(
+    &self,
+    mut docs: Vec<Value>,
+    collection: &str,
+    filter_deleted: bool,
+  ) -> OrmResult<Vec<Value>> {
+    if docs.is_empty() {
+      return Ok(docs);
+    }
+
+    // Get all relations for this collection from registry
+    let relations = match get_collection_relations(collection) {
+      Some(r) => r,
+      None => return Ok(docs),
+    };
+
+    // Process each relation
+    for rel_def in relations {
+      docs = self.load_many(docs, &rel_def, filter_deleted).await?;
+
+      // For "one_to_many" and "many_to_many" relations, recursively load nested relations
+      if rel_def.relation_type == RelationType::OneToMany
+        || rel_def.relation_type == RelationType::ManyToMany
+      {
+        let segment = rel_def.name.as_str();
+        let target_collection = rel_def.target_collection.clone();
+
+        // Collect children and track their parent
+        let mut all_children: Vec<Value> = Vec::new();
+        let mut child_parent_map: Vec<(Value, Value)> = Vec::new();
+
+        for doc in &docs {
+          if let Some(arr) = doc.get(segment).and_then(|v| v.as_array()) {
+            for child in arr.iter().cloned() {
+              let mut child_with_meta = child.clone();
+              if let Some(obj) = child_with_meta.as_object_mut() {
+                obj.insert(
+                  "_collection".to_string(),
+                  Value::String(target_collection.clone()),
+                );
+              }
+              all_children.push(child_with_meta.clone());
+              child_parent_map.push((doc.clone(), child_with_meta));
+            }
+          }
+        }
+
+        // Recursively load relations on children using iterative stack
+        if !all_children.is_empty() {
+          let enriched_children =
+            Box::pin(self.load_all_relations(all_children, &target_collection, filter_deleted))
+              .await?;
+
+          // Re-associate enriched children
+          let mut children_by_parent: std::collections::HashMap<String, Vec<Value>> =
+            std::collections::HashMap::new();
+
+          for (i, child) in enriched_children.into_iter().enumerate() {
+            if let Some(parent_doc) = child_parent_map.get(i) {
+              let parent_id = parent_doc
+                .0
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+              children_by_parent
+                .entry(parent_id.to_string())
+                .or_insert_with(Vec::new)
+                .push(child);
+            }
+          }
+
+          for doc in docs.iter_mut() {
+            if let Some(obj) = doc.as_object_mut() {
+              if let Some(parent_id) = obj.get("id").and_then(|v| v.as_str()) {
+                if let Some(enriched) = children_by_parent.get(parent_id) {
+                  obj.insert(segment.to_string(), Value::Array(enriched.clone()));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    Ok(docs)
+  }
+
+  /// Loads nested relations by path with proper parent-child re-association.
+  ///
+  /// Uses iterative processing with single recursion per level to avoid async recursion issues.
+  ///
+  /// # Algorithm
+  /// 1. Load current segment relation on docs
+  /// 2. Extract children (which have this relation's foreign key on them)
+  /// 3. Recursively load ALL remaining segments on children
+  /// 4. Re-associate enriched children back to parent
+  ///
+  /// # Arguments
+  /// * `docs` - The parent documents to load relations for
+  /// * `path_segments` - Relation path segments (e.g., ["tasks", "subtasks", "comments"])
+  /// * `base_collection` - The collection name of the parent docs
+  /// * `filter_deleted` - Whether to filter soft-deleted entities
+  pub async fn load_nested_recursive(
+    &self,
+    mut docs: Vec<Value>,
+    path_segments: &[&str],
+    base_collection: &str,
+    filter_deleted: bool,
+  ) -> OrmResult<Vec<Value>> {
+    if path_segments.is_empty() || docs.is_empty() {
+      return Ok(docs);
+    }
+
+    let mut current_collection = base_collection.to_string();
+
+    // Process first segment
+    let first_segment = path_segments[0];
+    let rel_def = get_relation_def(&current_collection, first_segment).ok_or_else(|| {
+      let available = get_registered_collection_relations(&current_collection)
+        .map(|rels| {
+          rels
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+        })
+        .unwrap_or_else(|| "none".to_string());
+      OrmError::InvalidQuery(format!(
+        "Unknown relation '{}' on collection '{}'. Available: [{}]",
+        first_segment, current_collection, available
+      ))
+    })?;
+
+    // Load relation on all docs
+    // Optimization: If docs already have children with this relation loaded (from previous processing),
+    // skip re-loading and just use the existing children for remaining segments
+    let children_already_loaded = docs.iter().any(|doc| {
+      doc
+        .get(first_segment)
+        .and_then(|v| v.as_array())
+        .map_or(false, |arr| {
+          arr.iter().any(|child| child.get("_collection").is_some())
+        })
+    });
+
+    if !children_already_loaded {
+      docs = self.load_many(docs, &rel_def, filter_deleted).await?;
+    }
+
+    // If only one segment, return after loading this level
+    if path_segments.len() == 1 {
+      return Ok(docs);
+    }
+
+    // More segments to process - extract children and recurse
+    let target_collection = rel_def.target_collection.clone();
+    let remaining_segments = &path_segments[1..];
+
+    // Collect all children with their parent tracking
+    let mut all_children: Vec<Value> = Vec::new();
+    let mut parent_child_pairs: Vec<(String, Value)> = Vec::new();
+
+    for doc in &docs {
+      let parent_id = doc
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+      if let Some(arr) = doc.get(first_segment).and_then(|v| v.as_array()) {
+        for child in arr.iter().cloned() {
+          let mut child_with_meta = child.clone();
+          if let Some(obj) = child_with_meta.as_object_mut() {
+            obj.insert(
+              "_collection".to_string(),
+              Value::String(target_collection.clone()),
+            );
+          }
+          all_children.push(child_with_meta.clone());
+          parent_child_pairs.push((parent_id.clone(), child_with_meta));
+        }
+      }
+    }
+
+    if all_children.is_empty() {
+      return Ok(docs);
+    }
+
+    // Recursively load remaining relations on all children at once
+    // This is ONE recursive call per level, not one per segment
+    let enriched_children = Box::pin(self.load_nested_recursive(
+      all_children,
+      remaining_segments,
+      &target_collection,
+      filter_deleted,
+    ))
+    .await?;
+
+    // Re-associate: group enriched children by parent_id
+    let mut children_by_parent: std::collections::HashMap<String, Vec<Value>> =
+      std::collections::HashMap::new();
+    for (i, child) in enriched_children.into_iter().enumerate() {
+      if let Some((parent_id, _)) = parent_child_pairs.get(i) {
+        children_by_parent
+          .entry(parent_id.clone())
+          .or_insert_with(Vec::new)
+          .push(child);
+      }
+    }
+
+    // Update parent's relation array with enriched children
+    for doc in docs.iter_mut() {
+      if let Some(obj) = doc.as_object_mut() {
+        if let Some(parent_id) = obj.get("id").and_then(|v| v.as_str()) {
+          if let Some(enriched) = children_by_parent.get(parent_id) {
+            obj.insert(first_segment.to_string(), Value::Array(enriched.clone()));
+          }
+        }
+      }
+    }
+
+    Ok(docs)
+  }
+
   /// Load nested relations by dot-notation path with batch loading at each level.
   ///
   /// Example: load_nested(docs, ["tasks", "subtasks", "comments"], true)
@@ -1040,78 +1307,51 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     &self,
     docs: Vec<Value>,
     path_segments: &[&str],
+    base_collection: &str,
     filter_deleted: bool,
   ) -> OrmResult<Vec<Value>> {
-    if path_segments.is_empty() {
-      return Ok(docs);
-    }
-
-    let mut current_docs = docs;
-
-    for (i, segment) in path_segments.iter().enumerate() {
-      let rel_def = self.get_relation_def_for_path(&current_docs, segment)?;
-
-      current_docs = self
-        .load_many(current_docs, &rel_def, filter_deleted)
-        .await?;
-
-      if i + 1 < path_segments.len() {
-        current_docs = self
-          .propagate_nested_to_children_iterative(
-            current_docs,
-            segment,
-            &path_segments[i + 1..],
-            filter_deleted,
-          )
-          .await?;
-      }
-    }
-
-    Ok(current_docs)
+    self
+      .load_nested_recursive(docs, path_segments, base_collection, filter_deleted)
+      .await
   }
 
   pub async fn load_nested_relations(
     &self,
-    mut docs: Vec<Value>,
+    docs: Vec<Value>,
     path_segments: &[&str],
     parent_relation: &RelationDef,
     filter_deleted: bool,
   ) -> OrmResult<Vec<Value>> {
-    if path_segments.is_empty() {
+    if path_segments.is_empty() || docs.is_empty() {
       return Ok(docs);
     }
 
-    for (i, segment) in path_segments.iter().enumerate() {
-      let child_relation = self.find_child_relation(parent_relation, segment)?;
+    // Start from the parent relation's target collection
+    let target_collection = parent_relation.target_collection.clone();
 
-      for doc in docs.iter_mut() {
-        if let Some(obj) = doc.as_object_mut() {
-          obj.insert(
-            "_collection".to_string(),
-            serde_json::Value::String(child_relation.target_collection.clone()),
-          );
-        }
-      }
-
-      docs = self
-        .load_many(docs, &child_relation, filter_deleted)
-        .await?;
-
-      if i + 1 < path_segments.len() {
-        docs = self
-          .propagate_nested_to_children_iterative(
-            docs,
-            segment,
-            &path_segments[i + 1..],
-            filter_deleted,
-          )
-          .await?;
+    // Add _collection metadata to docs for the first lookup
+    let mut docs_with_meta = docs;
+    for doc in &mut docs_with_meta {
+      if let Some(obj) = doc.as_object_mut() {
+        obj.insert(
+          "_collection".to_string(),
+          Value::String(target_collection.clone()),
+        );
       }
     }
 
-    Ok(docs)
+    // Use the new recursive loader
+    self
+      .load_nested_recursive(
+        docs_with_meta,
+        path_segments,
+        &target_collection,
+        filter_deleted,
+      )
+      .await
   }
 
+  #[allow(dead_code)]
   fn find_child_relation(
     &self,
     parent_relation: &RelationDef,
@@ -1148,6 +1388,7 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     get_collection_relations(collection).unwrap_or_default()
   }
 
+  #[allow(dead_code)]
   fn get_relation_def_for_path(&self, docs: &[Value], segment: &str) -> OrmResult<RelationDef> {
     if docs.is_empty() {
       return Err(OrmError::InvalidQuery(format!(
@@ -1185,11 +1426,16 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     Ok(target)
   }
 
+  #[deprecated(
+    since = "0.3.0",
+    note = "Use load_nested_recursive instead - this method has bugs with multi-segment paths"
+  )]
   async fn propagate_nested_to_children_iterative(
     &self,
     mut docs: Vec<Value>,
     parent_segment: &str,
     remaining_segments: &[&str],
+    parent_relation: &RelationDef,
     filter_deleted: bool,
   ) -> OrmResult<Vec<Value>> {
     if remaining_segments.is_empty() {
@@ -1206,31 +1452,86 @@ impl<P: DatabaseProvider> RelationLoader<P> {
       return Ok(docs);
     }
 
-    let mut children_to_process = parent_arr;
+    let target_collection = parent_relation.target_collection.clone();
+    let mut children_to_process: Vec<Value> = parent_arr
+      .into_iter()
+      .map(|mut d| {
+        if let Some(obj) = d.as_object_mut() {
+          obj.insert(
+            "_collection".to_string(),
+            Value::String(target_collection.clone()),
+          );
+        }
+        d
+      })
+      .collect();
+
     let mut segment_index = 0;
+    let mut current_collection = target_collection.clone();
 
     while segment_index < remaining_segments.len() {
       let segment = remaining_segments[segment_index];
-      let rel_def = self.get_relation_def_for_path(&children_to_process, segment)?;
+
+      let rel_def = get_relation_def(&current_collection, segment).ok_or_else(|| {
+        let available = get_registered_collection_relations(&current_collection)
+          .map(|rels| {
+            rels
+              .iter()
+              .map(|r| r.name.as_str())
+              .collect::<Vec<_>>()
+              .join(", ")
+          })
+          .unwrap_or_else(|| "none".to_string());
+        OrmError::InvalidQuery(format!(
+          "Unknown relation '{}' on collection '{}'. Available: [{}]",
+          segment, current_collection, available
+        ))
+      })?;
 
       children_to_process = self
         .load_many(children_to_process, &rel_def, filter_deleted)
         .await?;
 
+      current_collection = rel_def.target_collection.clone();
+
       segment_index += 1;
 
       if segment_index < remaining_segments.len() {
         let next_segment = remaining_segments[segment_index];
-        children_to_process = self.flatten_and_get_children(children_to_process, segment)?;
+        children_to_process = self.flatten_and_get_children(
+          children_to_process,
+          segment,
+          &rel_def.target_collection,
+        )?;
 
-        let next_rel_def = self.get_relation_def_for_path(&children_to_process, next_segment)?;
+        let next_rel_def =
+          get_relation_def(&current_collection, next_segment).ok_or_else(|| {
+            let available = get_registered_collection_relations(&current_collection)
+              .map(|rels| {
+                rels
+                  .iter()
+                  .map(|r| r.name.as_str())
+                  .collect::<Vec<_>>()
+                  .join(", ")
+              })
+              .unwrap_or_else(|| "none".to_string());
+            OrmError::InvalidQuery(format!(
+              "Unknown relation '{}' on collection '{}'. Available: [{}]",
+              next_segment, current_collection, available
+            ))
+          })?;
         children_to_process = self
           .load_many(children_to_process, &next_rel_def, filter_deleted)
           .await?;
+        current_collection = next_rel_def.target_collection.clone();
         segment_index += 1;
 
         if segment_index < remaining_segments.len() {
-          children_to_process = self.flatten_and_get_children(children_to_process, next_segment)?;
+          children_to_process = self.flatten_and_get_children(
+            children_to_process,
+            next_segment,
+            &current_collection,
+          )?;
         }
       }
     }
@@ -1266,7 +1567,12 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     Ok(docs)
   }
 
-  fn flatten_and_get_children(&self, docs: Vec<Value>, segment: &str) -> OrmResult<Vec<Value>> {
+  fn flatten_and_get_children(
+    &self,
+    docs: Vec<Value>,
+    segment: &str,
+    target_collection: &str,
+  ) -> OrmResult<Vec<Value>> {
     let children: Vec<Value> = docs
       .into_iter()
       .filter_map(|mut d| {
@@ -1274,7 +1580,7 @@ impl<P: DatabaseProvider> RelationLoader<P> {
           if obj.get(segment).and_then(|v| v.as_array()).is_some() {
             obj.insert(
               "_collection".to_string(),
-              Value::String(segment.to_string()),
+              Value::String(target_collection.to_string()),
             );
             return Some(d);
           }
@@ -1309,20 +1615,13 @@ impl<P: DatabaseProvider> RelationLoader<P> {
   ) -> OrmResult<Vec<Value>> {
     for path in paths {
       let segments: Vec<&str> = path.split('.').collect();
-
-      for doc in docs.iter_mut() {
-        if let Some(obj) = doc.as_object_mut() {
-          obj.insert("_collection".to_string(), Value::String(table.to_string()));
-        }
+      if segments.is_empty() {
+        continue;
       }
 
-      docs = self.load_nested(docs, &segments, filter_deleted).await?;
-
-      for doc in docs.iter_mut() {
-        if let Some(obj) = doc.as_object_mut() {
-          obj.remove("_collection");
-        }
-      }
+      docs = self
+        .load_nested(docs, &segments, table, filter_deleted)
+        .await?;
     }
 
     Ok(docs)
@@ -1384,7 +1683,12 @@ impl<P: DatabaseProvider> RelationLoader<P> {
           }
 
           let nested_docs = self
-            .load_nested(docs_with_meta, &segments[1..], filter_deleted)
+            .load_nested(
+              docs_with_meta,
+              &segments[1..],
+              &rel_def.target_collection,
+              filter_deleted,
+            )
             .await?;
 
           let mut level_docs: Vec<Vec<Value>> = vec![];
