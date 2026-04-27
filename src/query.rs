@@ -108,6 +108,14 @@ impl Projection {
     }
   }
 
+  /// Exclude these fields (include all others implicitly) - accepts owned Vec.
+  pub fn exclude_vec(fields: Vec<String>) -> Self {
+    Self {
+      select: None,
+      exclude: Some(fields),
+    }
+  }
+
   /// Returns true if projection is empty (no filtering needed).
   pub fn is_empty(&self) -> bool {
     self.select.is_none() && self.exclude.is_none()

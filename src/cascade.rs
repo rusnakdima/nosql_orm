@@ -6,6 +6,17 @@ use crate::relations::{RelationDef, RelationType, WithRelations};
 use crate::soft_delete::SoftDeletable;
 use std::collections::HashSet;
 
+fn cascade_value(entity_id: &str) -> serde_json::Value {
+  serde_json::Value::String(entity_id.to_string())
+}
+
+fn insert_cascade_id(deleted_ids: &mut HashSet<String>, to_process: &mut Vec<String>, id: &str) {
+  if !deleted_ids.contains(id) {
+    deleted_ids.insert(id.to_string());
+    to_process.push(id.to_string());
+  }
+}
+
 pub struct CascadeManager<P: DatabaseProvider> {
   provider: P,
 }
@@ -31,9 +42,9 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     }
 
     self.soft_delete(&E::table_name(), entity_id).await?;
-    deleted_ids.insert(entity_id.to_string());
 
     let mut to_process = vec![entity_id.to_string()];
+    insert_cascade_id(deleted_ids, &mut to_process, entity_id);
 
     while let Some(current_id) = to_process.pop() {
       self
@@ -95,8 +106,8 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     let existed = self.provider.delete(&E::table_name(), entity_id).await?;
 
     if existed {
-      deleted_ids.insert(entity_id.to_string());
       let mut to_process = vec![entity_id.to_string()];
+      insert_cascade_id(deleted_ids, &mut to_process, entity_id);
 
       while let Some(current_id) = to_process.pop() {
         self
@@ -178,10 +189,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     deleted_ids: &mut HashSet<String>,
     to_process: &mut Vec<String>,
   ) -> OrmResult<()> {
-    let filter = Filter::Eq(
-      relation.foreign_key.clone(),
-      serde_json::Value::String(entity_id.to_string()),
-    );
+    let filter = Filter::Eq(relation.foreign_key.clone(), cascade_value(entity_id));
 
     let related = self
       .provider
@@ -197,11 +205,8 @@ impl<P: DatabaseProvider> CascadeManager<P> {
 
     for doc in related {
       if let Some(id) = doc.get("id").and_then(|v| v.as_str()) {
-        if !deleted_ids.contains(id) {
-          self.soft_delete(&relation.target_collection, id).await?;
-          deleted_ids.insert(id.to_string());
-          to_process.push(id.to_string());
-        }
+        self.soft_delete(&relation.target_collection, id).await?;
+        insert_cascade_id(deleted_ids, to_process, id);
       }
     }
 
@@ -226,13 +231,10 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     };
 
     if let Some(foreign_id) = parent.get(&relation.local_key).and_then(|v| v.as_str()) {
-      if !deleted_ids.contains(foreign_id) {
-        self
-          .soft_delete(&relation.target_collection, foreign_id)
-          .await?;
-        deleted_ids.insert(foreign_id.to_string());
-        to_process.push(foreign_id.to_string());
-      }
+      self
+        .soft_delete(&relation.target_collection, foreign_id)
+        .await?;
+      insert_cascade_id(deleted_ids, to_process, foreign_id);
     }
 
     Ok(())
@@ -256,13 +258,10 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     };
 
     if let Some(foreign_id) = parent.get(&relation.local_key).and_then(|v| v.as_str()) {
-      if !deleted_ids.contains(foreign_id) {
-        self
-          .soft_delete(&relation.target_collection, foreign_id)
-          .await?;
-        deleted_ids.insert(foreign_id.to_string());
-        to_process.push(foreign_id.to_string());
-      }
+      self
+        .soft_delete(&relation.target_collection, foreign_id)
+        .await?;
+      insert_cascade_id(deleted_ids, to_process, foreign_id);
     }
 
     Ok(())
@@ -275,10 +274,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     deleted_ids: &mut HashSet<String>,
     to_process: &mut Vec<String>,
   ) -> OrmResult<()> {
-    let filter = Filter::Eq(
-      relation.foreign_key.clone(),
-      serde_json::Value::String(entity_id.to_string()),
-    );
+    let filter = Filter::Eq(relation.foreign_key.clone(), cascade_value(entity_id));
 
     let related = self
       .provider
@@ -294,14 +290,11 @@ impl<P: DatabaseProvider> CascadeManager<P> {
 
     for doc in related {
       if let Some(id) = doc.get("id").and_then(|v| v.as_str()) {
-        if !deleted_ids.contains(id) {
-          self
-            .provider
-            .delete(&relation.target_collection, id)
-            .await?;
-          deleted_ids.insert(id.to_string());
-          to_process.push(id.to_string());
-        }
+        self
+          .provider
+          .delete(&relation.target_collection, id)
+          .await?;
+        insert_cascade_id(deleted_ids, to_process, id);
       }
     }
 
@@ -326,14 +319,11 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     };
 
     if let Some(foreign_id) = parent.get(&relation.local_key).and_then(|v| v.as_str()) {
-      if !deleted_ids.contains(foreign_id) {
-        self
-          .provider
-          .delete(&relation.target_collection, foreign_id)
-          .await?;
-        deleted_ids.insert(foreign_id.to_string());
-        to_process.push(foreign_id.to_string());
-      }
+      self
+        .provider
+        .delete(&relation.target_collection, foreign_id)
+        .await?;
+      insert_cascade_id(deleted_ids, to_process, foreign_id);
     }
 
     Ok(())
@@ -357,14 +347,11 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     };
 
     if let Some(foreign_id) = parent.get(&relation.local_key).and_then(|v| v.as_str()) {
-      if !deleted_ids.contains(foreign_id) {
-        self
-          .provider
-          .delete(&relation.target_collection, foreign_id)
-          .await?;
-        deleted_ids.insert(foreign_id.to_string());
-        to_process.push(foreign_id.to_string());
-      }
+      self
+        .provider
+        .delete(&relation.target_collection, foreign_id)
+        .await?;
+      insert_cascade_id(deleted_ids, to_process, foreign_id);
     }
 
     Ok(())
@@ -436,10 +423,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
   ) -> OrmResult<bool> {
     match relation.relation_type {
       RelationType::OneToMany => {
-        let filter = Filter::Eq(
-          relation.foreign_key.clone(),
-          serde_json::Value::String(entity_id.to_string()),
-        );
+        let filter = Filter::Eq(relation.foreign_key.clone(), cascade_value(entity_id));
         let count = self
           .provider
           .count(&relation.target_collection, Some(&filter))
