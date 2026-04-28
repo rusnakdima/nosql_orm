@@ -1,3 +1,6 @@
 pub mod pool;
 
-pub use pool::{Pool, PoolConfig, Pooled};
+#[cfg(feature = "mongo")]
+pub use pool::MongoPool;
+
+pub use pool::{JsonPool, Pool, PoolConfig, Pooled};

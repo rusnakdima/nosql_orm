@@ -221,6 +221,18 @@ impl RelationDef {
   pub fn should_restrict(&self) -> bool {
     self.on_delete == Some(SqlOnDelete::Restrict)
   }
+
+  /// Set whether soft delete should cascade through this relation.
+  pub fn cascade_soft_delete(mut self, cascade: bool) -> Self {
+    self.cascade_soft_delete = cascade;
+    self
+  }
+
+  /// Set whether hard delete should cascade through this relation.
+  pub fn cascade_hard_delete(mut self, cascade: bool) -> Self {
+    self.cascade_hard_delete = cascade;
+    self
+  }
 }
 
 /// Trait for entities that declare their relations.

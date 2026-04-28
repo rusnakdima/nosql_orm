@@ -84,7 +84,7 @@ pub use aggregation::{
   SortStage, Stage,
 };
 pub use cascade::CascadeManager;
-pub use cdc::{AuditAction, AuditLog, Change, ChangeCapture, ChangeStream, ChangeType};
+pub use cdc::{AuditAction, AuditLog, CdcSync, Change, ChangeCapture, ChangeStream, ChangeType};
 pub use constraints::{
   CheckConstraintDef, ColumnConstraint, ColumnDef, ColumnType, IndexDef, IndexType,
   UniqueConstraintDef,
@@ -136,12 +136,30 @@ pub mod prelude {
   #[cfg(feature = "json")]
   pub use crate::providers::json::JsonProvider;
 
+  pub use crate::pool::{JsonPool, Pool, PoolConfig, Pooled};
+
   #[cfg(feature = "mongo")]
-  pub use crate::providers::mongo::MongoProvider;
+  pub use crate::pool::MongoPool;
+
+  pub use crate::transaction::{Transaction, TransactionState};
+
+  pub use crate::validators::{
+    EmailValidator, EntityValidator, EnumValidator, FieldValidator, LengthValidator,
+    PatternValidator, RangeValidator, ValidationError, ValidationResult,
+  };
+
+  pub use crate::graphql::{
+    GraphQLArg, GraphQLEntity, GraphQLField, GraphQLSchema, GraphQLTypeDef, MutationRoot,
+    QueryRoot, SchemaBuilder,
+  };
+
+  pub use crate::cli;
+  pub use crate::logging;
 
   #[cfg(feature = "redis")]
   pub use crate::providers::redis::RedisProvider;
 
+  pub use crate::cdc::CdcSync;
   pub use crate::nosql_index::{IndexManager, NosqlIndex, NosqlIndexInfo, NosqlIndexType};
   pub use crate::timestamps::{apply_timestamps, Timestamps};
   pub use crate::Validate;

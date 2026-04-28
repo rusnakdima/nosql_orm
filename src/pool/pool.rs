@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub struct PoolConfig {
   pub max_size: usize,
@@ -51,17 +51,23 @@ impl PoolConfig {
 pub struct Pooled<T> {
   inner: T,
   pool: Option<Arc<PoolInner>>,
+  _permit: Option<OwnedSemaphorePermit>,
 }
 
 impl<T> Pooled<T> {
   pub fn new(inner: T) -> Self {
-    Self { inner, pool: None }
+    Self {
+      inner,
+      pool: None,
+      _permit: None,
+    }
   }
 
-  pub fn from_pool(inner: T, pool: Arc<PoolInner>) -> Self {
+  pub fn from_pool(inner: T, pool: Arc<PoolInner>, permit: OwnedSemaphorePermit) -> Self {
     Self {
       inner,
       pool: Some(pool),
+      _permit: Some(permit),
     }
   }
 
@@ -91,13 +97,14 @@ impl<T> std::ops::DerefMut for Pooled<T> {
 impl<T> Drop for Pooled<T> {
   fn drop(&mut self) {
     if let Some(pool) = self.pool.take() {
+      drop(self._permit.take());
       pool.release();
     }
   }
 }
 
 pub(crate) struct PoolInner {
-  semaphore: Semaphore,
+  semaphore: Arc<Semaphore>,
   available: std::sync::atomic::AtomicUsize,
   #[allow(dead_code)]
   total: std::sync::atomic::AtomicUsize,
@@ -106,35 +113,28 @@ pub(crate) struct PoolInner {
 impl PoolInner {
   fn new(max_size: usize) -> Self {
     Self {
-      semaphore: Semaphore::new(max_size),
+      semaphore: Arc::new(Semaphore::new(max_size)),
       available: std::sync::atomic::AtomicUsize::new(max_size),
       total: std::sync::atomic::AtomicUsize::new(max_size),
     }
   }
 
-  async fn acquire(&self, wait_for_available: bool) -> OrmResult<()> {
-    if wait_for_available {
-      let permit = self
-        .semaphore
-        .acquire()
+  async fn acquire(&self, wait_for_available: bool) -> OrmResult<OwnedSemaphorePermit> {
+    let semaphore = self.semaphore.clone();
+    let permit = if wait_for_available {
+      semaphore
+        .acquire_owned()
         .await
-        .map_err(|_| OrmError::Connection("Pool acquire failed".to_string()))?;
-      self
-        .available
-        .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-      drop(permit);
-      Ok(())
+        .map_err(|_| OrmError::Connection("Pool acquire failed".to_string()))?
     } else {
-      let permit = self
-        .semaphore
-        .try_acquire()
-        .map_err(|_| OrmError::Connection("No available connections in pool".to_string()))?;
-      self
-        .available
-        .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-      drop(permit);
-      Ok(())
-    }
+      semaphore
+        .try_acquire_owned()
+        .map_err(|_| OrmError::Connection("No available connections in pool".to_string()))?
+    };
+    self
+      .available
+      .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    Ok(permit)
   }
 
   fn release(&self) {
@@ -146,20 +146,25 @@ impl PoolInner {
 }
 
 pub struct Pool<P: DatabaseProvider> {
+  provider: Arc<P>,
   inner: Arc<PoolInner>,
-  _phantom: std::marker::PhantomData<P>,
 }
 
 impl<P: DatabaseProvider> Pool<P> {
-  pub fn with_config(_config: PoolConfig) -> Self {
+  pub fn with_config(provider: P, config: PoolConfig) -> Self {
     Self {
-      inner: Arc::new(PoolInner::new(_config.max_size)),
-      _phantom: std::marker::PhantomData,
+      provider: Arc::new(provider),
+      inner: Arc::new(PoolInner::new(config.max_size)),
     }
   }
 
-  pub async fn acquire(&self, wait_for_available: bool) -> OrmResult<()> {
-    self.inner.acquire(wait_for_available).await
+  pub async fn acquire(&self, wait_for_available: bool) -> OrmResult<Pooled<P>> {
+    let permit = self.inner.acquire(wait_for_available).await?;
+    Ok(Pooled::from_pool(
+      (*self.provider).clone(),
+      self.inner.clone(),
+      permit,
+    ))
   }
 }
 
