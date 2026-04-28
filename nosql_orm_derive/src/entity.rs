@@ -278,9 +278,18 @@ fn parse_relation_attr(rel_type: &str, tokens: &proc_macro2::TokenStream) -> Opt
     };
 
     match rel_type {
-        "one_to_many" => Some(quote! {
-            ::nosql_orm::relations::RelationDef::one_to_many(#name, #target, #key).on_delete(#on_delete)
-        }),
+        "one_to_many" => {
+          let mut rel = quote! {
+              ::nosql_orm::relations::RelationDef::one_to_many(#name, #target, #key).on_delete(#on_delete)
+          };
+          if let Some(cascade_soft) = parse_cascade_attr(&ts_str, "cascade_soft_delete") {
+            rel = quote! { #rel.cascade_soft_delete(#cascade_soft) };
+          }
+          if let Some(cascade_hard) = parse_cascade_attr(&ts_str, "cascade_hard_delete") {
+            rel = quote! { #rel.cascade_hard_delete(#cascade_hard) };
+          }
+          Some(rel)
+        }
         "many_to_one" => Some(quote! {
             ::nosql_orm::relations::RelationDef::many_to_one(#name, #target, #key)
         }),
@@ -374,4 +383,12 @@ fn parse_sql_column_list(tokens: &proc_macro2::TokenStream) -> Option<proc_macro
 
 pub fn generate_model(input: &DeriveInput) -> TokenStream {
     generate_entity(input)
+}
+
+fn parse_cascade_attr(ts_str: &str, attr_name: &str) -> Option<bool> {
+  if ts_str.contains(attr_name) {
+    Some(ts_str.contains(&format!("{}(true)", attr_name)) || ts_str.contains(&format!("{} = true", attr_name)))
+  } else {
+    None
+  }
 }
