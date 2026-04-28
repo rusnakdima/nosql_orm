@@ -374,6 +374,63 @@ impl DatabaseProvider for MongoProvider {
   async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
     self.list_mongo_indexes(collection).await
   }
+
+  async fn aggregate(&self, collection: &str, pipeline: Vec<Value>) -> OrmResult<Vec<Value>> {
+    use futures_util::TryStreamExt;
+
+    let coll = self.db.collection::<Document>(collection);
+    let pipeline_docs: Result<Vec<Document>, _> = pipeline
+      .iter()
+      .map(|v| {
+        let doc = to_bson(v)
+          .map_err(|e| OrmError::Serialization(serde::ser::Error::custom(e.to_string())))?;
+        doc
+          .as_document()
+          .cloned()
+          .ok_or_else(|| OrmError::Provider("Expected BSON document in pipeline".to_string()))
+      })
+      .collect();
+
+    let mut cursor = coll.aggregate(pipeline_docs?, None).await?;
+    let mut results = vec![];
+    while let Some(doc) = cursor.try_next().await? {
+      results.push(Self::bson_to_json(doc)?);
+    }
+    Ok(results)
+  }
+
+  async fn health_check(&self) -> OrmResult<bool> {
+    self
+      .db
+      .run_command(doc! { "ping": 1 }, None)
+      .await
+      .map(|_| true)
+      .map_err(Into::into)
+  }
+
+  async fn insert_many(&self, collection: &str, docs: Vec<Value>) -> OrmResult<usize> {
+    let coll = self.db.collection::<Document>(collection);
+    let mut bson_docs = Vec::new();
+    for mut doc in docs {
+      if doc
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map_or(true, |s| s.is_empty())
+      {
+        doc["id"] = serde_json::json!(generate_id());
+      }
+      let mut bson_doc = Self::json_to_bson(doc)?;
+      if let Some(id) = bson_doc.remove("id") {
+        bson_doc.insert("_id", id);
+      }
+      bson_docs.push(bson_doc);
+    }
+    let count = bson_docs.len();
+    if !bson_docs.is_empty() {
+      coll.insert_many(bson_docs, None).await?;
+    }
+    Ok(count)
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

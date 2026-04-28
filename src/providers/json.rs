@@ -311,6 +311,25 @@ impl DatabaseProvider for JsonProvider {
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
     Ok(vec![])
   }
+
+  async fn health_check(&self) -> OrmResult<bool> {
+    Ok(true)
+  }
+
+  async fn insert_many(&self, collection: &str, docs: Vec<Value>) -> OrmResult<usize> {
+    let mut count = 0;
+    for doc in docs {
+      self.insert(collection, doc).await?;
+      count += 1;
+    }
+    Ok(count)
+  }
+
+  async fn aggregate(&self, _collection: &str, _pipeline: Vec<Value>) -> OrmResult<Vec<Value>> {
+    Err(OrmError::Provider(
+      "Aggregation not supported by JSON provider".to_string(),
+    ))
+  }
 }
 
 fn compare_values(a: Option<&Value>, b: Option<&Value>) -> std::cmp::Ordering {

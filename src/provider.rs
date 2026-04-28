@@ -1,4 +1,4 @@
-use crate::error::OrmResult;
+use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::query::Filter;
 use async_trait::async_trait;
@@ -87,5 +87,17 @@ pub trait DatabaseProvider: Send + Sync + Clone + 'static {
   async fn index_exists(&self, collection: &str, index_name: &str) -> OrmResult<bool> {
     let indexes = self.list_indexes(collection).await?;
     Ok(indexes.iter().any(|i| i.name == index_name))
+  }
+
+  async fn aggregate(&self, collection: &str, pipeline: Vec<Value>) -> OrmResult<Vec<Value>> {
+    Err(OrmError::Provider("Not implemented".to_string()))
+  }
+
+  async fn health_check(&self) -> OrmResult<bool> {
+    Err(OrmError::Provider("Not implemented".to_string()))
+  }
+
+  async fn insert_many(&self, collection: &str, docs: Vec<Value>) -> OrmResult<usize> {
+    Err(OrmError::Provider("Not implemented".to_string()))
   }
 }
