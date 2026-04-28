@@ -1,6 +1,7 @@
 use crate::cascade::CascadeManager;
 use crate::entity::{Entity, FrontendProjection};
 use crate::error::{OrmError, OrmResult};
+use crate::events::listener::EntityEvents;
 use crate::provider::DatabaseProvider;
 use crate::query::{
   Cursor, Filter, OrderBy, PaginatedResult, Projection, QueryBuilder, SortDirection,
@@ -9,9 +10,11 @@ use crate::relations::{RelationLoader, RelationType, RelationValue, WithLoaded, 
 use crate::soft_delete::SoftDeletable;
 use crate::timestamps::apply_timestamps;
 use crate::utils::generate_id;
+use crate::validators::Validate;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct SyncResult {
@@ -81,6 +84,7 @@ where
   P: DatabaseProvider,
 {
   pub(crate) provider: P,
+  pub(crate) events: Option<Arc<EntityEvents>>,
   _phantom: PhantomData<E>,
 }
 
@@ -93,6 +97,7 @@ where
   pub fn new(provider: P) -> Self {
     Self {
       provider,
+      events: None,
       _phantom: PhantomData,
     }
   }
@@ -100,6 +105,12 @@ where
   /// Returns the underlying provider (for raw access or sharing).
   pub fn provider(&self) -> &P {
     &self.provider
+  }
+
+  /// Configure the repository with event listeners.
+  pub fn with_events(mut self, events: Arc<EntityEvents>) -> Self {
+    self.events = Some(events);
+    self
   }
 
   fn collection() -> String {
@@ -110,30 +121,56 @@ where
 
   /// Inserts a new entity (auto-generates an id if none is set).
   /// Automatically sets created_at and updated_at timestamps.
-  pub async fn insert(&self, mut entity: E) -> OrmResult<E> {
+  pub async fn insert(&self, mut entity: E) -> OrmResult<E>
+  where
+    E: Validate,
+  {
+    entity.validate()?;
     if entity.get_id().is_none() {
       entity.set_id(generate_id());
     }
     let mut doc = entity.to_value()?;
     apply_timestamps(&mut doc, true);
     let stored = self.provider.insert(&Self::collection(), doc).await?;
-    E::from_value(stored)
+    let result = E::from_value(stored)?;
+    if let Some(ref events) = self.events {
+      events.dispatch_insert(&result.to_value()?).await?;
+    }
+    Ok(result)
   }
 
   /// Updates an existing entity (must have an id).
   /// Automatically updates the updated_at timestamp.
-  pub async fn update(&self, entity: E) -> OrmResult<E> {
+  pub async fn update(&self, entity: E) -> OrmResult<E>
+  where
+    E: Validate,
+  {
+    entity.validate()?;
     let id = entity
       .get_id()
       .ok_or_else(|| OrmError::InvalidQuery("Cannot update entity without an id".to_string()))?;
+    let before_doc = self.provider.find_by_id(&Self::collection(), &id).await?;
     let mut doc = entity.to_value()?;
     apply_timestamps(&mut doc, false);
     let stored = self.provider.update(&Self::collection(), &id, doc).await?;
-    E::from_value(stored)
+    let result = E::from_value(stored)?;
+    if let Some(ref events) = self.events {
+      let before_value = before_doc
+        .as_ref()
+        .map(|v| v.clone())
+        .unwrap_or_else(|| serde_json::json!({}));
+      events
+        .dispatch_update(&before_value, &result.to_value()?)
+        .await?;
+    }
+    Ok(result)
   }
 
   /// Inserts if no id, updates if id is present.
-  pub async fn save(&self, entity: E) -> OrmResult<E> {
+  pub async fn save(&self, entity: E) -> OrmResult<E>
+  where
+    E: Validate,
+  {
     if entity.get_id().is_some() {
       self.update(entity).await
     } else {
@@ -174,7 +211,10 @@ where
   /// For entities with id: updates if exists, inserts if not.
   /// For entities without id: generates new id and inserts.
   /// Returns the number of upserted entities.
-  pub async fn upsert_many(&self, entities: Vec<E>) -> OrmResult<usize> {
+  pub async fn upsert_many(&self, entities: Vec<E>) -> OrmResult<usize>
+  where
+    E: Validate,
+  {
     if entities.is_empty() {
       return Ok(0);
     }
@@ -220,6 +260,12 @@ where
       return cascade
         .hard_delete_cascade::<E>(id_str, &relations, &mut deleted)
         .await;
+    }
+
+    if let Some(ref events) = self.events {
+      if let Some(entity) = self.find_by_id(id_str).await? {
+        events.dispatch_delete(&entity.to_value()?).await?;
+      }
     }
 
     self.provider.delete(&Self::collection(), id_str).await
