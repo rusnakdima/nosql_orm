@@ -1172,7 +1172,7 @@ impl<P: DatabaseProvider> RelationLoader<P> {
           .await?;
 
           // Re-associate enriched children
-          let mut children_by_parent: std::collections::HashMap<String, Value> =
+          let mut children_by_parent: std::collections::HashMap<String, Vec<Value>> =
             std::collections::HashMap::new();
 
           for (i, child) in enriched_children.into_iter().enumerate() {
@@ -1182,7 +1182,10 @@ impl<P: DatabaseProvider> RelationLoader<P> {
                 .get("id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-              children_by_parent.insert(parent_id.to_string(), child);
+              children_by_parent
+                .entry(parent_id.to_string())
+                .or_default()
+                .push(child);
             }
           }
 
@@ -1190,7 +1193,7 @@ impl<P: DatabaseProvider> RelationLoader<P> {
             if let Some(obj) = doc.as_object_mut() {
               if let Some(parent_id) = obj.get("id").and_then(|v| v.as_str()) {
                 if let Some(enriched) = children_by_parent.get(parent_id) {
-                  obj.insert(segment.to_string(), enriched.clone());
+                  obj.insert(segment.to_string(), Value::Array(enriched.clone()));
                 }
               }
             }
