@@ -4,7 +4,7 @@ use nosql_orm::SoftDeletable;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct SoftDeletableUser {
   pub id: Option<String>,
   pub name: String,

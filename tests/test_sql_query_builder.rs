@@ -44,7 +44,7 @@ fn test_quote_identifier_mysql() {
 fn test_create_table_sqlite() {
   let builder = SqlQueryBuilder::new(SqlDialect::SQLite);
 
-  let columns = vec![
+  let _columns = [
     SqlColumnDef::new("id", SqlColumnType::Integer).primary_key(),
     SqlColumnDef::new("name", SqlColumnType::Text),
     SqlColumnDef::new("email", SqlColumnType::Text).nullable(),

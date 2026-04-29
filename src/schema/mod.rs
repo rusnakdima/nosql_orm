@@ -1,5 +1,5 @@
 pub mod prefix;
-pub mod schema;
+pub mod schema_impl;
 
 pub use prefix::{PrefixConfig, PrefixHolder};
-pub use schema::{Schema, SchemaManager};
+pub use schema_impl::{Schema, SchemaManager};

@@ -12,7 +12,7 @@ impl IdGenerator {
     }
   }
 
-  pub fn default() -> Self {
+  pub fn default_instance() -> Self {
     Self::new(super::strategy::UuidStrategy)
   }
 
@@ -39,6 +39,6 @@ impl Clone for IdGenerator {
 
 impl Default for IdGenerator {
   fn default() -> Self {
-    Self::default()
+    Self::default_instance()
   }
 }

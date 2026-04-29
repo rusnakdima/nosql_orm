@@ -1,22 +1,11 @@
 use std::sync::RwLock;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PrefixConfig {
   pub schema_prefix: Option<String>,
   pub env_prefix: Option<String>,
   pub tenant_prefix: Option<String>,
   pub global_prefix: Option<String>,
-}
-
-impl Default for PrefixConfig {
-  fn default() -> Self {
-    Self {
-      schema_prefix: None,
-      env_prefix: None,
-      tenant_prefix: None,
-      global_prefix: None,
-    }
-  }
 }
 
 impl PrefixConfig {

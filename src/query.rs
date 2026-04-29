@@ -222,27 +222,23 @@ impl Filter {
   /// Evaluate this filter against a JSON document value.
   pub fn matches(&self, doc: &Value) -> bool {
     match self {
-      Filter::Eq(field, val) => get_field(doc, field).map_or(false, |v| v == val),
-      Filter::Ne(field, val) => get_field(doc, field).map_or(true, |v| v != val),
+      Filter::Eq(field, val) => get_field(doc, field) == Some(val),
+      Filter::Ne(field, val) => get_field(doc, field) != Some(val),
       Filter::Gt(field, val) => compare(doc, field, val, |o| o.is_gt()),
       Filter::Gte(field, val) => compare(doc, field, val, |o| o.is_ge()),
       Filter::Lt(field, val) => compare(doc, field, val, |o| o.is_lt()),
       Filter::Lte(field, val) => compare(doc, field, val, |o| o.is_le()),
-      Filter::In(field, vals) => get_field(doc, field).map_or(false, |v| vals.contains(v)),
-      Filter::NotIn(field, vals) => get_field(doc, field).map_or(true, |v| !vals.contains(v)),
+      Filter::In(field, vals) => get_field(doc, field).is_some_and(|v| vals.contains(v)),
+      Filter::NotIn(field, vals) => get_field(doc, field).is_none_or(|v| !vals.contains(v)),
       Filter::Contains(field, sub) => get_field(doc, field)
         .and_then(|v| v.as_str())
-        .map_or(false, |s| s.to_lowercase().contains(&sub.to_lowercase())),
+        .is_some_and(|s| s.to_lowercase().contains(&sub.to_lowercase())),
       Filter::StartsWith(field, prefix) => get_field(doc, field)
         .and_then(|v| v.as_str())
-        .map_or(false, |s| {
-          s.to_lowercase().starts_with(&prefix.to_lowercase())
-        }),
+        .is_some_and(|s| s.to_lowercase().starts_with(&prefix.to_lowercase())),
       Filter::EndsWith(field, suffix) => get_field(doc, field)
         .and_then(|v| v.as_str())
-        .map_or(false, |s| {
-          s.to_lowercase().ends_with(&suffix.to_lowercase())
-        }),
+        .is_some_and(|s| s.to_lowercase().ends_with(&suffix.to_lowercase())),
       Filter::Like(field, pattern) => {
         if let Some(s) = get_field(doc, field).and_then(|v| v.as_str()) {
           matches_like(s, pattern)
@@ -253,8 +249,8 @@ impl Filter {
       Filter::And(filters) => filters.iter().all(|f| f.matches(doc)),
       Filter::Or(filters) => filters.iter().any(|f| f.matches(doc)),
       Filter::Not(inner) => !inner.matches(doc),
-      Filter::IsNull(field) => get_field(doc, field).map_or(false, |v| v.is_null()),
-      Filter::IsNotNull(field) => get_field(doc, field).map_or(false, |v| !v.is_null()),
+      Filter::IsNull(field) => get_field(doc, field).is_some_and(|v| v.is_null()),
+      Filter::IsNotNull(field) => get_field(doc, field).is_some_and(|v| !v.is_null()),
       Filter::Between(field, min, max) => {
         if let Some(val) = get_field(doc, field) {
           let ge_min = compare_values(val, min, |o| o.is_ge());
@@ -389,9 +385,9 @@ where
     (Value::Number(a), Value::Number(b)) => {
       let af = a.as_f64().unwrap_or(f64::NAN);
       let bf = b.as_f64().unwrap_or(f64::NAN);
-      af.partial_cmp(&bf).map_or(false, check)
+      af.partial_cmp(&bf).is_some_and(check)
     }
-    (Value::String(a), Value::String(b)) => a.partial_cmp(b).map_or(false, check),
+    (Value::String(a), Value::String(b)) => a.partial_cmp(b).is_some_and(check),
     _ => false,
   }
 }
@@ -464,9 +460,9 @@ fn compare(
     (Value::Number(a), Value::Number(b)) => {
       let af = a.as_f64().unwrap_or(f64::NAN);
       let bf = b.as_f64().unwrap_or(f64::NAN);
-      af.partial_cmp(&bf).map_or(false, check)
+      af.partial_cmp(&bf).is_some_and(check)
     }
-    (Value::String(a), Value::String(b)) => a.partial_cmp(b).map_or(false, check),
+    (Value::String(a), Value::String(b)) => a.partial_cmp(b).is_some_and(check),
     _ => false,
   }
 }
@@ -643,15 +639,16 @@ impl QueryBuilder {
   /// Combine filters with OR (any condition matches).
   /// Note: calling this replaces all previous individual filters with an OR group.
   pub fn or(mut self, other: QueryBuilder) -> Self {
-    let mut combined = Vec::new();
-    combined.push(self.build_filter().unwrap_or(Filter::And(vec![])));
-    combined.push(other.build_filter().unwrap_or(Filter::And(vec![])));
+    let combined = vec![
+      self.build_filter().unwrap_or(Filter::And(vec![])),
+      other.build_filter().unwrap_or(Filter::And(vec![])),
+    ];
     self.filters = vec![Filter::Or(combined)];
     self
   }
 
   /// Add a negation wrapper around the next filter.
-  pub fn not(mut self) -> Self {
+  pub fn negate(mut self) -> Self {
     if let Some(f) = self.build_filter() {
       self.filters = vec![Filter::Not(Box::new(f))];
     }

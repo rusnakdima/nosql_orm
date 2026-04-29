@@ -89,7 +89,7 @@ pub trait DatabaseProvider: Send + Sync + Clone + 'static {
     Ok(indexes.iter().any(|i| i.name == index_name))
   }
 
-  async fn aggregate(&self, collection: &str, pipeline: Vec<Value>) -> OrmResult<Vec<Value>> {
+  async fn aggregate(&self, _collection: &str, _pipeline: Vec<Value>) -> OrmResult<Vec<Value>> {
     Err(OrmError::Provider("Not implemented".to_string()))
   }
 
@@ -97,7 +97,7 @@ pub trait DatabaseProvider: Send + Sync + Clone + 'static {
     Err(OrmError::Provider("Not implemented".to_string()))
   }
 
-  async fn insert_many(&self, collection: &str, docs: Vec<Value>) -> OrmResult<usize> {
+  async fn insert_many(&self, _collection: &str, _docs: Vec<Value>) -> OrmResult<usize> {
     Err(OrmError::Provider("Not implemented".to_string()))
   }
 }

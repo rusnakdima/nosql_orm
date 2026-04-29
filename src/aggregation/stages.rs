@@ -81,6 +81,12 @@ pub struct ProjectStage {
   pub fields: std::collections::HashMap<String, Value>,
 }
 
+impl Default for ProjectStage {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl ProjectStage {
   pub fn new() -> Self {
     Self {

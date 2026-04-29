@@ -6,10 +6,11 @@
 use chrono::{DateTime, Utc};
 use nosql_orm::prelude::*;
 use nosql_orm::CascadeManager;
+use nosql_orm::Validate;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct User {
   pub id: Option<String>,
   pub username: String,
@@ -54,7 +55,7 @@ impl FrontendProjection for User {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Todo {
   pub id: Option<String>,
   pub user_id: String,
@@ -99,7 +100,7 @@ impl SoftDeletable for Todo {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Task {
   pub id: Option<String>,
   pub todo_id: String,
@@ -146,7 +147,7 @@ impl SoftDeletable for Task {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Subtask {
   pub id: Option<String>,
   pub task_id: String,
@@ -191,7 +192,7 @@ impl SoftDeletable for Subtask {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Comment {
   pub id: Option<String>,
   pub author_id: String,
@@ -428,7 +429,7 @@ async fn main() -> OrmResult<()> {
   let cascade_manager = CascadeManager::new(provider.clone());
   let mut deleted_ids = std::collections::HashSet::new();
 
-  let cascade_deleted = cascade_manager
+  let _cascade_deleted = cascade_manager
     .hard_delete_cascade::<Task>(
       task2.id.as_ref().unwrap(),
       &Task::relations(),

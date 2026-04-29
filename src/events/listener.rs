@@ -16,6 +16,12 @@ pub struct EntityEvents {
   pub listeners: Vec<Arc<dyn EntityEventListener<Value>>>,
 }
 
+impl Default for EntityEvents {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl EntityEvents {
   pub fn new() -> Self {
     Self {

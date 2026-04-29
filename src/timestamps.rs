@@ -113,10 +113,8 @@ pub fn apply_timestamps(doc: &mut Value, is_insert: bool) {
         obj.insert("updated_at".to_string(), Value::String(now));
       }
     }
-  } else {
-    if let Some(obj) = doc.as_object_mut() {
-      obj.insert("updated_at".to_string(), Value::String(now));
-    }
+  } else if let Some(obj) = doc.as_object_mut() {
+    obj.insert("updated_at".to_string(), Value::String(now));
   }
 }
 

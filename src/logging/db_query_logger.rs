@@ -9,6 +9,19 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 #[derive(Clone)]
+struct LogEntry {
+  level: String,
+  operation: String,
+  collection: String,
+  document_id: Option<String>,
+  duration_ms: u64,
+  success: bool,
+  error: Option<String>,
+  filter_summary: Option<String>,
+  result_count: usize,
+}
+
+#[derive(Clone)]
 pub struct DbQueryLogger<P: DatabaseProvider> {
   inner: Arc<P>,
   collection_name: String,
@@ -89,43 +102,28 @@ impl<P: DatabaseProvider + Clone> DbQueryLogger<P> {
     Ok(())
   }
 
-  fn build_log_entry(
-    &self,
-    level: &str,
-    operation: &str,
-    collection: &str,
-    document_id: Option<&str>,
-    duration_ms: u64,
-    success: bool,
-    error: Option<&str>,
-    filter_summary: Option<&str>,
-    result_count: usize,
-  ) -> Value {
-    let doc_id = document_id
-      .map(|s| Value::String(s.to_string()))
-      .unwrap_or(Value::Null);
-    let err = error
-      .map(|s| Value::String(s.to_string()))
-      .unwrap_or(Value::Null);
+  fn build_log_entry(&self, entry: LogEntry) -> Value {
+    let doc_id = entry.document_id.map(Value::String).unwrap_or(Value::Null);
+    let err = entry.error.map(Value::String).unwrap_or(Value::Null);
 
-    let mut entry = serde_json::json!({
+    let mut value = serde_json::json!({
         "id": Uuid::new_v4().to_string(),
         "timestamp": Utc::now().to_rfc3339(),
-        "level": level,
-        "operation": operation,
-        "collection": collection,
+        "level": entry.level,
+        "operation": entry.operation,
+        "collection": entry.collection,
         "document_id": doc_id,
-        "duration_ms": duration_ms,
-        "success": success,
+        "duration_ms": entry.duration_ms,
+        "success": entry.success,
         "error": err,
-        "result_count": result_count as i64
+        "result_count": entry.result_count as i64
     });
 
-    if let Some(fs) = filter_summary {
-      entry["filter_summary"] = Value::String(fs.to_string());
+    if let Some(fs) = entry.filter_summary {
+      value["filter_summary"] = Value::String(fs);
     }
 
-    entry
+    value
   }
 }
 
@@ -148,31 +146,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
     match &result {
       Ok(v) => {
         let id_str = v.get("id").and_then(|v| v.as_str());
-        let log_entry = self.build_log_entry(
-          "INFO",
-          "INSERT",
-          collection,
-          id_str,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "INFO".to_string(),
+          operation: "INSERT".to_string(),
+          collection: collection.to_string(),
+          document_id: id_str.map(String::from),
           duration_ms,
-          true,
-          None,
-          None,
-          1,
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: 1,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "INSERT",
-          collection,
-          id.as_deref(),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "INSERT".to_string(),
+          collection: collection.to_string(),
+          document_id: id.as_deref().map(String::from),
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          None,
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -187,45 +185,45 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(Some(_doc)) => {
-        let log_entry = self.build_log_entry(
-          "DEBUG",
-          "FIND_BY_ID",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "DEBUG".to_string(),
+          operation: "FIND_BY_ID".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          true,
-          None,
-          None,
-          1,
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: 1,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Ok(None) => {
-        let log_entry = self.build_log_entry(
-          "WARN",
-          "FIND_BY_ID",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "WARN".to_string(),
+          operation: "FIND_BY_ID".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          true,
-          None,
-          None,
-          0,
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "FIND_BY_ID",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "FIND_BY_ID".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          None,
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -252,31 +250,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(docs) => {
-        let log_entry = self.build_log_entry(
-          "DEBUG",
-          "FIND_MANY",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "DEBUG".to_string(),
+          operation: "FIND_MANY".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          true,
-          None,
-          filter_summary.as_deref(),
-          docs.len(),
-        );
+          success: true,
+          error: None,
+          filter_summary: filter_summary.clone(),
+          result_count: docs.len(),
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "FIND_MANY",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "FIND_MANY".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          filter_summary.as_deref(),
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: filter_summary.clone(),
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -291,31 +289,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(_v) => {
-        let log_entry = self.build_log_entry(
-          "INFO",
-          "UPDATE",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "INFO".to_string(),
+          operation: "UPDATE".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          true,
-          None,
-          None,
-          1,
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: 1,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "UPDATE",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "UPDATE".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          None,
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -330,31 +328,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(_v) => {
-        let log_entry = self.build_log_entry(
-          "INFO",
-          "PATCH",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "INFO".to_string(),
+          operation: "PATCH".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          true,
-          None,
-          None,
-          1,
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: 1,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "PATCH",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "PATCH".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          None,
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -369,45 +367,45 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(true) => {
-        let log_entry = self.build_log_entry(
-          "INFO",
-          "DELETE",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "INFO".to_string(),
+          operation: "DELETE".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          true,
-          None,
-          None,
-          1,
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: 1,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Ok(false) => {
-        let log_entry = self.build_log_entry(
-          "WARN",
-          "DELETE",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "WARN".to_string(),
+          operation: "DELETE".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          true,
-          None,
-          None,
-          0,
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "DELETE",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "DELETE".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          None,
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -423,31 +421,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(count) => {
-        let log_entry = self.build_log_entry(
-          "INFO",
-          "DELETE_MANY",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "INFO".to_string(),
+          operation: "DELETE_MANY".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          true,
-          None,
-          filter_summary.as_deref(),
-          *count,
-        );
+          success: true,
+          error: None,
+          filter_summary: filter_summary.clone(),
+          result_count: *count,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "DELETE_MANY",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "DELETE_MANY".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          filter_summary.as_deref(),
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: filter_summary.clone(),
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -468,31 +466,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(count) => {
-        let log_entry = self.build_log_entry(
-          "INFO",
-          "UPDATE_MANY",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "INFO".to_string(),
+          operation: "UPDATE_MANY".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          true,
-          None,
-          filter_summary.as_deref(),
-          *count,
-        );
+          success: true,
+          error: None,
+          filter_summary: filter_summary.clone(),
+          result_count: *count,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "UPDATE_MANY",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "UPDATE_MANY".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          filter_summary.as_deref(),
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: filter_summary.clone(),
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -508,31 +506,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(c) => {
-        let log_entry = self.build_log_entry(
-          "DEBUG",
-          "COUNT",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "DEBUG".to_string(),
+          operation: "COUNT".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          true,
-          None,
-          filter_summary.as_deref(),
-          *c as usize,
-        );
+          success: true,
+          error: None,
+          filter_summary: filter_summary.clone(),
+          result_count: *c as usize,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "COUNT",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "COUNT".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          filter_summary.as_deref(),
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: filter_summary.clone(),
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -547,31 +545,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(exists) => {
-        let log_entry = self.build_log_entry(
-          "DEBUG",
-          "EXISTS",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "DEBUG".to_string(),
+          operation: "EXISTS".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          true,
-          None,
-          None,
-          if *exists { 1 } else { 0 },
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: if *exists { 1 } else { 0 },
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "EXISTS",
-          collection,
-          Some(id),
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "EXISTS".to_string(),
+          collection: collection.to_string(),
+          document_id: Some(id.to_string()),
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          None,
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -586,31 +584,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(docs) => {
-        let log_entry = self.build_log_entry(
-          "DEBUG",
-          "FIND_ALL",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "DEBUG".to_string(),
+          operation: "FIND_ALL".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          true,
-          None,
-          None,
-          docs.len(),
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: docs.len(),
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "FIND_ALL",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "FIND_ALL".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          None,
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -630,31 +628,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(_) => {
-        let log_entry = self.build_log_entry(
-          "INFO",
-          "CREATE_INDEX",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "INFO".to_string(),
+          operation: "CREATE_INDEX".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          true,
-          None,
-          index_name.map(|n| format!("index_name={}", n)).as_deref(),
-          0,
-        );
+          success: true,
+          error: None,
+          filter_summary: index_name.map(|n| format!("index_name={}", n)),
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "CREATE_INDEX",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "CREATE_INDEX".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          index_name.map(|n| format!("index_name={}", n)).as_deref(),
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: index_name.map(|n| format!("index_name={}", n)),
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -669,31 +667,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(_) => {
-        let log_entry = self.build_log_entry(
-          "INFO",
-          "DROP_INDEX",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "INFO".to_string(),
+          operation: "DROP_INDEX".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          true,
-          None,
-          Some(&format!("index_name={}", index_name)),
-          0,
-        );
+          success: true,
+          error: None,
+          filter_summary: Some(format!("index_name={}", index_name)),
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "DROP_INDEX",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "DROP_INDEX".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          Some(&format!("index_name={}", index_name)),
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: Some(format!("index_name={}", index_name)),
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }
@@ -711,31 +709,31 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for DbQueryLogger<P> {
 
     match &result {
       Ok(indexes) => {
-        let log_entry = self.build_log_entry(
-          "DEBUG",
-          "LIST_INDEXES",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "DEBUG".to_string(),
+          operation: "LIST_INDEXES".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          true,
-          None,
-          None,
-          indexes.len(),
-        );
+          success: true,
+          error: None,
+          filter_summary: None,
+          result_count: indexes.len(),
+        });
         let _ = self.insert_log(log_entry).await;
       }
       Err(e) => {
-        let log_entry = self.build_log_entry(
-          "ERROR",
-          "LIST_INDEXES",
-          collection,
-          None,
+        let log_entry = self.build_log_entry(LogEntry {
+          level: "ERROR".to_string(),
+          operation: "LIST_INDEXES".to_string(),
+          collection: collection.to_string(),
+          document_id: None,
           duration_ms,
-          false,
-          Some(&e.to_string()),
-          None,
-          0,
-        );
+          success: false,
+          error: Some(e.to_string()),
+          filter_summary: None,
+          result_count: 0,
+        });
         let _ = self.insert_log(log_entry).await;
       }
     }

@@ -1,5 +1,5 @@
 use crate::error::OrmResult;
-use crate::field_meta::{EntityFieldMeta, EntityFields, FieldMeta};
+use crate::field_meta::FieldMeta;
 use crate::nosql_index::NosqlIndex;
 use crate::sql::SqlColumnDef;
 use serde::{de::DeserializeOwned, Serialize};

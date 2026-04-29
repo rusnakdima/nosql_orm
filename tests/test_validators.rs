@@ -150,8 +150,8 @@ fn test_email_validator_non_string() {
 fn test_composite_validator_all_pass() {
   use nosql_orm::validators::CompositeValidator;
   let validator = CompositeValidator::new()
-    .add(LengthValidator::new().min(5).max(20))
-    .add(PatternValidator::new(r"^[a-zA-Z0-9_]+$").unwrap());
+    .add_validator(LengthValidator::new().min(5).max(20))
+    .add_validator(PatternValidator::new(r"^[a-zA-Z0-9_]+$").unwrap());
 
   assert!(validator.validate("field", &json!("ValidUser123")).is_ok());
 }
@@ -160,8 +160,8 @@ fn test_composite_validator_all_pass() {
 fn test_composite_validator_one_fails() {
   use nosql_orm::validators::CompositeValidator;
   let validator = CompositeValidator::new()
-    .add(LengthValidator::new().min(5).max(10))
-    .add(PatternValidator::new(r"^[a-zA-Z]+$").unwrap());
+    .add_validator(LengthValidator::new().min(5).max(10))
+    .add_validator(PatternValidator::new(r"^[a-zA-Z]+$").unwrap());
 
   let result = validator.validate("field", &json!("User123")); // has numbers
   assert!(result.is_err());

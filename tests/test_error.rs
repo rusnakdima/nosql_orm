@@ -88,14 +88,16 @@ fn test_orm_error_cascade_restricted() {
 fn test_orm_result_ok() {
   let result: OrmResult<i32> = Ok(42);
   assert!(result.is_ok());
-  assert_eq!(result.unwrap(), 42);
+  let Ok(v) = result else { panic!("expected Ok") };
+  assert_eq!(v, 42);
 }
 
 #[test]
 fn test_orm_result_err() {
   let result: OrmResult<i32> = Err(OrmError::NotFound("test".to_string()));
   assert!(result.is_err());
-  assert!(matches!(result.unwrap_err(), OrmError::NotFound(_)));
+  let err = result.as_ref().err().unwrap();
+  assert!(matches!(err, OrmError::NotFound(_)));
 }
 
 #[test]

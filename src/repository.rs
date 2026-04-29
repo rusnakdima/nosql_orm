@@ -155,10 +155,7 @@ where
     let stored = self.provider.update(&Self::collection(), &id, doc).await?;
     let result = E::from_value(stored)?;
     if let Some(ref events) = self.events {
-      let before_value = before_doc
-        .as_ref()
-        .map(|v| v.clone())
-        .unwrap_or_else(|| serde_json::json!({}));
+      let before_value = before_doc.clone().unwrap_or_else(|| serde_json::json!({}));
       events
         .dispatch_update(&before_value, &result.to_value()?)
         .await?;
@@ -804,6 +801,10 @@ where
                   result
                     .loaded
                     .insert(path.to_string(), RelationValue::Many(arr.clone()));
+                } else {
+                  result
+                    .loaded
+                    .insert(path.to_string(), RelationValue::Many(vec![]));
                 }
               }
             }

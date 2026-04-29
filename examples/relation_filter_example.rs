@@ -4,9 +4,10 @@
 
 use chrono::{DateTime, Utc};
 use nosql_orm::prelude::*;
+use nosql_orm::Validate;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Profile {
   pub id: Option<String>,
   pub bio: String,
@@ -31,7 +32,7 @@ impl WithRelations for Profile {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct User {
   pub id: Option<String>,
   pub name: String,
@@ -71,7 +72,7 @@ impl SoftDeletable for User {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Order {
   pub id: Option<String>,
   pub order_number: String,

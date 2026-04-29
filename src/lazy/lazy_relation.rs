@@ -7,13 +7,13 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+type LoaderFuture<T> =
+  std::pin::Pin<Box<dyn std::future::Future<Output = OrmResult<T>> + Send + 'static>>;
+type LoaderFn<T> = Arc<dyn Fn() -> LoaderFuture<T> + Send + Sync>;
+
 pub struct Lazy<T: Clone> {
   data: Arc<RwLock<Option<T>>>,
-  loader: Arc<
-    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = OrmResult<T>> + Send + 'static>>
-      + Send
-      + Sync,
-  >,
+  loader: LoaderFn<T>,
 }
 
 impl<T: Clone> Lazy<T> {
@@ -76,7 +76,6 @@ where
   P: DatabaseProvider,
 {
   repo: Repository<E, P>,
-  relation: RelationDef,
   local_id: String,
   cached: Arc<RwLock<Option<Option<E>>>>,
 }
@@ -86,10 +85,9 @@ where
   E: Entity,
   P: DatabaseProvider,
 {
-  pub fn new(repo: Repository<E, P>, relation: RelationDef, local_id: String) -> Self {
+  pub fn new(repo: Repository<E, P>, _relation: RelationDef, local_id: String) -> Self {
     Self {
       repo,
-      relation,
       local_id,
       cached: Arc::new(RwLock::new(None)),
     }

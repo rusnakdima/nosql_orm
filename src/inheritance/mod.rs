@@ -1,6 +1,5 @@
 pub mod discriminator;
-pub mod inheritance;
+pub mod inheritance_impl;
 
 pub use discriminator::Discriminator;
-pub use inheritance::DiscriminatorValue;
-pub use inheritance::{ChildEntity, Inheritance, InheritanceType};
+pub use inheritance_impl::{ChildEntity, DiscriminatorValue, Inheritance, InheritanceType};

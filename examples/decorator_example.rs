@@ -3,7 +3,7 @@ use nosql_orm::prelude::*;
 use nosql_orm_derive::Model;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Model)]
+#[derive(Debug, Clone, Serialize, Deserialize, Model, Validate)]
 #[table_name("decorator_users")]
 #[soft_delete]
 #[timestamp]
@@ -17,7 +17,7 @@ pub struct DecoratorUser {
   pub updated_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Model)]
+#[derive(Debug, Clone, Serialize, Deserialize, Model, Validate)]
 #[table_name("decorator_posts")]
 #[many_to_one("author", "DecoratorUser", "id")]
 #[many_to_many("categories", "DecoratorCategory", "category_ids")]
@@ -31,7 +31,7 @@ pub struct DecoratorPost {
   pub deleted_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Model)]
+#[derive(Debug, Clone, Serialize, Deserialize, Model, Validate)]
 pub struct DecoratorCategory {
   pub id: Option<String>,
   pub name: String,

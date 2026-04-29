@@ -5,9 +5,17 @@ pub trait FieldValidator: Send + Sync {
   fn validate(&self, field: &str, value: &Value) -> Result<(), ValidationError>;
 }
 
+type ValidateFn<E> = dyn Fn(&E) -> ValidationResult + Send + Sync;
+
 pub struct LengthValidator {
   pub min: Option<usize>,
   pub max: Option<usize>,
+}
+
+impl Default for LengthValidator {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl LengthValidator {
@@ -55,6 +63,12 @@ impl FieldValidator for LengthValidator {
 pub struct RangeValidator {
   pub min: Option<f64>,
   pub max: Option<f64>,
+}
+
+impl Default for RangeValidator {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl RangeValidator {
@@ -160,13 +174,19 @@ pub struct CompositeValidator {
   pub validators: Vec<Box<dyn FieldValidator>>,
 }
 
+impl Default for CompositeValidator {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl CompositeValidator {
   pub fn new() -> Self {
     Self {
       validators: Vec::new(),
     }
   }
-  pub fn add<V: FieldValidator + 'static>(mut self, v: V) -> Self {
+  pub fn add_validator<V: FieldValidator + 'static>(mut self, v: V) -> Self {
     self.validators.push(Box::new(v));
     self
   }
@@ -183,7 +203,13 @@ impl FieldValidator for CompositeValidator {
 
 pub struct EntityValidator<E> {
   pub fields: std::collections::HashMap<String, Box<dyn FieldValidator>>,
-  pub validate_fn: Option<Box<dyn Fn(&E) -> ValidationResult + Send + Sync>>,
+  pub validate_fn: Option<Box<ValidateFn<E>>>,
+}
+
+impl<E: serde::Serialize> Default for EntityValidator<E> {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl<E: serde::Serialize> EntityValidator<E> {

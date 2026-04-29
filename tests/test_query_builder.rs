@@ -48,7 +48,7 @@ fn test_query_builder_or() {
 
 #[test]
 fn test_query_builder_not() {
-  let qb = QueryBuilder::new().where_eq("status", "active").not();
+  let qb = QueryBuilder::new().where_eq("status", "active").negate();
 
   let filter = qb.build_filter().unwrap();
   assert!(filter.matches(&serde_json::json!({"status": "deleted"})));

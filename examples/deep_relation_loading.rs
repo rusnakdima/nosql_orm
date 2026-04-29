@@ -7,10 +7,11 @@
 
 use chrono::{DateTime, Utc};
 use nosql_orm::prelude::*;
+use nosql_orm::Validate;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Level5 {
   pub id: Option<String>,
   pub level5_name: String,
@@ -44,7 +45,7 @@ impl SoftDeletable for Level5 {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Level4 {
   pub id: Option<String>,
   pub level4_name: String,
@@ -82,7 +83,7 @@ impl SoftDeletable for Level4 {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Level3 {
   pub id: Option<String>,
   pub level3_name: String,
@@ -120,7 +121,7 @@ impl SoftDeletable for Level3 {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Level2 {
   pub id: Option<String>,
   pub level2_name: String,
@@ -158,7 +159,7 @@ impl SoftDeletable for Level2 {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Level1 {
   pub id: Option<String>,
   pub level1_name: String,
@@ -196,7 +197,7 @@ impl SoftDeletable for Level1 {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct RootEntity {
   pub id: Option<String>,
   pub root_name: String,
@@ -315,7 +316,7 @@ impl DeepLoader {
           .find_many(table, None, None, None, None, true)
           .await?;
         if let Some(first) = all.first() {
-          let next_id = first
+          let _next_id = first
             .get("id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
@@ -327,9 +328,7 @@ impl DeepLoader {
             .map(|s| s.to_string());
           current_id = fk_id;
           is_first = false;
-        }
-      } else {
-        if let Some(id) = &current_id {
+        } else if let Some(id) = &current_id {
           let doc = provider.find_by_id(table, id).await?;
           if let Some(d) = doc {
             let fk_id = d

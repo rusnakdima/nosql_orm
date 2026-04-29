@@ -11,6 +11,12 @@ pub struct SeederRegistry {
   seeders: HashMap<String, Box<dyn Seeder>>,
 }
 
+impl Default for SeederRegistry {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl SeederRegistry {
   pub fn new() -> Self {
     Self {

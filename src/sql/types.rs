@@ -233,10 +233,10 @@ impl SqlColumnDef {
     parts.push(name);
     parts.push(self.column_type.to_sql(dialect));
 
-    if self.primary_key {
-      if self.column_type == SqlColumnType::Serial || self.column_type == SqlColumnType::BigSerial {
-        parts.push("PRIMARY KEY".to_string());
-      }
+    if self.primary_key
+      && (self.column_type == SqlColumnType::Serial || self.column_type == SqlColumnType::BigSerial)
+    {
+      parts.push("PRIMARY KEY".to_string());
     }
 
     if !self.nullable && !self.primary_key {
@@ -396,11 +396,7 @@ impl SqlTableDef {
         .map(|c| dialect.quote_identifier(c))
         .collect::<Vec<_>>()
         .join(", ");
-      if pk.auto_increment {
-        column_defs.push(format!("PRIMARY KEY ({})", cols));
-      } else {
-        column_defs.push(format!("PRIMARY KEY ({})", cols));
-      }
+      column_defs.push(format!("PRIMARY KEY ({})", cols));
     }
 
     for fk in &self.foreign_keys {

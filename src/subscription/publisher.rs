@@ -1,5 +1,5 @@
 use crate::error::OrmResult;
-use crate::subscription::subscription::SubscriptionMessage;
+use crate::subscription::subscription_impl::SubscriptionMessage;
 use tokio::sync::broadcast;
 
 pub struct Publisher {

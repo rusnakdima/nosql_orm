@@ -10,9 +10,10 @@
 
 use chrono::{DateTime, Utc};
 use nosql_orm::prelude::*;
+use nosql_orm::Validate;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Manager {
   pub id: Option<String>,
   pub manager_name: String,
@@ -47,7 +48,7 @@ impl SoftDeletable for Manager {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Department {
   pub id: Option<String>,
   pub department_name: String,
@@ -86,7 +87,7 @@ impl SoftDeletable for Department {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Company {
   pub id: Option<String>,
   pub company_name: String,
@@ -125,7 +126,7 @@ impl SoftDeletable for Company {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Profile {
   pub id: Option<String>,
   pub bio: String,
@@ -165,7 +166,7 @@ impl SoftDeletable for Profile {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct User {
   pub id: Option<String>,
   pub user_name: String,
@@ -205,7 +206,7 @@ impl SoftDeletable for User {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Post {
   pub id: Option<String>,
   pub title: String,

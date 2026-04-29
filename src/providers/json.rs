@@ -9,7 +9,7 @@ use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::DatabaseProvider;
 use crate::query::Filter;
-use crate::utils::generate_id;
+use crate::utils::{compare_values, generate_id};
 
 type Store = Arc<RwLock<HashMap<String, Vec<Value>>>>;
 
@@ -88,7 +88,7 @@ impl DatabaseProvider for JsonProvider {
     if doc
       .get("id")
       .and_then(|v| v.as_str())
-      .map_or(true, |s| s.is_empty())
+      .is_none_or(|s| s.is_empty())
     {
       doc["id"] = json!(generate_id());
     }
@@ -137,7 +137,7 @@ impl DatabaseProvider for JsonProvider {
     // Filter
     let mut results: Vec<Value> = records
       .into_iter()
-      .filter(|d| filter.map_or(true, |f| f.matches(d)))
+      .filter(|d| filter.is_none_or(|f| f.matches(d)))
       .collect();
 
     // Sort
@@ -233,7 +233,7 @@ impl DatabaseProvider for JsonProvider {
       .map(|recs| {
         recs
           .iter()
-          .filter(|d| filter.map_or(true, |f| f.matches(d)))
+          .filter(|d| filter.is_none_or(|f| f.matches(d)))
           .count()
       })
       .unwrap_or(0);
@@ -254,7 +254,7 @@ impl DatabaseProvider for JsonProvider {
 
     let mut count = 0;
     for record in records.iter_mut() {
-      if filter.as_ref().map_or(true, |f| f.matches(record)) {
+      if filter.as_ref().is_none_or(|f| f.matches(record)) {
         if let (Value::Object(base), Value::Object(patch)) = (record, &updates) {
           for (k, v) in patch {
             base.insert(k.clone(), v.clone());
@@ -280,7 +280,7 @@ impl DatabaseProvider for JsonProvider {
     };
 
     let before = records.len();
-    records.retain(|r| filter.as_ref().map_or(false, |f| !f.matches(r)));
+    records.retain(|r| filter.as_ref().is_some_and(|f| !f.matches(r)));
     let deleted = before - records.len();
     drop(w);
 
@@ -329,20 +329,5 @@ impl DatabaseProvider for JsonProvider {
     Err(OrmError::Provider(
       "Aggregation not supported by JSON provider".to_string(),
     ))
-  }
-}
-
-fn compare_values(a: Option<&Value>, b: Option<&Value>) -> std::cmp::Ordering {
-  use std::cmp::Ordering;
-  match (a, b) {
-    (Some(Value::Number(n1)), Some(Value::Number(n2))) => n1
-      .as_f64()
-      .unwrap_or(0.0)
-      .partial_cmp(&n2.as_f64().unwrap_or(0.0))
-      .unwrap_or(Ordering::Equal),
-    (Some(Value::String(s1)), Some(Value::String(s2))) => s1.cmp(s2),
-    (Some(_), None) => Ordering::Greater,
-    (None, Some(_)) => Ordering::Less,
-    _ => Ordering::Equal,
   }
 }

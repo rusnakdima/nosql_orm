@@ -4,10 +4,11 @@
 
 use chrono::{DateTime, Utc};
 use nosql_orm::prelude::*;
+use nosql_orm::Validate;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Subtask {
   pub id: Option<String>,
   pub subtask_title: String,
@@ -43,7 +44,7 @@ impl SoftDeletable for Subtask {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Task {
   pub id: Option<String>,
   pub task_title: String,
@@ -83,7 +84,7 @@ impl SoftDeletable for Task {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Todo {
   pub id: Option<String>,
   pub todo_title: String,

@@ -24,6 +24,12 @@ pub struct AutoIncrementStrategy {
   prefix: Option<String>,
 }
 
+impl Default for AutoIncrementStrategy {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl AutoIncrementStrategy {
   pub fn new() -> Self {
     Self {

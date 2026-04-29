@@ -110,7 +110,7 @@ impl Stage {
       Stage::Match(filter) => Ok(
         docs
           .into_iter()
-          .filter(|d| value_matches(&filter, d))
+          .filter(|d| value_matches(filter, d))
           .collect(),
       ),
       Stage::Group { id, accumulators } => {

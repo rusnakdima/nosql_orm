@@ -1,5 +1,5 @@
 use nosql_orm::prelude::*;
-use nosql_orm::{JsonMigration, Migration, MigrationMeta, MigrationRunner, SqlMigration};
+use nosql_orm::{JsonMigration, MigrationMeta, MigrationRunner, SqlMigration};
 
 #[tokio::main]
 async fn main() -> OrmResult<()> {
@@ -46,7 +46,7 @@ async fn main() -> OrmResult<()> {
   println!("   Total applied: {} migration(s)\n", status.len());
 
   println!("4. Migration trait demo - SqlMigration struct:");
-  let migration = SqlMigration::new(
+  let _migration = SqlMigration::new(
     3,
     "create_posts_table",
     "CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT NOT NULL);",

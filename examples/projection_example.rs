@@ -7,7 +7,7 @@ use nosql_orm::prelude::*;
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct User {
   pub id: Option<String>,
   pub name: String,
@@ -20,6 +20,28 @@ pub struct User {
 impl Entity for User {
   fn meta() -> EntityMeta {
     EntityMeta::new("users")
+  }
+  fn get_id(&self) -> Option<String> {
+    self.id.clone()
+  }
+  fn set_id(&mut self, id: String) {
+    self.id = Some(id);
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct UserOptional {
+  pub id: Option<String>,
+  pub name: Option<String>,
+  pub email: Option<String>,
+  pub password: Option<String>,
+  pub age: Option<u32>,
+  pub bio: Option<String>,
+}
+
+impl Entity for UserOptional {
+  fn meta() -> EntityMeta {
+    EntityMeta::new("users_opt")
   }
   fn get_id(&self) -> Option<String> {
     self.id.clone()
@@ -64,28 +86,6 @@ async fn main() -> OrmResult<()> {
 
   // === SELECT with all Option fields ===
   // If all non-required fields are Option, select works perfectly
-  #[derive(Debug, Clone, Serialize, Deserialize)]
-  pub struct UserOptional {
-    pub id: Option<String>,
-    pub name: Option<String>,     // Changed to Option
-    pub email: Option<String>,    // Changed to Option
-    pub password: Option<String>, // Changed to Option
-    pub age: Option<u32>,
-    pub bio: Option<String>,
-  }
-
-  impl Entity for UserOptional {
-    fn meta() -> EntityMeta {
-      EntityMeta::new("users_opt")
-    }
-    fn get_id(&self) -> Option<String> {
-      self.id.clone()
-    }
-    fn set_id(&mut self, id: String) {
-      self.id = Some(id);
-    }
-  }
-
   let provider2 = JsonProvider::new(temp_dir.path().join("opt")).await?;
   let repo2 = Repository::<UserOptional, _>::new(provider2);
 

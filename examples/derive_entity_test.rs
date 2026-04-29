@@ -3,10 +3,11 @@
 
 use chrono::{DateTime, Utc};
 use nosql_orm::prelude::*;
+use nosql_orm::Validate;
 use nosql_orm_derive::Entity;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Entity)]
+#[derive(Debug, Clone, Serialize, Deserialize, Entity, Validate)]
 pub struct User {
   id: Option<String>,
   email: String,
@@ -16,7 +17,7 @@ pub struct User {
   deleted_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Entity)]
+#[derive(Debug, Clone, Serialize, Deserialize, Entity, Validate)]
 #[entity("profiles")]
 pub struct Profile {
   id: Option<String>,
@@ -26,7 +27,7 @@ pub struct Profile {
   bio: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Entity)]
+#[derive(Debug, Clone, Serialize, Deserialize, Entity, Validate)]
 #[Relations(todos)]
 pub struct Category {
   id: Option<String>,
@@ -34,7 +35,7 @@ pub struct Category {
   color: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Entity)]
+#[derive(Debug, Clone, Serialize, Deserialize, Entity, Validate)]
 #[Relations(subtasks, comments)]
 pub struct Task {
   id: Option<String>,
@@ -47,7 +48,7 @@ pub struct Task {
   deleted_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Entity)]
+#[derive(Debug, Clone, Serialize, Deserialize, Entity, Validate)]
 #[Relations(comments)]
 pub struct Subtask {
   id: Option<String>,
@@ -62,7 +63,7 @@ pub struct Subtask {
   deleted_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Entity)]
+#[derive(Debug, Clone, Serialize, Deserialize, Entity, Validate)]
 #[Relations(tasks)]
 pub struct Todo {
   id: Option<String>,
@@ -85,11 +86,11 @@ async fn main() -> OrmResult<()> {
 
   let provider = JsonProvider::new("./test_data").await?;
   let repo: Repository<Todo, _> = Repository::new(provider.clone());
-  let user_repo: Repository<User, _> = Repository::new(provider.clone());
-  let profile_repo: Repository<Profile, _> = Repository::new(provider.clone());
-  let task_repo: Repository<Task, _> = Repository::new(provider.clone());
-  let subtask_repo: Repository<Subtask, _> = Repository::new(provider.clone());
-  let category_repo: Repository<Category, _> = Repository::new(provider.clone());
+  let _user_repo: Repository<User, _> = Repository::new(provider.clone());
+  let _profile_repo: Repository<Profile, _> = Repository::new(provider.clone());
+  let _task_repo: Repository<Task, _> = Repository::new(provider.clone());
+  let _subtask_repo: Repository<Subtask, _> = Repository::new(provider.clone());
+  let _category_repo: Repository<Category, _> = Repository::new(provider.clone());
 
   println!("✅ Repositories created successfully");
 
@@ -120,7 +121,7 @@ async fn main() -> OrmResult<()> {
     role: "user".to_string(),
     deleted_at: None,
   };
-  let saved_user = user_repo.save(user).await?;
+  let saved_user = _user_repo.save(user).await?;
   println!("\n✅ User saved: {:?}", saved_user.get_id());
 
   let saved_todo = repo

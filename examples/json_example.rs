@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 // ── Entities ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct User {
   pub id: Option<String>,
   pub name: String,
@@ -34,7 +34,7 @@ impl WithRelations for User {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Post {
   pub id: Option<String>,
   pub title: String,
@@ -74,7 +74,7 @@ impl SoftDeletable for Post {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Tag {
   pub id: Option<String>,
   pub name: String,

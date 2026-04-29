@@ -70,7 +70,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
       match rel.relation_type {
         RelationType::OneToMany => {
           self
-            .collect_cascade_soft_delete_one_to_many::<E>(entity_id, rel, deleted_ids, to_process)
+            .collect_cascade_soft_delete_one_to_many(entity_id, rel, deleted_ids, to_process)
             .await?;
         }
         RelationType::ManyToOne => {
@@ -134,7 +134,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
       match rel.relation_type {
         RelationType::OneToMany => {
           self
-            .collect_cascade_hard_delete_one_to_many::<E>(entity_id, rel, deleted_ids, to_process)
+            .collect_cascade_hard_delete_one_to_many(entity_id, rel, deleted_ids, to_process)
             .await?;
         }
         RelationType::ManyToOne => {
@@ -218,7 +218,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
       match rel.relation_type {
         RelationType::OneToMany => {
           self
-            .collect_restore_one_to_many::<E>(entity_id, rel, restored_ids, to_process)
+            .collect_restore_one_to_many(entity_id, rel, restored_ids, to_process)
             .await?;
         }
         RelationType::ManyToOne => {
@@ -237,7 +237,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     Ok(())
   }
 
-  async fn collect_restore_one_to_many<E: Entity + WithRelations + SoftDeletable>(
+  async fn collect_restore_one_to_many(
     &self,
     entity_id: &str,
     relation: &RelationDef,
@@ -260,9 +260,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
 
     for doc in related {
       if let Some(id) = doc.get("id").and_then(|v| v.as_str()) {
-        self
-          .restore(&relation.target_collection, id)
-          .await?;
+        self.restore(&relation.target_collection, id).await?;
         insert_cascade_id(restored_ids, to_process, id);
       }
     }
@@ -336,7 +334,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     Ok(true)
   }
 
-  async fn collect_cascade_soft_delete_one_to_many<E: Entity + WithRelations + SoftDeletable>(
+  async fn collect_cascade_soft_delete_one_to_many(
     &self,
     entity_id: &str,
     relation: &RelationDef,
@@ -421,7 +419,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     Ok(())
   }
 
-  async fn collect_cascade_hard_delete_one_to_many<E: Entity + WithRelations>(
+  async fn collect_cascade_hard_delete_one_to_many(
     &self,
     entity_id: &str,
     relation: &RelationDef,

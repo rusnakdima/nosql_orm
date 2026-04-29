@@ -1,5 +1,5 @@
 pub mod publisher;
-pub mod subscription;
+pub mod subscription_impl;
 
 pub use publisher::Publisher;
-pub use subscription::{Subscription, SubscriptionHandler, SubscriptionManager, Topic};
+pub use subscription_impl::{Subscription, SubscriptionHandler, SubscriptionManager, Topic};

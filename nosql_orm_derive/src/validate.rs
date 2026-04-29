@@ -54,7 +54,7 @@ pub fn generate_validate(input: &DeriveInput) -> TokenStream {
 }
 
 #[derive(Clone)]
-enum ValidationType {
+pub(crate) enum ValidationType {
   Email,
   Uuid,
   Url,

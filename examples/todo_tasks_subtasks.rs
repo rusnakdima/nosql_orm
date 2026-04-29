@@ -9,10 +9,11 @@
 
 use chrono::{DateTime, Utc};
 use nosql_orm::prelude::*;
+use nosql_orm::Validate;
 use serde::{Deserialize, Serialize};
 
 /// Subtask entity - represents a subtask belonging to a Task
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Subtask {
   pub id: Option<String>,
   pub task_id: Option<String>,
@@ -51,7 +52,7 @@ impl SoftDeletable for Subtask {
 }
 
 /// Task entity - represents a task belonging to a Todo
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Task {
   pub id: Option<String>,
   pub todo_id: Option<String>,
@@ -93,7 +94,7 @@ impl SoftDeletable for Task {
 }
 
 /// Todo entity - top-level entity that contains multiple tasks
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Todo {
   pub id: Option<String>,
   pub todo_title: String,
@@ -204,7 +205,7 @@ async fn main() -> OrmResult<()> {
       deleted_at: None,
     })
     .await?;
-  let task2 = tasks_repo
+  let _task2 = tasks_repo
     .repo()
     .save(Task {
       id: None,
@@ -217,7 +218,7 @@ async fn main() -> OrmResult<()> {
       deleted_at: None,
     })
     .await?;
-  let task3 = tasks_repo
+  let _task3 = tasks_repo
     .repo()
     .save(Task {
       id: None,

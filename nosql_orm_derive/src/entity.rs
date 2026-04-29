@@ -90,7 +90,7 @@ pub fn generate_entity(input: &DeriveInput) -> TokenStream {
                     if !field.is_empty() {
                         id_field = field;
                     }
-                } else if ident == "one_to_many" || ident == "many_to_one" || ident == "one_to_one" || ident == "many_to_many" {
+                } else if ident == "one_to_many" || ident == "many_to_one" || ident == "one_to_one" || ident == "many_to_many" || ident == "many_to_one_array" {
                     let rel = parse_relation_attr(&ident, &list.tokens);
                     if let Some(r) = rel {
                         relations.push(r);
@@ -118,7 +118,6 @@ pub fn generate_entity(input: &DeriveInput) -> TokenStream {
                     relations.extend(rels);
                 }
             }
-            _ => {}
         }
     }
 
@@ -298,6 +297,9 @@ fn parse_relation_attr(rel_type: &str, tokens: &proc_macro2::TokenStream) -> Opt
         }),
         "many_to_many" => Some(quote! {
             ::nosql_orm::relations::RelationDef::many_to_many(#name, #target, #key)
+        }),
+        "many_to_one_array" => Some(quote! {
+            ::nosql_orm::relations::RelationDef::many_to_one_array(#name, #target, #key)
         }),
         _ => None
     }

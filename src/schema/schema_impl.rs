@@ -1,6 +1,5 @@
 use crate::constraints::{ColumnDef, IndexDef};
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
 use crate::schema::prefix::PrefixConfig;
 
 #[derive(Debug, Clone)]
@@ -37,15 +36,14 @@ impl Schema {
   }
 }
 
-pub struct SchemaManager<P: DatabaseProvider> {
-  provider: P,
+#[derive(Debug, Clone, Default)]
+pub struct SchemaManager {
   prefix_config: PrefixConfig,
 }
 
-impl<P: DatabaseProvider> SchemaManager<P> {
-  pub fn new(provider: P) -> Self {
+impl SchemaManager {
+  pub fn new() -> Self {
     Self {
-      provider,
       prefix_config: PrefixConfig::default(),
     }
   }
