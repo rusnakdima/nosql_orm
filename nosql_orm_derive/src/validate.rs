@@ -629,11 +629,12 @@ fn parse_range_args(args: &str) -> (Option<f64>, Option<f64>) {
 }
 
 fn parse_pattern_arg(args: &str) -> Option<String> {
-  Some(
-    args
-      .trim()
-      .trim_start_matches('(')
-      .trim_end_matches(')')
-      .to_string(),
-  )
+  let trimmed = args.trim().trim_start_matches('(').trim_end_matches(')');
+  if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+    || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+  {
+    Some(trimmed[1..trimmed.len() - 1].to_string())
+  } else {
+    Some(trimmed.to_string())
+  }
 }
