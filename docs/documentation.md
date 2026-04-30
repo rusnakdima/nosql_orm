@@ -193,31 +193,13 @@ WithLoaded<Entity>
 |--------|------|-------------|
 | `entity` | `src/entity.rs` | `Entity` trait, `EntityMeta`, `FrontendProjection` |
 | `provider` | `src/provider.rs` | `DatabaseProvider` trait, `ProviderConfig` |
-| `repository` | `src/repository.rs` | `Repository`, `RelationRepository`, `RepositoryQuery` |
-| `query` | `src/query.rs` | `QueryBuilder`, `Filter`, `Projection`, `SortDirection` |
-| `relations` | `src/relations.rs` | `RelationDef`, `RelationLoader`, `WithRelations` |
-| `field_meta` | `src/field_meta.rs` | `FieldMeta`, `EntityFieldMeta`, field types |
-| `error` | `src/error.rs` | `OrmError`, `OrmResult` |
+| `repository` | `src/repository/` | `Repository`, `RelationRepository`, `RepositoryQuery` |
 
-### Provider Modules
+| `query` | `src/query/` | `QueryBuilder`, `Filter`, `Projection`, `SortDirection` |
 
-| Module | File | Provider |
-|--------|------|----------|
-| `providers::json` | `src/providers/json.rs` | JSON file storage |
-| `providers::mongo` | `src/providers/mongo.rs` | MongoDB |
-| `providers::redis` | `src/providers/redis.rs` | Redis |
-| `providers::sql` | `src/providers/sql/` | PostgreSQL, SQLite, MySQL |
+| `relations` | `src/relations/` | `RelationDef`, `RelationLoader`, `WithRelations` |
 
-### Feature Modules
-
-| Module | File | Description |
-|--------|------|-------------|
-| `validators` | `src/validators/` | Entity validation |
-| `soft_delete` | `src/soft_delete.rs` | Soft delete support |
-| `timestamps` | `src/timestamps.rs` | Auto timestamps |
-| `migrations` | `src/migrations/` | Database migrations |
-| `events` | `src/events/` | Entity event listeners |
-| `cascade` | `src/cascade.rs` | Cascade delete |
+| `cascade` | `src/cascade/` | Cascade delete |
 | `lazy` | `src/lazy/` | Lazy loading |
 | `embedded` | `src/embedded/` | Embedded entities |
 | `inheritance` | `src/inheritance/` | Table inheritance |
