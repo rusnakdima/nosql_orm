@@ -75,22 +75,20 @@ impl RelationDef {
     }
   }
 
-  /// Shorthand for a Many-To-One where the local key is stored in an array field.
-  /// The loader will extract IDs from this array and resolve each to a target entity.
-  pub fn many_to_one_array(
+  /// Shorthand for Many-To-Many via an embedded array of ids.
+  pub fn many_to_many(
     name: impl Into<String>,
     target_collection: impl Into<String>,
-    array_field: impl Into<String>,
+    join_field: impl Into<String>,
   ) -> Self {
-    let array_str = array_field.into();
     Self {
       name: name.into(),
-      relation_type: RelationType::ManyToOne,
+      relation_type: RelationType::ManyToMany,
       target_collection: target_collection.into(),
-      local_key: array_str.clone(),
+      local_key: "id".to_string(),
       foreign_key: "id".to_string(),
-      join_field: None,
-      local_key_in_array: Some(array_str),
+      join_field: Some(join_field.into()),
+      local_key_in_array: None,
       transform_map_via: None,
       on_delete: None,
       cascade_soft_delete: false,
@@ -132,27 +130,6 @@ impl RelationDef {
       local_key: local_key.into(),
       foreign_key: "id".to_string(),
       join_field: None,
-      local_key_in_array: None,
-      transform_map_via: None,
-      on_delete: None,
-      cascade_soft_delete: false,
-      cascade_hard_delete: false,
-    }
-  }
-
-  /// Shorthand for Many-To-Many via an embedded array of ids.
-  pub fn many_to_many(
-    name: impl Into<String>,
-    target_collection: impl Into<String>,
-    join_field: impl Into<String>,
-  ) -> Self {
-    Self {
-      name: name.into(),
-      relation_type: RelationType::ManyToMany,
-      target_collection: target_collection.into(),
-      local_key: "id".to_string(),
-      foreign_key: "id".to_string(),
-      join_field: Some(join_field.into()),
       local_key_in_array: None,
       transform_map_via: None,
       on_delete: None,
@@ -537,7 +514,7 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     Ok(loaded)
   }
 
-  /// Batch load ManyToOne relations (e.g., todo.userId -> user)
+  /// Batch load ManyToOne relations (e.g., task.todo_id -> todo)
   async fn load_many_to_one(
     &self,
     docs: &mut [Value],
@@ -546,29 +523,14 @@ impl<P: DatabaseProvider> RelationLoader<P> {
   ) -> OrmResult<Vec<Value>> {
     let target_field = &relation.local_key;
 
-    let all_ids: Vec<String> = if relation.local_key_in_array.is_some() {
-      let array_field = relation.local_key_in_array.as_ref().unwrap();
-      let mut ids = Vec::new();
-      for doc in docs.iter() {
-        if let Some(arr) = doc.get(array_field).and_then(|v| v.as_array()) {
-          for item in arr {
-            if let Some(id) = item.as_str() {
-              ids.push(id.to_string());
-            }
-          }
-        }
-      }
-      ids
-    } else {
-      docs
-        .iter()
-        .filter_map(|d| {
-          d.get(target_field)
-            .and_then(|v| v.as_str())
-            .map(String::from)
-        })
-        .collect()
-    };
+    let all_ids: Vec<String> = docs
+      .iter()
+      .filter_map(|d| {
+        d.get(target_field)
+          .and_then(|v| v.as_str())
+          .map(String::from)
+      })
+      .collect();
 
     if all_ids.is_empty() {
       return Ok(docs.to_vec());
@@ -626,14 +588,6 @@ impl<P: DatabaseProvider> RelationLoader<P> {
         if let Some(id) = obj.get(target_field).and_then(|v| v.as_str()) {
           if let Some(related) = related_map.get(id) {
             obj.insert(relation.name.clone(), related.clone());
-          }
-        } else if relation.local_key_in_array.is_some() {
-          if let Some(arr) = obj.get(&relation.local_key).and_then(|v| v.as_array()) {
-            let resolved: Vec<Value> = arr
-              .iter()
-              .filter_map(|item| item.as_str().and_then(|id| related_map.get(id).cloned()))
-              .collect();
-            obj.insert(relation.name.clone(), Value::Array(resolved));
           }
         }
       }
@@ -1132,24 +1086,8 @@ impl<P: DatabaseProvider> RelationLoader<P> {
         let mut child_parent_map: Vec<(Value, Value)> = Vec::new();
 
         for doc in &docs {
-          let is_many_to_one_array = rel_def.relation_type == RelationType::ManyToOne && rel_def.local_key_in_array.is_some();
           if rel_def.relation_type == RelationType::ManyToOne {
-            if is_many_to_one_array {
-              let array_field = rel_def.local_key_in_array.as_ref().unwrap();
-              if let Some(arr) = doc.get(array_field).and_then(|v| v.as_array()) {
-                for child in arr {
-                  let mut child_with_meta = child.clone();
-                  if let Some(obj) = child_with_meta.as_object_mut() {
-                    obj.insert(
-                      "_collection".to_string(),
-                      Value::String(target_collection.clone()),
-                    );
-                  }
-                  all_children.push(child_with_meta.clone());
-                  child_parent_map.push((doc.clone(), child_with_meta));
-                }
-              }
-            } else if let Some(rel_obj) = doc.get(segment) {
+            if let Some(rel_obj) = doc.get(segment) {
               if !rel_obj.is_null() {
                 let mut child_with_meta = rel_obj.clone();
                 if let Some(obj) = child_with_meta.as_object_mut() {
@@ -1211,10 +1149,20 @@ impl<P: DatabaseProvider> RelationLoader<P> {
                 if let Some(enriched) = children_by_parent.get(parent_id) {
                   match rel_def.relation_type {
                     RelationType::ManyToOne | RelationType::OneToOne => {
-                      obj.insert(segment.to_string(), enriched.into_iter().next().cloned().unwrap_or(serde_json::Value::Null));
+                      obj.insert(
+                        segment.to_string(),
+                        enriched
+                          .into_iter()
+                          .next()
+                          .cloned()
+                          .unwrap_or(serde_json::Value::Null),
+                      );
                     }
                     RelationType::OneToMany | RelationType::ManyToMany => {
-                      obj.insert(segment.to_string(), serde_json::Value::Array(enriched.clone()));
+                      obj.insert(
+                        segment.to_string(),
+                        serde_json::Value::Array(enriched.clone()),
+                      );
                     }
                   }
                 }
@@ -1315,24 +1263,8 @@ impl<P: DatabaseProvider> RelationLoader<P> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-      let is_many_to_one_array = rel_def.relation_type == RelationType::ManyToOne && rel_def.local_key_in_array.is_some();
       if rel_def.relation_type == RelationType::ManyToOne {
-        if is_many_to_one_array {
-          let array_field = rel_def.local_key_in_array.as_ref().unwrap();
-          if let Some(arr) = doc.get(array_field).and_then(|v| v.as_array()) {
-            for child in arr {
-              let mut child_with_meta = child.clone();
-              if let Some(obj) = child_with_meta.as_object_mut() {
-                obj.insert(
-                  "_collection".to_string(),
-                  Value::String(target_collection.clone()),
-                );
-              }
-              all_children.push(child_with_meta.clone());
-              parent_child_pairs.push((parent_id.clone(), child_with_meta));
-            }
-          }
-        } else if let Some(rel_obj) = doc.get(first_segment) {
+        if let Some(rel_obj) = doc.get(first_segment) {
           if !rel_obj.is_null() {
             let mut child_with_meta = rel_obj.clone();
             if let Some(obj) = child_with_meta.as_object_mut() {
@@ -1394,10 +1326,20 @@ impl<P: DatabaseProvider> RelationLoader<P> {
           if let Some(enriched) = children_by_parent.get(parent_id) {
             match rel_def.relation_type {
               RelationType::ManyToOne | RelationType::OneToOne => {
-                obj.insert(first_segment.to_string(), enriched.into_iter().next().cloned().unwrap_or(serde_json::Value::Null));
+                obj.insert(
+                  first_segment.to_string(),
+                  enriched
+                    .into_iter()
+                    .next()
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+                );
               }
               RelationType::OneToMany | RelationType::ManyToMany => {
-                obj.insert(first_segment.to_string(), serde_json::Value::Array(enriched.clone()));
+                obj.insert(
+                  first_segment.to_string(),
+                  serde_json::Value::Array(enriched.clone()),
+                );
               }
             }
           }

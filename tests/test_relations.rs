@@ -49,13 +49,13 @@ fn test_relation_def_many_to_many() {
 }
 
 #[test]
-fn test_relation_def_many_to_one_array() {
-  let rel = RelationDef::many_to_one_array("assignees", "users", "assignee_ids");
+fn test_relation_def_many_to_many_with_read_by() {
+  let rel = RelationDef::many_to_many("read_by_users", "users", "read_by");
 
-  assert_eq!(rel.name, "assignees");
-  assert_eq!(rel.relation_type, RelationType::ManyToOne);
-  assert_eq!(rel.local_key, "assignee_ids");
-  assert!(rel.local_key_in_array.is_some());
+  assert_eq!(rel.name, "read_by_users");
+  assert_eq!(rel.relation_type, RelationType::ManyToMany);
+  assert_eq!(rel.join_field, Some("read_by".to_string()));
+  assert!(rel.local_key_in_array.is_none());
 }
 
 #[test]
