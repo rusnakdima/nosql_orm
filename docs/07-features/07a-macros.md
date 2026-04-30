@@ -37,6 +37,7 @@ pub struct User {
 This automatically generates:
 - `#[derive(Serialize, Deserialize, Debug, Clone)]`
 - `impl Entity for User { ... }`
+- UUID-based IDs (via `generate_id()`)
 
 ### With Options
 
@@ -64,6 +65,10 @@ pub struct User {
 | `#[index(...)]` | Define indexes | `#[index("email", 1, "unique")]` |
 | `#[sql_column(...)]` | Define SQL columns | `#[sql_column("id", "serial", "primary")]` |
 | `#[frontend_exclude(...)]` | Fields hidden from frontend | `#[frontend_exclude("password")]` |
+
+### ID Generation
+
+IDs are generated as UUIDv4 strings by default via `generate_id()`. The `id` field should be `Option<String>`:
 
 ---
 
