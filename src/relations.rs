@@ -1132,8 +1132,24 @@ impl<P: DatabaseProvider> RelationLoader<P> {
         let mut child_parent_map: Vec<(Value, Value)> = Vec::new();
 
         for doc in &docs {
+          let is_many_to_one_array = rel_def.relation_type == RelationType::ManyToOne && rel_def.local_key_in_array.is_some();
           if rel_def.relation_type == RelationType::ManyToOne {
-            if let Some(rel_obj) = doc.get(segment) {
+            if is_many_to_one_array {
+              let array_field = rel_def.local_key_in_array.as_ref().unwrap();
+              if let Some(arr) = doc.get(array_field).and_then(|v| v.as_array()) {
+                for child in arr {
+                  let mut child_with_meta = child.clone();
+                  if let Some(obj) = child_with_meta.as_object_mut() {
+                    obj.insert(
+                      "_collection".to_string(),
+                      Value::String(target_collection.clone()),
+                    );
+                  }
+                  all_children.push(child_with_meta.clone());
+                  child_parent_map.push((doc.clone(), child_with_meta));
+                }
+              }
+            } else if let Some(rel_obj) = doc.get(segment) {
               if !rel_obj.is_null() {
                 let mut child_with_meta = rel_obj.clone();
                 if let Some(obj) = child_with_meta.as_object_mut() {
@@ -1193,7 +1209,14 @@ impl<P: DatabaseProvider> RelationLoader<P> {
             if let Some(obj) = doc.as_object_mut() {
               if let Some(parent_id) = obj.get("id").and_then(|v| v.as_str()) {
                 if let Some(enriched) = children_by_parent.get(parent_id) {
-                  obj.insert(segment.to_string(), Value::Array(enriched.clone()));
+                  match rel_def.relation_type {
+                    RelationType::ManyToOne | RelationType::OneToOne => {
+                      obj.insert(segment.to_string(), enriched.into_iter().next().cloned().unwrap_or(serde_json::Value::Null));
+                    }
+                    RelationType::OneToMany | RelationType::ManyToMany => {
+                      obj.insert(segment.to_string(), serde_json::Value::Array(enriched.clone()));
+                    }
+                  }
                 }
               }
             }
@@ -1292,7 +1315,37 @@ impl<P: DatabaseProvider> RelationLoader<P> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-      if let Some(arr) = doc.get(first_segment).and_then(|v| v.as_array()) {
+      let is_many_to_one_array = rel_def.relation_type == RelationType::ManyToOne && rel_def.local_key_in_array.is_some();
+      if rel_def.relation_type == RelationType::ManyToOne {
+        if is_many_to_one_array {
+          let array_field = rel_def.local_key_in_array.as_ref().unwrap();
+          if let Some(arr) = doc.get(array_field).and_then(|v| v.as_array()) {
+            for child in arr {
+              let mut child_with_meta = child.clone();
+              if let Some(obj) = child_with_meta.as_object_mut() {
+                obj.insert(
+                  "_collection".to_string(),
+                  Value::String(target_collection.clone()),
+                );
+              }
+              all_children.push(child_with_meta.clone());
+              parent_child_pairs.push((parent_id.clone(), child_with_meta));
+            }
+          }
+        } else if let Some(rel_obj) = doc.get(first_segment) {
+          if !rel_obj.is_null() {
+            let mut child_with_meta = rel_obj.clone();
+            if let Some(obj) = child_with_meta.as_object_mut() {
+              obj.insert(
+                "_collection".to_string(),
+                Value::String(target_collection.clone()),
+              );
+            }
+            all_children.push(child_with_meta.clone());
+            parent_child_pairs.push((parent_id.clone(), child_with_meta));
+          }
+        }
+      } else if let Some(arr) = doc.get(first_segment).and_then(|v| v.as_array()) {
         for child in arr {
           let mut child_with_meta = child.clone();
           if let Some(obj) = child_with_meta.as_object_mut() {
@@ -1339,7 +1392,14 @@ impl<P: DatabaseProvider> RelationLoader<P> {
       if let Some(obj) = doc.as_object_mut() {
         if let Some(parent_id) = obj.get("id").and_then(|v| v.as_str()) {
           if let Some(enriched) = children_by_parent.get(parent_id) {
-            obj.insert(first_segment.to_string(), Value::Array(enriched.clone()));
+            match rel_def.relation_type {
+              RelationType::ManyToOne | RelationType::OneToOne => {
+                obj.insert(first_segment.to_string(), enriched.into_iter().next().cloned().unwrap_or(serde_json::Value::Null));
+              }
+              RelationType::OneToMany | RelationType::ManyToMany => {
+                obj.insert(first_segment.to_string(), serde_json::Value::Array(enriched.clone()));
+              }
+            }
           }
         }
       }
