@@ -1,22 +1,95 @@
 # Macros
 
-Derive macros for automatic Entity and Validate trait implementation.
+Derive macros for automatic Entity, Model, OrmEntity, and Validate trait implementation.
 
 ---
 
 ## Table of Contents
 
-1. [Model Macro](#model-macro)
-2. [Validate Macro](#validate-macro)
-3. [Index Attributes](#index-attributes)
-4. [SQL Column Attributes](#sql-column-attributes)
-5. [Complete Examples](#complete-examples)
+1. [OrmEntity Macro](#ormentity-macro) (Recommended)
+2. [Model Macro](#model-macro)
+3. [Entity Macro](#entity-macro)
+4. [Validate Macro](#validate-macro)
+5. [Index Attributes](#index-attributes)
+6. [SQL Column Attributes](#sql-column-attributes)
+7. [Relation Attributes](#relation-attributes)
+8. [Complete Examples](#complete-examples)
+
+---
+
+## OrmEntity Macro (Recommended)
+
+The `#[derive(OrmEntity)]` macro is the recommended way to define entities. It automatically adds `Serialize`, `Deserialize`, `Debug`, and `Clone` derives, making entity definition minimal.
+
+### Basic Usage
+
+```rust
+use nosql_orm_derive::OrmEntity;
+
+#[derive(OrmEntity)]
+pub struct User {
+    pub id: Option<String>,
+    pub name: String,
+    pub email: String,
+}
+```
+
+This automatically generates:
+- `#[derive(Serialize, Deserialize, Debug, Clone)]`
+- `impl Entity for User { ... }`
+
+### With Options
+
+```rust
+use nosql_orm_derive::OrmEntity;
+
+#[derive(OrmEntity)]
+#[table_name("users")]
+pub struct User {
+    pub id: Option<String>,
+    pub name: String,
+    pub email: String,
+}
+```
+
+### Available Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `#[table_name("name")]` | Set collection/table name | `#[table_name("users")]` |
+| `#[id_field("name")]` | Set id field name | `#[id_field("user_id")]` |
+| `#[soft_delete]` | Enable soft delete | `#[soft_delete]` |
+| `#[timestamp]` | Auto create timestamps | `#[timestamp]` |
+| `#[Relations(...)]` | Simple relation syntax | `#[Relations(posts, comments)]` |
+| `#[index(...)]` | Define indexes | `#[index("email", 1, "unique")]` |
+| `#[sql_column(...)]` | Define SQL columns | `#[sql_column("id", "serial", "primary")]` |
+| `#[frontend_exclude(...)]` | Fields hidden from frontend | `#[frontend_exclude("password")]` |
 
 ---
 
 ## Model Macro
 
-The `#[derive(Model)]` macro automatically implements the `Entity` trait and optionally `WithRelations` and `SoftDeletable`.
+The `#[derive(Model)]` macro is an alias for `Entity` with a friendlier name.
+
+### Basic Usage
+
+```rust
+use nosql_orm_derive::Model;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Model)]
+pub struct User {
+    pub id: Option<String>,
+    pub name: String,
+    pub email: String,
+}
+```
+
+---
+
+## Entity Macro
+
+The `#[derive(Entity)]` macro provides the core `Entity` trait implementation.
 
 ### Basic Usage
 
@@ -122,35 +195,31 @@ impl Entity for User {
 ### Example: With Soft Delete
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize, Model)]
+use nosql_orm_derive::OrmEntity;
+
+#[derive(OrmEntity)]
 #[table_name("users")]
 #[soft_delete]
 pub struct User {
     pub id: Option<String>,
     pub name: String,
     pub email: String,
-    // Auto-added by #[soft_delete]:
     pub deleted_at: Option<DateTime<Utc>>,
-}
-
-// Requires manual SoftDeletable impl (or use timestamp)
-impl SoftDeletable for User {
-    fn deleted_at(&self) -> Option<DateTime<Utc>> { self.deleted_at }
-    fn set_deleted_at(&mut self, d: Option<DateTime<Utc>>) { self.deleted_at = d; }
 }
 ```
 
 ### Example: With Timestamps
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize, Model)]
+use nosql_orm_derive::OrmEntity;
+
+#[derive(OrmEntity)]
 #[table_name("users")]
 #[timestamp]
 pub struct User {
     pub id: Option<String>,
     pub name: String,
     pub email: String,
-    // Auto-added by #[timestamp]:
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
 }
@@ -159,7 +228,9 @@ pub struct User {
 ### Example: With Custom ID
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize, Model)]
+use nosql_orm_derive::OrmEntity;
+
+#[derive(OrmEntity)]
 #[table_name("users")]
 #[id_field("user_id")]
 pub struct User {
@@ -177,14 +248,13 @@ The `#[derive(Validate)]` macro generates validation code.
 ### Basic Usage
 
 ```rust
-use nosql_orm_derive::Validate;
-use serde::{Deserialize, Serialize};
+use nosql_orm_derive::{OrmEntity, Validate};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[derive(OrmEntity, Validate)]
 pub struct User {
     #[validate(email)]
     pub email: String,
-    
+
     #[validate(length(min = 2, max = 50))]
     pub name: String,
 }
@@ -209,26 +279,28 @@ pub struct User {
 ### Using Validate
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+use nosql_orm_derive::{OrmEntity, Validate};
+
+#[derive(OrmEntity, Validate)]
 pub struct User {
     #[validate(email)]
     pub email: String,
-    
+
     #[validate(length(min = 2, max = 50))]
     pub name: String,
-    
+
     #[validate(min = 18)]
     pub age: u32,
 }
 
 fn main() {
     let user = User {
+        id: None,
         email: "invalid".to_string(),
         name: "A".to_string(),
         age: 15,
     };
-    
-    // Validate returns Result
+
     if let Err(e) = user.validate() {
         println!("Validation failed: {}", e);
     }
@@ -239,16 +311,14 @@ fn main() {
 
 ## Complete Examples
 
-### Example: Entity with Relations (Macro)
+### Example: Entity with Relations (OrmEntity)
 
 ```rust
-use nosql_orm_derive::Model;
-use serde::{Deserialize, Serialize};
+use nosql_orm_derive::OrmEntity;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Model)]
+#[derive(OrmEntity)]
 #[table_name("posts")]
-#[many_to_one("author", "users", "author_id")]
-#[many_to_many("categories", "categories", "category_ids")]
+#[Relations(authors, categories)]
 #[soft_delete]
 pub struct Post {
     pub id: Option<String>,
@@ -256,26 +326,18 @@ pub struct Post {
     pub body: String,
     pub author_id: String,
     pub category_ids: Vec<String>,
-    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl SoftDeletable for Post {
-    fn deleted_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.deleted_at
-    }
-    fn set_deleted_at(&mut self, d: Option<chrono::DateTime<chrono::Utc>>) {
-        self.deleted_at = d;
-    }
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 ```
 
-### Example: Full Stack with Macro
+### Example: Full Stack with OrmEntity
 
 ```rust
-use nosql_orm_derive::{Model, Validate};
-use serde::{Deserialize, Serialize};
+use nosql_orm::prelude::*;
+use nosql_orm_derive::OrmEntity;
+use nosql_orm::Validate;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Model)]
+#[derive(OrmEntity, Validate)]
 #[table_name("users")]
 #[soft_delete]
 #[timestamp]
@@ -288,16 +350,9 @@ pub struct User {
     pub id: Option<String>,
     pub name: String,
     pub email: String,
-    // Auto-added by #[soft_delete]:
-    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-    // Auto-added by #[timestamp]:
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl SoftDeletable for User {
-    fn deleted_at(&self) -> Option<chrono::DateTime<chrono::Utc>> { self.deleted_at }
-    fn set_deleted_at(&mut self, d: Option<chrono::DateTime<chrono::Utc>>) { self.deleted_at = d; }
+    pub deleted_at: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 #[tokio::main]
@@ -305,7 +360,6 @@ async fn main() -> OrmResult<()> {
     let provider = JsonProvider::new("./data").await?;
     let users: Repository<User, _> = Repository::new(provider);
 
-    // Create user
     let user = users.save(User {
         id: None,
         name: "Alice".into(),
@@ -315,7 +369,6 @@ async fn main() -> OrmResult<()> {
         updated_at: None,
     }).await?;
 
-    // Query
     let results = users.query()
         .where_contains("name", "Alice")
         .find()
@@ -325,32 +378,24 @@ async fn main() -> OrmResult<()> {
 }
 ```
 
-### Example: Using Decorator Example
-
-See `examples/decorator_example.rs`:
+### Example: Using OrmEntity with Relations
 
 ```rust
-use nosql_orm_derive::Model;
-use serde::{Deserialize, Serialize};
+use nosql_orm_derive::OrmEntity;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Model)]
-#[table_name("decorator_users")]
+#[derive(OrmEntity)]
+#[table_name("users")]
 #[soft_delete]
 #[timestamp]
-pub struct DecoratorUser {
+pub struct User {
     pub id: Option<String>,
     pub name: String,
     pub email: String,
     pub age: u32,
+    pub deleted_at: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
 }
-
-// Note: Need to implement SoftDeletable manually with #[soft_delete]
-impl SoftDeletable for DecoratorUser {
-    fn deleted_at(&self) -> Option<DateTime<Utc>> { None }
-    fn set_deleted_at(&mut self, _: Option<DateTime<Utc>>) { }
-}
-
-// Note: Need to add timestamp fields manually with #[timestamp]
 ```
 
 ---
