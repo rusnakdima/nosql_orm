@@ -77,6 +77,7 @@ pub mod providers;
 pub mod cache;
 
 pub use nosql_orm_derive::Model;
+pub use nosql_orm_derive::OrmEntity;
 pub use nosql_orm_derive::Validate;
 
 pub use aggregation::{

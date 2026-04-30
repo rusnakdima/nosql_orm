@@ -44,7 +44,9 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
     many_to_many,
     index,
     sql_column,
-    frontend_exclude
+    frontend_exclude,
+    Relations,
+    relations
   )
 )]
 pub fn derive_model(input: TokenStream) -> TokenStream {

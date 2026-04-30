@@ -18,7 +18,7 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
   let mut sql_columns: Vec<proc_macro2::TokenStream> = Vec::new();
   let mut frontend_excluded_fields: Vec<String> = Vec::new();
   let mut timestamps = false;
-let mut has_deleted_at_field = false;
+  let has_deleted_at_field = false;
   let _has_created_at_field = false;
   let _has_updated_at_field = false;
 
