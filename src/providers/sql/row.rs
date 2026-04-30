@@ -32,7 +32,6 @@ pub fn row_to_json_sqlite(row: &rusqlite::Row) -> Result<Value, rusqlite::Error>
 /// Convert a MySQL row to JSON value.
 #[cfg(feature = "sql-mysql")]
 pub fn row_to_json_mysql(row: mysql_async::Row) -> Value {
-  use mysql_async::prelude::*;
   let mut map = serde_json::Map::new();
   let columns = row.columns();
   let len = columns.len();

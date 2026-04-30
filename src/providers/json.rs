@@ -9,7 +9,7 @@ use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::DatabaseProvider;
 use crate::query::Filter;
-use crate::utils::{compare_values, generate_id};
+use crate::utils::{compare_values, generate_id, get_document_id_string};
 
 type Store = Arc<RwLock<HashMap<String, Vec<Value>>>>;
 
@@ -38,12 +38,12 @@ impl JsonProvider {
 
   // ── Private helpers ────────────────────────────────────────────────────
 
-  fn collection_path(&self, collection: &str) -> PathBuf {
+  pub(crate) fn collection_path(&self, collection: &str) -> PathBuf {
     self.base_dir.join(format!("{}.json", collection))
   }
 
   /// Load a collection from disk into the cache (if not already cached).
-  async fn ensure_loaded(&self, collection: &str) -> OrmResult<()> {
+  pub(crate) async fn ensure_loaded(&self, collection: &str) -> OrmResult<()> {
     {
       let r = self.cache.read().await;
       if r.contains_key(collection) {
@@ -65,7 +65,7 @@ impl JsonProvider {
   }
 
   /// Persist the in-memory collection to its JSON file.
-  async fn flush(&self, collection: &str) -> OrmResult<()> {
+  pub(crate) async fn flush(&self, collection: &str) -> OrmResult<()> {
     let r = self.cache.read().await;
     if let Some(records) = r.get(collection) {
       let path = self.collection_path(collection);
@@ -76,7 +76,7 @@ impl JsonProvider {
   }
 
   fn id_of(doc: &Value) -> Option<&str> {
-    doc.get("id").and_then(|v| v.as_str())
+    crate::utils::get_document_id(doc)
   }
 }
 
@@ -96,7 +96,7 @@ impl DatabaseProvider for JsonProvider {
     let mut w = self.cache.write().await;
     let records = w.entry(collection.to_string()).or_default();
 
-    let id = doc["id"].as_str().unwrap().to_string();
+    let id = get_document_id_string(&doc)?;
     if records.iter().any(|r| Self::id_of(r) == Some(&id)) {
       return Err(OrmError::Duplicate(format!("id={}", id)));
     }

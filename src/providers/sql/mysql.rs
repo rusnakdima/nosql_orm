@@ -1,9 +1,9 @@
 //! MySQL provider for nosql_orm.
 
-use crate::error::{OrmError, OrmResult};
+use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::{DatabaseProvider, ProviderConfig};
-use crate::providers::sql::{row, utils};
+use crate::providers::sql::row;
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
@@ -83,16 +83,9 @@ impl DatabaseProvider for MySqlProvider {
       values.join(", ")
     );
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    conn
-      .exec_drop(&sql, ())
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(conn.exec_drop(&sql, ()).await)?;
 
     self
       .find_by_id(collection, &id)
@@ -106,19 +99,13 @@ impl DatabaseProvider for MySqlProvider {
       self.dialect.quote_identifier(collection)
     );
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    let result: Option<Row> = conn
-      .exec_iter(&sql, (id,))
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?
-      .next()
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let result: Option<Row> = map_err_query(
+      map_err_query(conn.exec_iter(&sql, (id,)).await)?
+        .next()
+        .await,
+    )?;
 
     match result {
       Some(r) => Ok(Some(row::row_to_json_mysql(r))),
@@ -161,19 +148,13 @@ impl DatabaseProvider for MySqlProvider {
       sql.push_str(&format!(" LIMIT {}", l));
     }
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    let result: Vec<Row> = conn
-      .exec_iter(&sql, ())
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?
-      .collect()
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let result: Vec<Row> = map_err_query(
+      map_err_query(conn.exec_iter(&sql, ()).await)?
+        .collect()
+        .await,
+    )?;
 
     let mut results = Vec::new();
     for row in result {
@@ -184,21 +165,7 @@ impl DatabaseProvider for MySqlProvider {
   }
 
   async fn update(&self, collection: &str, id: &str, doc: JsonValue) -> OrmResult<JsonValue> {
-    let doc_obj = doc
-      .as_object()
-      .ok_or_else(|| OrmError::InvalidInput("Document must be an object".to_string()))?;
-
-    let set_clauses: Vec<String> = doc_obj
-      .iter()
-      .filter(|(k, _)| *k != "id")
-      .map(|(k, v)| {
-        format!(
-          "{} = {}",
-          self.dialect.quote_identifier(k),
-          self.query_builder.value_to_sql(v)
-        )
-      })
-      .collect();
+    let set_clauses = self.query_builder.build_set_clause(&doc, &["id"])?;
 
     let sql = format!(
       "UPDATE {} SET {} WHERE id = ?",
@@ -206,16 +173,9 @@ impl DatabaseProvider for MySqlProvider {
       set_clauses.join(", ")
     );
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    conn
-      .exec_drop(&sql, (id,))
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(conn.exec_drop(&sql, (id,)).await)?;
 
     self
       .find_by_id(collection, id)
@@ -224,20 +184,7 @@ impl DatabaseProvider for MySqlProvider {
   }
 
   async fn patch(&self, collection: &str, id: &str, patch: JsonValue) -> OrmResult<JsonValue> {
-    let patch_obj = patch
-      .as_object()
-      .ok_or_else(|| OrmError::InvalidInput("Patch must be an object".to_string()))?;
-
-    let set_clauses: Vec<String> = patch_obj
-      .iter()
-      .map(|(k, v)| {
-        format!(
-          "{} = {}",
-          self.dialect.quote_identifier(k),
-          self.query_builder.value_to_sql(v)
-        )
-      })
-      .collect();
+    let set_clauses = self.query_builder.build_set_clause(&patch, &[])?;
 
     let sql = format!(
       "UPDATE {} SET {} WHERE id = ?",
@@ -245,16 +192,9 @@ impl DatabaseProvider for MySqlProvider {
       set_clauses.join(", ")
     );
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    conn
-      .exec_drop(&sql, (id,))
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(conn.exec_drop(&sql, (id,)).await)?;
 
     self
       .find_by_id(collection, id)
@@ -268,16 +208,9 @@ impl DatabaseProvider for MySqlProvider {
       self.dialect.quote_identifier(collection)
     );
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    conn
-      .exec_drop(&sql, (id,))
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(conn.exec_drop(&sql, (id,)).await)?;
 
     Ok(true)
   }
@@ -292,16 +225,9 @@ impl DatabaseProvider for MySqlProvider {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
     }
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    let (count,): (i64,) = conn
-      .exec_first(&sql, ())
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?
+    let (count,): (i64,) = map_err_query(conn.exec_first(&sql, ()).await)?
       .ok_or_else(|| OrmError::Query("No result".to_string()))?;
 
     Ok(count as u64)
@@ -313,20 +239,7 @@ impl DatabaseProvider for MySqlProvider {
     filter: Option<Filter>,
     updates: JsonValue,
   ) -> OrmResult<usize> {
-    let updates_obj = updates
-      .as_object()
-      .ok_or_else(|| OrmError::InvalidInput("Updates must be an object".to_string()))?;
-
-    let set_clauses: Vec<String> = updates_obj
-      .iter()
-      .map(|(k, v)| {
-        format!(
-          "{} = {}",
-          self.dialect.quote_identifier(k),
-          self.query_builder.value_to_sql(v)
-        )
-      })
-      .collect();
+    let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
 
     let mut sql = format!(
       "UPDATE {} SET {}",
@@ -338,16 +251,9 @@ impl DatabaseProvider for MySqlProvider {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
     }
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    conn
-      .exec_drop(&sql, ())
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(conn.exec_drop(&sql, ()).await)?;
 
     Ok(conn.affected_rows() as usize)
   }
@@ -359,16 +265,9 @@ impl DatabaseProvider for MySqlProvider {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
     }
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    conn
-      .exec_drop(&sql, ())
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(conn.exec_drop(&sql, ()).await)?;
 
     Ok(conn.affected_rows() as usize)
   }
@@ -386,16 +285,9 @@ impl DatabaseProvider for MySqlProvider {
 
     let sql = self.query_builder.build_create_index(&index_def);
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    conn
-      .exec_drop(&sql, ())
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(conn.exec_drop(&sql, ()).await)?;
 
     Ok(())
   }
@@ -407,16 +299,9 @@ impl DatabaseProvider for MySqlProvider {
       self.dialect.quote_identifier(_collection)
     );
 
-    let mut conn = self
-      .pool
-      .get_conn()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
-    conn
-      .exec_drop(&sql, ())
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(conn.exec_drop(&sql, ()).await)?;
 
     Ok(())
   }

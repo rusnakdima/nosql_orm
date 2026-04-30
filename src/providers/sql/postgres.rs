@@ -1,17 +1,15 @@
 //! PostgreSQL provider for nosql_orm.
 
-use crate::error::{OrmError, OrmResult};
+use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::{DatabaseProvider, ProviderConfig};
-use crate::providers::sql::{row, utils};
+use crate::providers::sql::row;
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
 use async_trait::async_trait;
-use deadpool_postgres::{Config, Manager, ManagerConfig, Pool, RecyclingMethod};
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use serde_json::Value;
-use std::collections::HashMap;
-use tokio_postgres::Row;
 
 /// PostgreSQL-backed provider.
 #[derive(Clone)]
@@ -89,16 +87,9 @@ impl DatabaseProvider for PostgresProvider {
       values.join(", ")
     );
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let row = client
-      .query_one(&sql, &[])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let row = map_err_query(client.query_one(&sql, &[]).await)?;
 
     Ok(row::row_to_json_postgres(&row))
   }
@@ -109,16 +100,9 @@ impl DatabaseProvider for PostgresProvider {
       self.dialect.quote_identifier(collection)
     );
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let row = client
-      .query_opt(&sql, &[&id])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let row = map_err_query(client.query_opt(&sql, &[&id]).await)?;
 
     Ok(row.map(|r| row::row_to_json_postgres(&r)))
   }
@@ -137,8 +121,8 @@ impl DatabaseProvider for PostgresProvider {
       self.dialect.quote_identifier(collection)
     );
 
-    let mut params: Vec<String> = Vec::new();
-    let mut param_idx = 0;
+    let _params: Vec<String> = Vec::new();
+    let _param_idx = 0;
 
     if let Some(f) = filter {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
@@ -161,36 +145,15 @@ impl DatabaseProvider for PostgresProvider {
       sql.push_str(&format!(" LIMIT {}", l));
     }
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let rows = client
-      .query(&sql, &[])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let rows = map_err_query(client.query(&sql, &[]).await)?;
 
     Ok(rows.iter().map(|r| row::row_to_json_postgres(r)).collect())
   }
 
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
-    let doc_obj = doc
-      .as_object()
-      .ok_or_else(|| OrmError::InvalidInput("Document must be an object".to_string()))?;
-
-    let set_clauses: Vec<String> = doc_obj
-      .iter()
-      .filter(|(k, _)| *k != "id")
-      .map(|(k, v)| {
-        format!(
-          "{} = {}",
-          self.dialect.quote_identifier(k),
-          self.query_builder.value_to_sql(v)
-        )
-      })
-      .collect();
+    let set_clauses = self.query_builder.build_set_clause(&doc, &["id"])?;
 
     let sql = format!(
       "UPDATE {} SET {} WHERE id = $1 RETURNING *",
@@ -198,35 +161,15 @@ impl DatabaseProvider for PostgresProvider {
       set_clauses.join(", ")
     );
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let row = client
-      .query_one(&sql, &[&id])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let row = map_err_query(client.query_one(&sql, &[&id]).await)?;
 
     Ok(row::row_to_json_postgres(&row))
   }
 
   async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
-    let patch_obj = patch
-      .as_object()
-      .ok_or_else(|| OrmError::InvalidInput("Patch must be an object".to_string()))?;
-
-    let set_clauses: Vec<String> = patch_obj
-      .iter()
-      .map(|(k, v)| {
-        format!(
-          "{} = {}",
-          self.dialect.quote_identifier(k),
-          self.query_builder.value_to_sql(v)
-        )
-      })
-      .collect();
+    let set_clauses = self.query_builder.build_set_clause(&patch, &[])?;
 
     let sql = format!(
       "UPDATE {} SET {} WHERE id = $1 RETURNING *",
@@ -234,16 +177,9 @@ impl DatabaseProvider for PostgresProvider {
       set_clauses.join(", ")
     );
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let row = client
-      .query_one(&sql, &[&id])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let row = map_err_query(client.query_one(&sql, &[&id]).await)?;
 
     Ok(row::row_to_json_postgres(&row))
   }
@@ -254,16 +190,9 @@ impl DatabaseProvider for PostgresProvider {
       self.dialect.quote_identifier(collection)
     );
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let result = client
-      .execute(&sql, &[&id])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let result = map_err_query(client.execute(&sql, &[&id]).await)?;
 
     Ok(result > 0)
   }
@@ -278,16 +207,9 @@ impl DatabaseProvider for PostgresProvider {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
     }
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let row = client
-      .query_one(&sql, &[])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let row = map_err_query(client.query_one(&sql, &[]).await)?;
 
     let count: i64 = row.get(0);
     Ok(count as u64)
@@ -299,20 +221,7 @@ impl DatabaseProvider for PostgresProvider {
     filter: Option<Filter>,
     updates: Value,
   ) -> OrmResult<usize> {
-    let updates_obj = updates
-      .as_object()
-      .ok_or_else(|| OrmError::InvalidInput("Updates must be an object".to_string()))?;
-
-    let set_clauses: Vec<String> = updates_obj
-      .iter()
-      .map(|(k, v)| {
-        format!(
-          "{} = {}",
-          self.dialect.quote_identifier(k),
-          self.query_builder.value_to_sql(v)
-        )
-      })
-      .collect();
+    let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
 
     let mut sql = format!(
       "UPDATE {} SET {}",
@@ -324,16 +233,9 @@ impl DatabaseProvider for PostgresProvider {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
     }
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let rows = client
-      .execute(&sql, &[])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let rows = map_err_query(client.execute(&sql, &[]).await)?;
 
     Ok(rows as usize)
   }
@@ -345,23 +247,14 @@ impl DatabaseProvider for PostgresProvider {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
     }
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let rows = client
-      .execute(&sql, &[])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let rows = map_err_query(client.execute(&sql, &[]).await)?;
 
     Ok(rows as usize)
   }
 
   async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
-    use crate::nosql_index::NosqlIndexType;
-
     let mut index_def = crate::sql::types::SqlIndexDef::new(
       index.get_name().unwrap_or("idx_default"),
       collection,
@@ -374,36 +267,22 @@ impl DatabaseProvider for PostgresProvider {
 
     let sql = self.query_builder.build_create_index(&index_def);
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    client
-      .execute(&sql, &[])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(client.execute(&sql, &[]).await)?;
 
     Ok(())
   }
 
-  async fn drop_index(&self, collection: &str, index_name: &str) -> OrmResult<()> {
+  async fn drop_index(&self, _collection: &str, index_name: &str) -> OrmResult<()> {
     let sql = format!(
       "DROP INDEX IF EXISTS {}",
       self.dialect.quote_identifier(index_name)
     );
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    client
-      .execute(&sql, &[])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    map_err_query(client.execute(&sql, &[]).await)?;
 
     Ok(())
   }
@@ -415,16 +294,9 @@ impl DatabaseProvider for PostgresProvider {
             WHERE schemaname = 'public' AND tablename = $1
         ";
 
-    let client = self
-      .pool
-      .get()
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(self.pool.get().await)?;
 
-    let rows = client
-      .query(sql, &[&collection])
-      .await
-      .map_err(|e| OrmError::Query(e.to_string()))?;
+    let rows = map_err_query(client.query(sql, &[&collection]).await)?;
 
     let indexes = rows
       .iter()

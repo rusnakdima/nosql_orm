@@ -1,5 +1,6 @@
 use crate::error::OrmResult;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Topic {
@@ -54,13 +55,17 @@ impl SubscriptionMessage {
 
 pub struct Subscription {
   pub topic: Topic,
-  pub handler: Box<dyn SubscriptionHandler>,
+  pub handler: Arc<dyn SubscriptionHandler>,
   pub options: SubscriptionOptions,
 }
 
 impl Clone for Subscription {
   fn clone(&self) -> Self {
-    panic!("Subscription handler cannot be cloned")
+    Subscription {
+      topic: self.topic.clone(),
+      handler: self.handler.clone(),
+      options: self.options.clone(),
+    }
   }
 }
 
@@ -95,7 +100,7 @@ impl SubscriptionManager {
   pub fn subscribe<S: SubscriptionHandler + 'static>(&mut self, topic: &str, handler: S) {
     let subscription = Subscription {
       topic: Topic::new(topic),
-      handler: Box::new(handler),
+      handler: Arc::new(handler),
       options: SubscriptionOptions::default(),
     };
     self

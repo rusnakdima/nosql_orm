@@ -23,7 +23,6 @@ pub use postgres::PostgresProvider;
 #[cfg(feature = "sql-mysql")]
 pub use mysql::MySqlProvider;
 
-use crate::error::{OrmError, OrmResult};
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
 

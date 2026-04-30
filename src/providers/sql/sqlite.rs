@@ -1,9 +1,9 @@
 //! SQLite provider for nosql_orm.
 
-use crate::error::{OrmError, OrmResult};
+use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::{DatabaseProvider, ProviderConfig};
-use crate::providers::sql::{row, utils};
+use crate::providers::sql::row;
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
@@ -58,9 +58,23 @@ impl SqliteProvider {
   pub fn dialect(&self) -> SqlDialect {
     self.dialect
   }
-}
 
-use crate::providers::sql::utils::base64_encode;
+  async fn with_connection<R, F>(&self, f: F) -> OrmResult<R>
+  where
+    F: FnOnce(&rusqlite::Connection) -> Result<R, rusqlite::Error> + Send + 'static,
+    R: Send + 'static,
+  {
+    let conn = self.conn.clone();
+    map_err_connection(
+      tokio::task::spawn_blocking(move || {
+        let conn_guard = conn.blocking_lock();
+        f(&conn_guard)
+      })
+      .await
+      .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?,
+    )
+  }
+}
 
 #[async_trait]
 impl DatabaseProvider for SqliteProvider {
@@ -99,35 +113,28 @@ impl DatabaseProvider for SqliteProvider {
       })
       .collect();
 
-    let conn = self.conn.clone();
+    let _conn = self.conn.clone();
     let collection = collection.to_string();
     let id_clone = id.clone();
     let dialect = self.dialect;
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      conn_guard
-        .execute(&sql, rusqlite::params_from_iter(values.iter()))
-        .map_err(|e| OrmError::Query(e.to_string()))?;
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute(&sql, rusqlite::params_from_iter(values.iter()))?;
 
-      let sql = format!(
-        "SELECT * FROM {} WHERE id = ?",
-        dialect.quote_identifier(&collection)
-      );
-      let mut stmt = conn_guard
-        .prepare(&sql)
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      let result = stmt.query_row([id_clone], |row| row::row_to_json_sqlite(row));
+        let sql = format!(
+          "SELECT * FROM {} WHERE id = ?",
+          dialect.quote_identifier(&collection)
+        );
+        let mut stmt = conn_guard.prepare(&sql)?;
+        let result = stmt.query_row([id_clone], |row| row::row_to_json_sqlite(row));
 
-      match result {
-        Ok(value) => Ok(value),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Err(OrmError::NotFound(
-          "Inserted document not found".to_string(),
-        )),
-        Err(e) => Err(OrmError::Query(e.to_string())),
-      }
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+        match result {
+          Ok(value) => Ok(value),
+          Err(rusqlite::Error::QueryReturnedNoRows) => Err(rusqlite::Error::QueryReturnedNoRows),
+          Err(e) => Err(e),
+        }
+      })
+      .await
   }
 
   async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
@@ -136,23 +143,19 @@ impl DatabaseProvider for SqliteProvider {
       self.dialect.quote_identifier(collection)
     );
 
-    let conn = self.conn.clone();
     let id_owned = id.to_string();
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      let mut stmt = conn_guard
-        .prepare(&sql)
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      let result = stmt.query_row([id_owned], |row| row::row_to_json_sqlite(row));
+    self
+      .with_connection(move |conn_guard| {
+        let mut stmt = conn_guard.prepare(&sql)?;
+        let result = stmt.query_row([id_owned], |row| row::row_to_json_sqlite(row));
 
-      match result {
-        Ok(value) => Ok(Some(value)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(OrmError::Query(e.to_string())),
-      }
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+        match result {
+          Ok(value) => Ok(Some(value)),
+          Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+          Err(e) => Err(e),
+        }
+      })
+      .await
   }
 
   async fn find_many(
@@ -190,41 +193,23 @@ impl DatabaseProvider for SqliteProvider {
       sql.push_str(&format!(" LIMIT {}", l));
     }
 
-    let conn = self.conn.clone();
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      let mut stmt = conn_guard
-        .prepare(&sql)
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      let mut results = Vec::new();
-      let mut rows = stmt.query([]).map_err(|e| OrmError::Query(e.to_string()))?;
-      while let Some(row) = rows.next().map_err(|e| OrmError::Query(e.to_string()))? {
-        if let Ok(value) = row::row_to_json_sqlite(row) {
-          results.push(value);
+    self
+      .with_connection(move |conn_guard| {
+        let mut stmt = conn_guard.prepare(&sql)?;
+        let mut results = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+          if let Ok(value) = row::row_to_json_sqlite(row) {
+            results.push(value);
+          }
         }
-      }
-      Ok(results)
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+        Ok(results)
+      })
+      .await
   }
 
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
-    let doc_obj = doc
-      .as_object()
-      .ok_or_else(|| OrmError::InvalidInput("Document must be an object".to_string()))?;
-
-    let set_clauses: Vec<String> = doc_obj
-      .iter()
-      .filter(|(k, _)| *k != "id")
-      .map(|(k, v)| {
-        format!(
-          "{} = {}",
-          self.dialect.quote_identifier(k),
-          self.query_builder.value_to_sql(v)
-        )
-      })
-      .collect();
+    let set_clauses = self.query_builder.build_set_clause(&doc, &["id"])?;
 
     let sql = format!(
       "UPDATE {} SET {} WHERE id = ?",
@@ -232,52 +217,31 @@ impl DatabaseProvider for SqliteProvider {
       set_clauses.join(", ")
     );
 
-    let conn = self.conn.clone();
     let id_owned = id.to_string();
     let collection = collection.to_string();
     let dialect = self.dialect;
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      conn_guard
-        .execute(&sql, [id_owned.as_str()])
-        .map_err(|e| OrmError::Query(e.to_string()))?;
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute(&sql, [id_owned.as_str()])?;
 
-      let sql = format!(
-        "SELECT * FROM {} WHERE id = ?",
-        dialect.quote_identifier(&collection)
-      );
-      let mut stmt = conn_guard
-        .prepare(&sql)
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      let result = stmt.query_row([id_owned.as_str()], |row| row::row_to_json_sqlite(row));
+        let sql = format!(
+          "SELECT * FROM {} WHERE id = ?",
+          dialect.quote_identifier(&collection)
+        );
+        let mut stmt = conn_guard.prepare(&sql)?;
+        let result = stmt.query_row([id_owned.as_str()], |row| row::row_to_json_sqlite(row));
 
-      match result {
-        Ok(value) => Ok(value),
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-          Err(OrmError::NotFound("Document not found".to_string()))
+        match result {
+          Ok(value) => Ok(value),
+          Err(rusqlite::Error::QueryReturnedNoRows) => Err(rusqlite::Error::QueryReturnedNoRows),
+          Err(e) => Err(e),
         }
-        Err(e) => Err(OrmError::Query(e.to_string())),
-      }
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+      })
+      .await
   }
 
   async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
-    let patch_obj = patch
-      .as_object()
-      .ok_or_else(|| OrmError::InvalidInput("Patch must be an object".to_string()))?;
-
-    let set_clauses: Vec<String> = patch_obj
-      .iter()
-      .map(|(k, v)| {
-        format!(
-          "{} = {}",
-          self.dialect.quote_identifier(k),
-          self.query_builder.value_to_sql(v)
-        )
-      })
-      .collect();
+    let set_clauses = self.query_builder.build_set_clause(&patch, &[])?;
 
     let sql = format!(
       "UPDATE {} SET {} WHERE id = ?",
@@ -285,35 +249,27 @@ impl DatabaseProvider for SqliteProvider {
       set_clauses.join(", ")
     );
 
-    let conn = self.conn.clone();
     let id_owned = id.to_string();
     let collection = collection.to_string();
     let dialect = self.dialect;
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      conn_guard
-        .execute(&sql, [id_owned.as_str()])
-        .map_err(|e| OrmError::Query(e.to_string()))?;
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute(&sql, [id_owned.as_str()])?;
 
-      let sql = format!(
-        "SELECT * FROM {} WHERE id = ?",
-        dialect.quote_identifier(&collection)
-      );
-      let mut stmt = conn_guard
-        .prepare(&sql)
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      let result = stmt.query_row([id_owned.as_str()], |row| row::row_to_json_sqlite(row));
+        let sql = format!(
+          "SELECT * FROM {} WHERE id = ?",
+          dialect.quote_identifier(&collection)
+        );
+        let mut stmt = conn_guard.prepare(&sql)?;
+        let result = stmt.query_row([id_owned.as_str()], |row| row::row_to_json_sqlite(row));
 
-      match result {
-        Ok(value) => Ok(value),
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-          Err(OrmError::NotFound("Document not found".to_string()))
+        match result {
+          Ok(value) => Ok(value),
+          Err(rusqlite::Error::QueryReturnedNoRows) => Err(rusqlite::Error::QueryReturnedNoRows),
+          Err(e) => Err(e),
         }
-        Err(e) => Err(OrmError::Query(e.to_string())),
-      }
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+      })
+      .await
   }
 
   async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
@@ -322,17 +278,13 @@ impl DatabaseProvider for SqliteProvider {
       self.dialect.quote_identifier(collection)
     );
 
-    let conn = self.conn.clone();
     let id_owned = id.to_string();
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      let rows = conn_guard
-        .execute(&sql, [id_owned.as_str()])
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      Ok(rows > 0)
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+    self
+      .with_connection(move |conn_guard| {
+        let rows = conn_guard.execute(&sql, [id_owned.as_str()])?;
+        Ok(rows > 0)
+      })
+      .await
   }
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
@@ -345,16 +297,12 @@ impl DatabaseProvider for SqliteProvider {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
     }
 
-    let conn = self.conn.clone();
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      let count: i64 = conn_guard
-        .query_row(&sql, [], |row| row.get(0))
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      Ok(count as u64)
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+    self
+      .with_connection(move |conn_guard| {
+        let count: i64 = conn_guard.query_row(&sql, [], |row| row.get(0))?;
+        Ok(count as u64)
+      })
+      .await
   }
 
   async fn update_many(
@@ -363,20 +311,7 @@ impl DatabaseProvider for SqliteProvider {
     filter: Option<Filter>,
     updates: Value,
   ) -> OrmResult<usize> {
-    let updates_obj = updates
-      .as_object()
-      .ok_or_else(|| OrmError::InvalidInput("Updates must be an object".to_string()))?;
-
-    let set_clauses: Vec<String> = updates_obj
-      .iter()
-      .map(|(k, v)| {
-        format!(
-          "{} = {}",
-          self.dialect.quote_identifier(k),
-          self.query_builder.value_to_sql(v)
-        )
-      })
-      .collect();
+    let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
 
     let mut sql = format!(
       "UPDATE {} SET {}",
@@ -388,16 +323,12 @@ impl DatabaseProvider for SqliteProvider {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
     }
 
-    let conn = self.conn.clone();
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      let rows = conn_guard
-        .execute(&sql, [])
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      Ok(rows)
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+    self
+      .with_connection(move |conn_guard| {
+        let rows = conn_guard.execute(&sql, [])?;
+        Ok(rows)
+      })
+      .await
   }
 
   async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
@@ -407,16 +338,12 @@ impl DatabaseProvider for SqliteProvider {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
     }
 
-    let conn = self.conn.clone();
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      let rows = conn_guard
-        .execute(&sql, [])
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      Ok(rows)
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+    self
+      .with_connection(move |conn_guard| {
+        let rows = conn_guard.execute(&sql, [])?;
+        Ok(rows)
+      })
+      .await
   }
 
   async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
@@ -432,16 +359,12 @@ impl DatabaseProvider for SqliteProvider {
 
     let sql = self.query_builder.build_create_index(&index_def);
 
-    let conn = self.conn.clone();
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      conn_guard
-        .execute(&sql, [])
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      Ok(())
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute(&sql, [])?;
+        Ok(())
+      })
+      .await
   }
 
   async fn drop_index(&self, _collection: &str, index_name: &str) -> OrmResult<()> {
@@ -450,16 +373,12 @@ impl DatabaseProvider for SqliteProvider {
       self.dialect.quote_identifier(index_name)
     );
 
-    let conn = self.conn.clone();
-    tokio::task::spawn_blocking(move || {
-      let conn_guard = conn.blocking_lock();
-      conn_guard
-        .execute(&sql, [])
-        .map_err(|e| OrmError::Query(e.to_string()))?;
-      Ok(())
-    })
-    .await
-    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute(&sql, [])?;
+        Ok(())
+      })
+      .await
   }
 
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {

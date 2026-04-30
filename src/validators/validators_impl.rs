@@ -7,111 +7,74 @@ pub trait FieldValidator: Send + Sync {
 
 type ValidateFn<E> = dyn Fn(&E) -> ValidationResult + Send + Sync;
 
-pub struct LengthValidator {
-  pub min: Option<usize>,
-  pub max: Option<usize>,
-}
-
-impl Default for LengthValidator {
-  fn default() -> Self {
-    Self::new()
-  }
-}
-
-impl LengthValidator {
-  pub fn new() -> Self {
-    Self {
-      min: None,
-      max: None,
+macro_rules! impl_range_validator {
+  ($name:ident, $type:ty, $as_type:ident, $len_expr:expr, $value_get:expr, $min_msg:expr, $max_msg:expr) => {
+    pub struct $name {
+      pub min: Option<$type>,
+      pub max: Option<$type>,
     }
-  }
-  pub fn min(mut self, min: usize) -> Self {
-    self.min = Some(min);
-    self
-  }
-  pub fn max(mut self, max: usize) -> Self {
-    self.max = Some(max);
-    self
-  }
-}
-
-impl FieldValidator for LengthValidator {
-  fn validate(&self, field: &str, value: &Value) -> Result<(), ValidationError> {
-    let s = value
-      .as_str()
-      .ok_or_else(|| ValidationError::field(field, "Expected string"))?;
-    if let Some(min) = self.min {
-      if s.len() < min {
-        return Err(ValidationError::field(
-          field,
-          format!("Minimum length is {}", min),
-        ));
+    impl Default for $name {
+      fn default() -> Self {
+        Self::new()
       }
     }
-    if let Some(max) = self.max {
-      if s.len() > max {
-        return Err(ValidationError::field(
-          field,
-          format!("Maximum length is {}", max),
-        ));
+    impl $name {
+      pub fn new() -> Self {
+        Self {
+          min: None,
+          max: None,
+        }
+      }
+      pub fn min(mut self, min: $type) -> Self {
+        self.min = Some(min);
+        self
+      }
+      pub fn max(mut self, max: $type) -> Self {
+        self.max = Some(max);
+        self
       }
     }
-    Ok(())
-  }
-}
-
-pub struct RangeValidator {
-  pub min: Option<f64>,
-  pub max: Option<f64>,
-}
-
-impl Default for RangeValidator {
-  fn default() -> Self {
-    Self::new()
-  }
-}
-
-impl RangeValidator {
-  pub fn new() -> Self {
-    Self {
-      min: None,
-      max: None,
-    }
-  }
-  pub fn min(mut self, min: f64) -> Self {
-    self.min = Some(min);
-    self
-  }
-  pub fn max(mut self, max: f64) -> Self {
-    self.max = Some(max);
-    self
-  }
-}
-
-impl FieldValidator for RangeValidator {
-  fn validate(&self, field: &str, value: &Value) -> Result<(), ValidationError> {
-    let n = value
-      .as_f64()
-      .ok_or_else(|| ValidationError::field(field, "Expected number"))?;
-    if let Some(min) = self.min {
-      if n < min {
-        return Err(ValidationError::field(
-          field,
-          format!("Minimum value is {}", min),
-        ));
+    impl FieldValidator for $name {
+      fn validate(&self, field: &str, value: &Value) -> Result<(), ValidationError> {
+        let x = value
+          .$as_type()
+          .ok_or_else(|| ValidationError::field(field, $value_get))?;
+        let len = $len_expr(x);
+        if let Some(min) = self.min {
+          if len < min {
+            return Err(ValidationError::field(field, format!($min_msg, min)));
+          }
+        }
+        if let Some(max) = self.max {
+          if len > max {
+            return Err(ValidationError::field(field, format!($max_msg, max)));
+          }
+        }
+        Ok(())
       }
     }
-    if let Some(max) = self.max {
-      if n > max {
-        return Err(ValidationError::field(
-          field,
-          format!("Maximum value is {}", max),
-        ));
-      }
-    }
-    Ok(())
-  }
+  };
 }
+
+impl_range_validator!(
+  LengthValidator,
+  usize,
+  as_str,
+  |s: &str| s.len(),
+  "Expected string",
+  "Minimum length is {}",
+  "Maximum length is {}"
+);
+
+impl_range_validator!(
+  RangeValidator,
+  f64,
+  as_f64,
+  |x: f64| x,
+  "Expected number",
+  "Minimum value is {}",
+  "Maximum value is {}"
+);
 
 pub struct PatternValidator {
   pub pattern: regex::Regex,

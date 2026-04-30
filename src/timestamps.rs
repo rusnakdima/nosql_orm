@@ -103,18 +103,10 @@ impl TimestampFields {
 }
 
 pub fn apply_timestamps(doc: &mut Value, is_insert: bool) {
-  let now = Utc::now().to_rfc3339();
   if is_insert {
-    if let Some(obj) = doc.as_object_mut() {
-      if !obj.contains_key("created_at") {
-        obj.insert("created_at".to_string(), Value::String(now.clone()));
-      }
-      if !obj.contains_key("updated_at") {
-        obj.insert("updated_at".to_string(), Value::String(now));
-      }
-    }
-  } else if let Some(obj) = doc.as_object_mut() {
-    obj.insert("updated_at".to_string(), Value::String(now));
+    doc.apply_timestamps_for_insert();
+  } else {
+    doc.apply_timestamps_for_update();
   }
 }
 

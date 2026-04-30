@@ -1,4 +1,4 @@
-use crate::error::{OrmError, OrmResult};
+use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::DatabaseProvider;
 use crate::query::Filter;
@@ -15,11 +15,8 @@ pub struct RedisProvider {
 
 impl RedisProvider {
   pub async fn new(connection_string: &str) -> OrmResult<Self> {
-    let client =
-      redis::Client::open(connection_string).map_err(|e| OrmError::Connection(e.to_string()))?;
-    let conn = ConnectionManager::new(client)
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client = map_err_connection(redis::Client::open(connection_string))?;
+    let conn = map_err_connection(ConnectionManager::new(client).await)?;
     Ok(Self {
       conn,
       prefix: "nosql_orm:".to_string(),
@@ -54,7 +51,7 @@ impl DatabaseProvider for RedisProvider {
 
     let mut conn = self.conn.clone();
     let _: () = conn.set(&key, &json).await?;
-    let _: () = conn.sadd(&self.collection_key(collection), &id).await?;
+    let _: () = conn.sadd(self.collection_key(collection), &id).await?;
 
     Ok(doc_with_id)
   }
@@ -95,7 +92,7 @@ impl DatabaseProvider for RedisProvider {
       }
 
       if let Some(doc) = self.find_by_id(collection, id).await? {
-        if let Some(ref f) = filter {
+        if let Some(f) = filter {
           if f.matches(&doc) {
             results.push(doc);
           }
@@ -148,7 +145,7 @@ impl DatabaseProvider for RedisProvider {
     let exists: bool = conn.exists(&key).await?;
     if exists {
       let _: () = conn.del(&key).await?;
-      let _: () = conn.srem(&self.collection_key(collection), id).await?;
+      let _: () = conn.srem(self.collection_key(collection), id).await?;
       Ok(true)
     } else {
       Ok(false)
@@ -170,24 +167,89 @@ impl DatabaseProvider for RedisProvider {
     Ok(exists)
   }
 
-  // ── Index Management (No-op for Redis provider) ──────────────────────────────────
+  async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
+    let collection_key = self.collection_key(collection);
+    let mut conn = self.conn.clone();
 
-  /// Redis does not support indexes in the same way as MongoDB.
-  /// This is a no-op that logs a warning.
+    let ids: Vec<String> = conn.smembers(&collection_key).await?;
+
+    let mut to_delete = Vec::new();
+    for id in &ids {
+      if let Some(doc) = self.find_by_id(collection, id).await? {
+        if filter.as_ref().is_none_or(|f| f.matches(&doc)) {
+          to_delete.push(id.clone());
+        }
+      }
+    }
+
+    if to_delete.is_empty() {
+      return Ok(0);
+    }
+
+    let mut keys: Vec<String> = to_delete
+      .iter()
+      .map(|id| self.key(collection, id))
+      .collect();
+    keys.push(collection_key.clone());
+
+    let _: () = redis::cmd("DEL").arg(&keys).query_async(&mut conn).await?;
+
+    let count = to_delete.len();
+    Ok(count)
+  }
+
+  async fn update_many(
+    &self,
+    collection: &str,
+    filter: Option<Filter>,
+    updates: Value,
+  ) -> OrmResult<usize> {
+    let collection_key = self.collection_key(collection);
+    let mut conn = self.conn.clone();
+
+    let ids: Vec<String> = conn.smembers(&collection_key).await?;
+
+    let mut to_update = Vec::new();
+    for id in &ids {
+      if let Some(doc) = self.find_by_id(collection, id).await? {
+        if filter.as_ref().is_none_or(|f| f.matches(&doc)) {
+          to_update.push((id.clone(), doc));
+        }
+      }
+    }
+
+    if to_update.is_empty() {
+      return Ok(0);
+    }
+
+    let count = to_update.len();
+    let mut pipe = redis::pipe();
+    for (id, mut doc) in to_update {
+      if let (Some(updates_obj), Some(doc_obj)) = (updates.as_object(), doc.as_object_mut()) {
+        for (k, v) in updates_obj {
+          doc_obj.insert(k.clone(), v.clone());
+        }
+      }
+      let key = self.key(collection, &id);
+      let json = serde_json::to_string(&doc)?;
+      pipe.set(&key, json);
+    }
+
+    pipe.query_async::<_, ()>(&mut conn).await?;
+
+    Ok(count)
+  }
+
   async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
     log::warn!("Indexes are not supported by the Redis provider");
     Ok(())
   }
 
-  /// Redis does not support indexes in the same way as MongoDB.
-  /// This is a no-op that logs a warning.
   async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
     log::warn!("Indexes are not supported by the Redis provider");
     Ok(())
   }
 
-  /// Redis does not support indexes in the same way as MongoDB.
-  /// Returns empty list.
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
     Ok(vec![])
   }

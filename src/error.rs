@@ -49,6 +49,29 @@ pub enum OrmError {
 
   #[error("Validation error: {0}")]
   Validation(String),
+
+  #[error("Internal error: {0}")]
+  Internal(String),
+}
+
+impl OrmError {
+  pub fn connection<E: std::error::Error>(e: E) -> Self {
+    OrmError::Connection(e.to_string())
+  }
+
+  pub fn query<E: std::error::Error>(e: E) -> Self {
+    OrmError::Query(e.to_string())
+  }
+}
+
+#[inline]
+pub fn map_err_connection<E: std::error::Error, T>(result: Result<T, E>) -> OrmResult<T> {
+  result.map_err(OrmError::connection)
+}
+
+#[inline]
+pub fn map_err_query<E: std::error::Error, T>(result: Result<T, E>) -> OrmResult<T> {
+  result.map_err(OrmError::query)
 }
 
 /// Convenience alias for `Result<T, OrmError>`.

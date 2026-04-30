@@ -1,9 +1,8 @@
-use crate::error::{OrmError, OrmResult};
+use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
-use crate::utils::compare_values;
+use crate::providers::json::JsonProvider;
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -171,26 +170,23 @@ impl<P: DatabaseProvider> Pool<P> {
 
 #[derive(Clone)]
 pub struct JsonPool {
-  base_dir: std::path::PathBuf,
+  provider: Arc<JsonProvider>,
   pool: Arc<PoolInner>,
-  cache: Arc<tokio::sync::RwLock<HashMap<String, Vec<Value>>>>,
 }
 
 impl JsonPool {
   pub async fn with_config(base_dir: std::path::PathBuf, config: PoolConfig) -> OrmResult<Self> {
-    tokio::fs::create_dir_all(&base_dir).await?;
+    let provider = JsonProvider::new(base_dir).await?;
     Ok(Self {
-      base_dir,
+      provider: Arc::new(provider),
       pool: Arc::new(PoolInner::new(config.max_size)),
-      cache: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
     })
   }
 
   pub async fn acquire(&self, wait_for_available: bool) -> OrmResult<PooledJson> {
     let _ = self.pool.acquire(wait_for_available).await?;
     Ok(PooledJson {
-      base_dir: self.base_dir.clone(),
-      cache: self.cache.clone(),
+      provider: self.provider.clone(),
       pool: Some(self.pool.clone()),
     })
   }
@@ -203,46 +199,8 @@ impl JsonPool {
 
 #[derive(Clone)]
 pub struct PooledJson {
-  base_dir: std::path::PathBuf,
-  cache: Arc<tokio::sync::RwLock<HashMap<String, Vec<Value>>>>,
+  provider: Arc<JsonProvider>,
   pool: Option<Arc<PoolInner>>,
-}
-
-impl PooledJson {
-  fn collection_path(&self, collection: &str) -> std::path::PathBuf {
-    self.base_dir.join(format!("{}.json", collection))
-  }
-
-  async fn ensure_loaded(&self, collection: &str) -> OrmResult<()> {
-    {
-      let r = self.cache.read().await;
-      if r.contains_key(collection) {
-        return Ok(());
-      }
-    }
-
-    let path = self.collection_path(collection);
-    let records: Vec<Value> = if path.exists() {
-      let raw = tokio::fs::read_to_string(&path).await?;
-      serde_json::from_str(&raw)?
-    } else {
-      vec![]
-    };
-
-    let mut w = self.cache.write().await;
-    w.entry(collection.to_string()).or_insert(records);
-    Ok(())
-  }
-
-  async fn flush(&self, collection: &str) -> OrmResult<()> {
-    let r = self.cache.read().await;
-    if let Some(records) = r.get(collection) {
-      let path = self.collection_path(collection);
-      let json_str = serde_json::to_string_pretty(records)?;
-      tokio::fs::write(&path, json_str).await?;
-    }
-    Ok(())
-  }
 }
 
 impl Drop for PooledJson {
@@ -255,46 +213,12 @@ impl Drop for PooledJson {
 
 #[async_trait]
 impl DatabaseProvider for PooledJson {
-  async fn insert(&self, collection: &str, mut doc: Value) -> OrmResult<Value> {
-    self.ensure_loaded(collection).await?;
-
-    if doc
-      .get("id")
-      .and_then(|v| v.as_str())
-      .is_none_or(|s| s.is_empty())
-    {
-      doc["id"] = serde_json::json!(crate::utils::generate_id());
-    }
-
-    let mut w = self.cache.write().await;
-    let records = w.entry(collection.to_string()).or_default();
-
-    let id = doc["id"].as_str().unwrap().to_string();
-    if records
-      .iter()
-      .any(|r| r.get("id").and_then(|v| v.as_str()) == Some(&id))
-    {
-      return Err(OrmError::Duplicate(format!("id={}", id)));
-    }
-    records.push(doc.clone());
-    drop(w);
-
-    self.flush(collection).await?;
-    Ok(doc)
+  async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
+    self.provider.insert(collection, doc).await
   }
 
   async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
-    self.ensure_loaded(collection).await?;
-    let r = self.cache.read().await;
-    Ok(
-      r.get(collection)
-        .and_then(|recs| {
-          recs
-            .iter()
-            .find(|d| d.get("id").and_then(|v| v.as_str()) == Some(id))
-        })
-        .cloned(),
-    )
+    self.provider.find_by_id(collection, id).await
   }
 
   async fn find_many(
@@ -306,115 +230,26 @@ impl DatabaseProvider for PooledJson {
     sort_by: Option<&str>,
     sort_asc: bool,
   ) -> OrmResult<Vec<Value>> {
-    self.ensure_loaded(collection).await?;
-    let r = self.cache.read().await;
-    let records = match r.get(collection) {
-      Some(v) => v.clone(),
-      None => return Ok(vec![]),
-    };
-    drop(r);
-
-    let mut results: Vec<Value> = records
-      .into_iter()
-      .filter(|d| filter.is_none_or(|f| f.matches(d)))
-      .collect();
-
-    if let Some(field) = sort_by {
-      results.sort_by(|a, b| {
-        let av = a.get(field);
-        let bv = b.get(field);
-        let ord = compare_values(av, bv);
-        if sort_asc {
-          ord
-        } else {
-          ord.reverse()
-        }
-      });
-    }
-
-    let skip = skip.unwrap_or(0) as usize;
-    let results: Vec<Value> = results.into_iter().skip(skip).collect();
-    let results = match limit {
-      Some(n) => results.into_iter().take(n as usize).collect(),
-      None => results,
-    };
-
-    Ok(results)
+    self
+      .provider
+      .find_many(collection, filter, skip, limit, sort_by, sort_asc)
+      .await
   }
 
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
-    self.ensure_loaded(collection).await?;
-    let mut w = self.cache.write().await;
-    let records = w
-      .get_mut(collection)
-      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
-
-    let pos = records
-      .iter()
-      .position(|r| r.get("id").and_then(|v| v.as_str()) == Some(id))
-      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
-
-    records[pos] = doc.clone();
-    drop(w);
-    self.flush(collection).await?;
-    Ok(doc)
+    self.provider.update(collection, id, doc).await
   }
 
   async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
-    self.ensure_loaded(collection).await?;
-    let mut w = self.cache.write().await;
-    let records = w
-      .get_mut(collection)
-      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
-
-    let pos = records
-      .iter()
-      .position(|r| r.get("id").and_then(|v| v.as_str()) == Some(id))
-      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
-
-    if let (Value::Object(base), Value::Object(updates)) = (&mut records[pos], patch) {
-      for (k, v) in updates {
-        base.insert(k.clone(), v.clone());
-      }
-    }
-    let updated = records[pos].clone();
-    drop(w);
-    self.flush(collection).await?;
-    Ok(updated)
+    self.provider.patch(collection, id, patch).await
   }
 
   async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    self.ensure_loaded(collection).await?;
-    let mut w = self.cache.write().await;
-    let records = match w.get_mut(collection) {
-      Some(r) => r,
-      None => return Ok(false),
-    };
-
-    let before = records.len();
-    records.retain(|r| r.get("id").and_then(|v| v.as_str()) != Some(id));
-    let removed = records.len() < before;
-    drop(w);
-
-    if removed {
-      self.flush(collection).await?;
-    }
-    Ok(removed)
+    self.provider.delete(collection, id).await
   }
 
   async fn count(&self, collection: &str, filter: Option<&crate::query::Filter>) -> OrmResult<u64> {
-    self.ensure_loaded(collection).await?;
-    let r = self.cache.read().await;
-    let count = r
-      .get(collection)
-      .map(|recs| {
-        recs
-          .iter()
-          .filter(|d| filter.is_none_or(|f| f.matches(d)))
-          .count()
-      })
-      .unwrap_or(0);
-    Ok(count as u64)
+    self.provider.count(collection, filter).await
   }
 
   async fn update_many(
@@ -423,29 +258,7 @@ impl DatabaseProvider for PooledJson {
     filter: Option<crate::query::Filter>,
     updates: Value,
   ) -> OrmResult<usize> {
-    self.ensure_loaded(collection).await?;
-    let mut w = self.cache.write().await;
-    let records = w
-      .get_mut(collection)
-      .ok_or_else(|| OrmError::NotFound(format!("collection={}", collection)))?;
-
-    let mut count = 0;
-    for record in records.iter_mut() {
-      if filter.as_ref().is_none_or(|f| f.matches(record)) {
-        if let (Value::Object(base), Value::Object(patch)) = (record, &updates) {
-          for (k, v) in patch {
-            base.insert(k.clone(), v.clone());
-          }
-        }
-        count += 1;
-      }
-    }
-    drop(w);
-
-    if count > 0 {
-      self.flush(collection).await?;
-    }
-    Ok(count)
+    self.provider.update_many(collection, filter, updates).await
   }
 
   async fn delete_many(
@@ -453,43 +266,26 @@ impl DatabaseProvider for PooledJson {
     collection: &str,
     filter: Option<crate::query::Filter>,
   ) -> OrmResult<usize> {
-    self.ensure_loaded(collection).await?;
-    let mut w = self.cache.write().await;
-    let records = match w.get_mut(collection) {
-      Some(r) => r,
-      None => return Ok(0),
-    };
-
-    let before = records.len();
-    records.retain(|r| filter.as_ref().is_some_and(|f| !f.matches(r)));
-    let deleted = before - records.len();
-    drop(w);
-
-    if deleted > 0 {
-      self.flush(collection).await?;
-    }
-    Ok(deleted)
+    self.provider.delete_many(collection, filter).await
   }
 
   async fn create_index(
     &self,
-    _collection: &str,
-    _index: &crate::nosql_index::NosqlIndex,
+    collection: &str,
+    index: &crate::nosql_index::NosqlIndex,
   ) -> OrmResult<()> {
-    log::warn!("Indexes are not supported by the JSON provider");
-    Ok(())
+    self.provider.create_index(collection, index).await
   }
 
-  async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
-    log::warn!("Indexes are not supported by the JSON provider");
-    Ok(())
+  async fn drop_index(&self, collection: &str, index_name: &str) -> OrmResult<()> {
+    self.provider.drop_index(collection, index_name).await
   }
 
   async fn list_indexes(
     &self,
-    _collection: &str,
+    collection: &str,
   ) -> OrmResult<Vec<crate::nosql_index::NosqlIndexInfo>> {
-    Ok(vec![])
+    self.provider.list_indexes(collection).await
   }
 }
 
@@ -503,15 +299,11 @@ pub struct MongoPool {
 impl MongoPool {
   pub async fn with_config(
     uri: impl AsRef<str>,
-    db_name: impl AsRef<str>,
+    _db_name: impl AsRef<str>,
     config: PoolConfig,
   ) -> OrmResult<Self> {
-    use mongodb::options::ClientOptions;
-    let options = ClientOptions::parse(uri.as_ref())
-      .await
-      .map_err(|e| OrmError::Connection(e.to_string()))?;
-    let client =
-      mongodb::Client::with_options(options).map_err(|e| OrmError::Connection(e.to_string()))?;
+    let options = map_err_connection(mongodb::options::ClientOptions::parse(uri.as_ref()).await)?;
+    let client = map_err_connection(mongodb::Client::with_options(options))?;
     Ok(Self {
       client,
       pool: Arc::new(PoolInner::new(config.max_size)),
@@ -519,7 +311,7 @@ impl MongoPool {
   }
 
   pub async fn acquire(&self, wait_for_available: bool) -> OrmResult<PooledMongo> {
-    self.pool.acquire(wait_for_available).await?;
+    let _permit = self.pool.acquire(wait_for_available).await?;
     Ok(PooledMongo {
       client: self.client.clone(),
       pool: Some(self.pool.clone()),
@@ -534,6 +326,7 @@ impl MongoPool {
 #[cfg(feature = "mongo")]
 #[derive(Clone)]
 pub struct PooledMongo {
+  #[allow(dead_code)]
   client: mongodb::Client,
   pool: Option<Arc<PoolInner>>,
 }

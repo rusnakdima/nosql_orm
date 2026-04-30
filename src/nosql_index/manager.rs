@@ -1,7 +1,7 @@
 //! Index manager for creating and managing NoSQL indexes.
 
 use crate::error::OrmResult;
-use crate::nosql_index::NosqlIndex;
+use crate::nosql_index::definition::NosqlIndex;
 use crate::provider::DatabaseProvider;
 
 /// Index manager for managing collection indexes.
@@ -209,7 +209,7 @@ impl<P: DatabaseProvider> IndexManager<P> {
   pub async fn list_indexes(
     &self,
     collection: &str,
-  ) -> OrmResult<Vec<crate::nosql_index::NosqlIndexInfo>> {
+  ) -> OrmResult<Vec<super::definition::NosqlIndexInfo>> {
     self.provider.list_indexes(collection).await
   }
 
