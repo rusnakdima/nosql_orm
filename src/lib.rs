@@ -9,7 +9,7 @@
 //! use nosql_orm::prelude::*;
 //! use serde::{Deserialize, Serialize};
 //!
-//! #[derive(Debug, Clone, Serialize, Deserialize)]
+//! #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 //! pub struct User {
 //!     pub id: Option<String>,
 //!     pub name: String,
