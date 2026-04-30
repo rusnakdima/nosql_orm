@@ -3,6 +3,10 @@ use quote::quote;
 use syn::{DeriveInput, Meta};
 
 pub fn generate_entity(input: &DeriveInput) -> TokenStream {
+  generate_orm_entity(input, false)
+}
+
+pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStream {
   let name = &input.ident;
   let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
@@ -14,20 +18,9 @@ pub fn generate_entity(input: &DeriveInput) -> TokenStream {
   let mut sql_columns: Vec<proc_macro2::TokenStream> = Vec::new();
   let mut frontend_excluded_fields: Vec<String> = Vec::new();
   let mut timestamps = false;
-
-  let mut has_deleted_at_field = false;
-  if let syn::Data::Struct(struct_data) = &input.data {
-    for field in &struct_data.fields {
-      if let Some(ident) = &field.ident {
-        match ident.to_string().as_str() {
-          "deleted_at" => has_deleted_at_field = true,
-          "created_at" => timestamps = true,
-          "updated_at" => timestamps = true,
-          _ => {}
-        }
-      }
-    }
-  }
+let mut has_deleted_at_field = false;
+  let _has_created_at_field = false;
+  let _has_updated_at_field = false;
 
   for attr in &input.attrs {
     let meta = &attr.meta;
@@ -157,6 +150,14 @@ pub fn generate_entity(input: &DeriveInput) -> TokenStream {
     }
   }
 
+  let mut all_outputs: Vec<proc_macro2::TokenStream> = Vec::new();
+
+  if is_orm_entity {
+    all_outputs.push(quote! {
+        #[derive(Serialize, Deserialize, Debug, Clone)]
+    });
+  }
+
   let has_soft_delete_attr = has_soft_delete || has_deleted_at_field;
   let timestamps_attr = timestamps;
 
@@ -177,8 +178,6 @@ pub fn generate_entity(input: &DeriveInput) -> TokenStream {
   } else {
     quote! { vec![#(#relations),*] }
   };
-
-  let mut all_outputs: Vec<proc_macro2::TokenStream> = Vec::new();
 
   let id_field_ident = syn::Ident::new(&id_field, proc_macro2::Span::call_site());
   let entity_impl = quote! {
@@ -250,13 +249,6 @@ pub fn generate_entity(input: &DeriveInput) -> TokenStream {
     all_outputs.push(timestamps_impl);
   }
 
-  let _ = table_name;
-  if !relations.is_empty() {
-    // Auto-registration can be done manually via:
-    // register_collection_relations("table_name", EntityName::relations());
-    // For now, relations will be registered when entity is first used via WithRelations trait
-  }
-
   let frontend_impl = if !frontend_excluded_fields.is_empty() {
     let fields: Vec<&str> = frontend_excluded_fields
       .iter()
@@ -278,6 +270,14 @@ pub fn generate_entity(input: &DeriveInput) -> TokenStream {
   }
 
   quote! { #(#all_outputs)* }.into()
+}
+
+pub fn generate_model(input: &DeriveInput) -> TokenStream {
+  generate_entity(input)
+}
+
+pub fn generate_orm_entity_macro(input: &DeriveInput) -> TokenStream {
+  generate_orm_entity(input, true)
 }
 
 fn parse_relations_attr(tokens: &proc_macro2::TokenStream) -> Vec<proc_macro2::TokenStream> {
@@ -428,10 +428,6 @@ fn parse_sql_column_attr(s: &str) -> Option<proc_macro2::TokenStream> {
 fn parse_sql_column_list(tokens: &proc_macro2::TokenStream) -> Option<proc_macro2::TokenStream> {
   let ts_str = tokens.to_string();
   parse_sql_column_attr(&ts_str)
-}
-
-pub fn generate_model(input: &DeriveInput) -> TokenStream {
-  generate_entity(input)
 }
 
 fn parse_cascade_attr(ts_str: &str, attr_name: &str) -> Option<bool> {
