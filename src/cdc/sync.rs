@@ -22,7 +22,7 @@ impl<P: DatabaseProvider> CdcSync<P> {
     target: &P,
     collection: &str,
   ) -> OrmResult<(usize, usize)> {
-    let source_records = source.find_all(collection).await?;
+    let source_records: Vec<serde_json::Value> = source.find_all(collection).await?;
 
     let mut synced_count = 0;
     let mut skipped_count = 0;
