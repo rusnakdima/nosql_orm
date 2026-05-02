@@ -69,6 +69,26 @@ impl From<GroupStage> for Stage {
   }
 }
 
+impl From<serde_json::Value> for Stage {
+  fn from(value: serde_json::Value) -> Self {
+    if let Some(obj) = value.as_object() {
+      if let Some(inner) = obj.get("_id") {
+        let mut accumulators = std::collections::HashMap::new();
+        for (k, v) in obj {
+          if k != "_id" {
+            accumulators.insert(k.clone(), v.clone());
+          }
+        }
+        return Stage::Group {
+          id: inner.clone(),
+          accumulators,
+        };
+      }
+    }
+    Stage::Match(value)
+  }
+}
+
 pub struct SortStage {
   pub field: String,
   pub ascending: bool,

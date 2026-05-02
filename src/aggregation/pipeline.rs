@@ -1,12 +1,26 @@
 use crate::error::OrmResult;
 use serde_json::Value;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct AggregationPipeline {
   stages: Vec<Stage>,
 }
 
+impl From<Vec<Value>> for AggregationPipeline {
+  fn from(pipeline: Vec<Value>) -> Self {
+    let stages = pipeline
+      .into_iter()
+      .filter_map(|v| Stage::from_value(v))
+      .collect();
+    Self { stages }
+  }
+}
+
 impl AggregationPipeline {
+  pub fn from_stages(stages: Vec<Stage>) -> Self {
+    Self { stages }
+  }
   pub fn new() -> Self {
     Self { stages: Vec::new() }
   }
@@ -48,6 +62,13 @@ impl AggregationPipeline {
     self
   }
 
+  pub fn replace_root(mut self, field: &str) -> Self {
+    self.stages.push(Stage::ReplaceRoot {
+      new_root: Value::String(field.to_string()),
+    });
+    self
+  }
+
   pub fn build(&self) -> Vec<Value> {
     self.stages.iter().map(|s| s.to_value()).collect()
   }
@@ -66,6 +87,14 @@ impl AggregationPipeline {
 
     Ok(results)
   }
+
+  pub async fn execute_docs(&self, docs: Vec<Value>) -> OrmResult<Vec<Value>> {
+    let mut results = docs;
+    for stage in &self.stages {
+      results = stage.execute(results).await?;
+    }
+    Ok(results)
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +111,9 @@ pub enum Stage {
   Limit(u64),
   Skip(u64),
   Project(Value),
+  ReplaceRoot {
+    new_root: Value,
+  },
 }
 
 impl Stage {
@@ -102,6 +134,60 @@ impl Stage {
       Stage::Limit(n) => serde_json::json!({ "$limit": n }),
       Stage::Skip(n) => serde_json::json!({ "$skip": n }),
       Stage::Project(fields) => serde_json::json!({ "$project": fields }),
+      Stage::ReplaceRoot { new_root } => {
+        serde_json::json!({ "$replaceRoot": { "newRoot": format!("${}", new_root) } })
+      }
+    }
+  }
+
+  pub fn from_value(value: Value) -> Option<Self> {
+    if let Some(obj) = value.as_object() {
+      if let Some((key, stage_value)) = obj.iter().next() {
+        let inner_obj = stage_value.as_object();
+        match key.as_str() {
+          "$match" => Some(Stage::Match(stage_value.clone())),
+          "$group" => {
+            if let Some(inner_obj) = inner_obj {
+              let id = inner_obj.get("_id").cloned().unwrap_or(Value::Null);
+              let mut accumulators = HashMap::new();
+              for (k, v) in inner_obj {
+                if k != "_id" {
+                  accumulators.insert(k.clone(), v.clone());
+                }
+              }
+              Some(Stage::Group { id, accumulators })
+            } else {
+              None
+            }
+          }
+          "$sort" => {
+            if let Some(inner_obj) = inner_obj {
+              if let Some((field, val)) = inner_obj.iter().next() {
+                let ascending = val.as_i64().unwrap_or(1) > 0;
+                Some(Stage::Sort {
+                  field: field.clone(),
+                  ascending,
+                })
+              } else {
+                None
+              }
+            } else {
+              None
+            }
+          }
+          "$limit" => stage_value.as_i64().map(|n| Stage::Limit(n as u64)),
+          "$skip" => stage_value.as_i64().map(|n| Stage::Skip(n as u64)),
+          "$project" => Some(Stage::Project(stage_value.clone())),
+          "replaceRoot" => Some(Stage::ReplaceRoot {
+            new_root: stage_value.clone(),
+          }),
+          _ => None,
+        }
+      } else {
+        None
+      }
+    } else {
+      None
     }
   }
 
@@ -181,6 +267,22 @@ impl Stage {
           })
           .collect();
         Ok(projected)
+      }
+      Stage::ReplaceRoot { new_root } => {
+        let root_str = new_root.as_str().unwrap_or("doc");
+        let root_field = root_str.strip_prefix('$').unwrap_or(root_str);
+        let results: Vec<Value> = docs
+          .into_iter()
+          .filter_map(|doc| {
+            if let Some(obj) = doc.as_object() {
+              if let Some(val) = obj.get(root_field) {
+                return Some(val.clone());
+              }
+            }
+            None
+          })
+          .collect();
+        Ok(results)
       }
     }
   }
