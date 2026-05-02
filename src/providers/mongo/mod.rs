@@ -1,6 +1,10 @@
 use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
-use crate::provider::{DatabaseProvider, ProviderConfig};
+use crate::provider::{
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, ProviderConfig, RawResult,
+  SchemaIntrospection, TransactionControl, TransactionId,
+};
 use crate::query::Filter;
 use crate::utils::generate_id;
 use async_trait::async_trait;
@@ -10,6 +14,8 @@ use mongodb::{
   Database,
 };
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 mod convert;
 mod filter;
@@ -23,6 +29,7 @@ use crate::providers::mongo::indexes::{build_index_keys, build_index_options};
 #[derive(Clone)]
 pub struct MongoProvider {
   db: Database,
+  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
 }
 
 impl MongoProvider {
@@ -32,6 +39,7 @@ impl MongoProvider {
 
     Ok(Self {
       db: client.database(db_name.as_ref()),
+      transaction_manager: Arc::new(Mutex::new(None)),
     })
   }
 
@@ -58,7 +66,7 @@ impl MongoProvider {
     Ok(())
   }
 
-  pub async fn list_mongo_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+  async fn list_mongo_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
     use futures_util::TryStreamExt;
     let coll = self.db.collection::<Document>(collection);
     let mut cursor = coll.list_indexes(None).await?;
@@ -249,30 +257,21 @@ impl DatabaseProvider for MongoProvider {
     self.drop_mongo_index(collection, index_name).await
   }
 
-  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
-    self.list_mongo_indexes(collection).await
-  }
-
-  async fn aggregate(&self, collection: &str, pipeline: Vec<Value>) -> OrmResult<Vec<Value>> {
-    use futures_util::TryStreamExt;
-    let coll = self.db.collection::<Document>(collection);
-    let pipeline_docs: Result<Vec<Document>, _> = pipeline
-      .iter()
-      .map(|v| {
-        let doc = to_bson(v)
-          .map_err(|e| OrmError::Serialization(serde::ser::Error::custom(e.to_string())))?;
-        doc
-          .as_document()
-          .cloned()
-          .ok_or_else(|| OrmError::Provider("Expected BSON document in pipeline".to_string()))
-      })
-      .collect();
-    let mut cursor = coll.aggregate(pipeline_docs?, None).await?;
-    let mut results = vec![];
-    while let Some(doc) = cursor.try_next().await? {
-      results.push(Self::bson_to_json(doc)?);
-    }
-    Ok(results)
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    let indexes = self.list_mongo_indexes(collection).await?;
+    Ok(
+      indexes
+        .into_iter()
+        .map(|idx| IndexInfo {
+          name: idx.name,
+          collection: idx.namespace,
+          fields: idx.fields.into_iter().map(|(f, _)| f).collect(),
+          index_type: idx.index_type,
+          unique: idx.unique,
+          sparse: idx.sparse,
+        })
+        .collect(),
+    )
   }
 
   async fn health_check(&self) -> OrmResult<bool> {
@@ -306,5 +305,203 @@ impl DatabaseProvider for MongoProvider {
       coll.insert_many(bson_docs, None).await?;
     }
     Ok(count)
+  }
+}
+
+#[async_trait]
+impl SchemaIntrospection for MongoProvider {
+  async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>> {
+    let names = self.db.list_collection_names(None).await?;
+    let mut collections = Vec::new();
+    for name in names {
+      let coll = self.db.collection::<Document>(&name);
+      let count = coll.count_documents(doc! {}, None).await.unwrap_or(0);
+      collections.push(CollectionMeta {
+        name,
+        document_count: count,
+        size_bytes: 0,
+        created_at: None,
+        updated_at: None,
+      });
+    }
+    Ok(collections)
+  }
+
+  async fn describe_collection(&self, collection: &str) -> OrmResult<CollectionSchema> {
+    let coll = self.db.collection::<Document>(collection);
+    let sample = coll.find_one(doc! {}, None).await?;
+    let mut fields = HashMap::new();
+    if let Some(doc) = sample {
+      for (k, v) in doc {
+        let field_type = match v {
+          Bson::Null => "null".to_string(),
+          Bson::Boolean(_) => "boolean".to_string(),
+          Bson::Int32(_) | Bson::Int64(_) | Bson::Double(_) => "number".to_string(),
+          Bson::String(_) => "string".to_string(),
+          Bson::Array(_) => "array".to_string(),
+          Bson::Document(_) => "object".to_string(),
+          Bson::Binary(_) => "binary".to_string(),
+          Bson::ObjectId(_) => "objectid".to_string(),
+          Bson::DateTime(_) => "datetime".to_string(),
+          Bson::Timestamp(_) => "timestamp".to_string(),
+          Bson::Decimal128(_) => "decimal128".to_string(),
+          Bson::JavaScriptCode(_) | Bson::JavaScriptCodeWithScope(_) => "javascript".to_string(),
+          _ => "unknown".to_string(),
+        };
+        fields.insert(
+          k.clone(),
+          FieldInfo {
+            name: k,
+            field_type,
+            nullable: true,
+            default_value: None,
+          },
+        );
+      }
+    }
+    Ok(CollectionSchema {
+      name: collection.to_string(),
+      fields,
+      indexes: vec![],
+      options: Default::default(),
+    })
+  }
+
+  async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
+    let coll = self.db.collection::<Document>(collection);
+    let count = coll.count_documents(doc! {}, None).await.unwrap_or(0);
+    Ok(CollectionStats {
+      name: collection.to_string(),
+      document_count: count,
+      size_bytes: 0,
+      storage_size_bytes: 0,
+      index_count: 0,
+      index_size_bytes: 0,
+      average_document_size: 0,
+    })
+  }
+
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    let indexes = self.list_mongo_indexes(collection).await?;
+    Ok(
+      indexes
+        .into_iter()
+        .map(|idx| IndexInfo {
+          name: idx.name,
+          collection: idx.namespace,
+          fields: idx.fields.into_iter().map(|(f, _)| f).collect(),
+          index_type: idx.index_type,
+          unique: idx.unique,
+          sparse: idx.sparse,
+        })
+        .collect(),
+    )
+  }
+
+  async fn get_database_name(&self) -> OrmResult<String> {
+    Ok(self.db.name().to_string())
+  }
+}
+
+#[async_trait]
+impl AdminCommands for MongoProvider {
+  async fn execute_raw(&self, _query: &str, _params: Vec<Value>) -> OrmResult<RawResult> {
+    Err(OrmError::NotSupported(
+      "Raw execution not supported for MongoDB provider".to_string(),
+    ))
+  }
+
+  async fn create_collection(
+    &self,
+    collection: &str,
+    _schema: Option<CollectionSchema>,
+  ) -> OrmResult<()> {
+    self.db.create_collection(collection, None).await?;
+    Ok(())
+  }
+
+  async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
+    self
+      .db
+      .collection::<Document>(collection)
+      .drop(None)
+      .await?;
+    Ok(())
+  }
+
+  async fn rename_collection(&self, from: &str, to: &str) -> OrmResult<()> {
+    self
+      .db
+      .run_command(doc! { "renameCollection": from, "to": to }, None)
+      .await?;
+    Ok(())
+  }
+
+  async fn get_server_version(&self) -> OrmResult<String> {
+    let build_info = self.db.run_command(doc! { "buildInfo": 1 }, None).await?;
+    Ok(
+      build_info
+        .get_str("version")
+        .unwrap_or("unknown")
+        .to_string(),
+    )
+  }
+
+  async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
+    let healthy = self.health_check().await.unwrap_or(false);
+    let server_version = self
+      .get_server_version()
+      .await
+      .unwrap_or_else(|_| "unknown".to_string());
+    Ok(ConnectionHealth {
+      healthy,
+      latency_ms: None,
+      server_version: Some(server_version),
+      connected_at: None,
+      pool_stats: None,
+    })
+  }
+}
+
+#[async_trait]
+impl TransactionControl for MongoProvider {
+  async fn begin_transaction(&self) -> OrmResult<TransactionId> {
+    let mut guard = self.transaction_manager.lock().unwrap();
+    if guard.is_some() {
+      return Err(OrmError::Transaction(
+        "Transaction already active".to_string(),
+      ));
+    }
+    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
+    *guard = Some(id.clone());
+    Ok(id)
+  }
+
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut guard = self.transaction_manager.lock().unwrap();
+    match guard.as_ref() {
+      Some(active_id) if active_id == &id => {
+        *guard = None;
+        Ok(())
+      }
+      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => Err(OrmError::Transaction("No active transaction".to_string())),
+    }
+  }
+
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut guard = self.transaction_manager.lock().unwrap();
+    match guard.as_ref() {
+      Some(active_id) if active_id == &id => {
+        *guard = None;
+        Ok(())
+      }
+      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => Err(OrmError::Transaction("No active transaction".to_string())),
+    }
+  }
+
+  async fn is_transaction_active(&self) -> OrmResult<bool> {
+    Ok(self.transaction_manager.lock().unwrap().is_some())
   }
 }

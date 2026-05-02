@@ -2,12 +2,16 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
-use crate::provider::DatabaseProvider;
+use crate::provider::{
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  DatabaseProvider, FieldInfo, IndexInfo, RawResult, SchemaIntrospection, TransactionControl,
+  TransactionId,
+};
 use crate::query::Filter;
 use crate::utils::{compare_values, generate_id, get_document_id_string};
 
@@ -22,6 +26,7 @@ type Store = Arc<RwLock<HashMap<String, Vec<Value>>>>;
 pub struct JsonProvider {
   base_dir: PathBuf,
   cache: Store,
+  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
 }
 
 impl JsonProvider {
@@ -33,6 +38,7 @@ impl JsonProvider {
     Ok(Self {
       base_dir,
       cache: Arc::new(RwLock::new(HashMap::new())),
+      transaction_manager: Arc::new(Mutex::new(None)),
     })
   }
 
@@ -308,7 +314,7 @@ impl DatabaseProvider for JsonProvider {
 
   /// JSON provider does not support indexes natively.
   /// Returns empty list.
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
     Ok(vec![])
   }
 
@@ -325,9 +331,220 @@ impl DatabaseProvider for JsonProvider {
     Ok(count)
   }
 
-  async fn aggregate(&self, _collection: &str, _pipeline: Vec<Value>) -> OrmResult<Vec<Value>> {
-    Err(OrmError::Provider(
-      "Aggregation not supported by JSON provider".to_string(),
+  async fn aggregate(&self, collection: &str, pipeline: Vec<Value>) -> OrmResult<Vec<Value>> {
+    use crate::aggregation::AggregationPipeline;
+    let all_docs = self.find_all(collection).await?;
+    let pipeline = AggregationPipeline::from(pipeline);
+    pipeline.execute_docs(all_docs).await
+  }
+}
+
+#[async_trait]
+impl SchemaIntrospection for JsonProvider {
+  async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>> {
+    let cache = self.cache.read().await;
+    let mut collections = Vec::new();
+    for (name, docs) in cache.iter() {
+      let size = docs
+        .iter()
+        .map(|d| serde_json::to_string(d).map(|s| s.len()).unwrap_or(0))
+        .sum::<usize>() as u64;
+      collections.push(CollectionMeta {
+        name: name.clone(),
+        document_count: docs.len() as u64,
+        size_bytes: size,
+        created_at: None,
+        updated_at: None,
+      });
+    }
+    Ok(collections)
+  }
+
+  async fn describe_collection(&self, collection: &str) -> OrmResult<CollectionSchema> {
+    self.ensure_loaded(collection).await?;
+    let cache = self.cache.read().await;
+    if let Some(docs) = cache.get(collection) {
+      if let Some(doc) = docs.first() {
+        if let Value::Object(obj) = doc {
+          let mut fields = HashMap::new();
+          for (k, v) in obj {
+            let field_type = match v {
+              Value::Null => "null".to_string(),
+              Value::Bool(_) => "boolean".to_string(),
+              Value::Number(_) => "number".to_string(),
+              Value::String(_) => "string".to_string(),
+              Value::Array(_) => "array".to_string(),
+              Value::Object(_) => "object".to_string(),
+            };
+            fields.insert(
+              k.clone(),
+              FieldInfo {
+                name: k.clone(),
+                field_type,
+                nullable: true,
+                default_value: None,
+              },
+            );
+          }
+          return Ok(CollectionSchema {
+            name: collection.to_string(),
+            fields,
+            indexes: vec![],
+            options: Default::default(),
+          });
+        }
+      }
+    }
+    Ok(CollectionSchema {
+      name: collection.to_string(),
+      fields: HashMap::new(),
+      indexes: vec![],
+      options: Default::default(),
+    })
+  }
+
+  async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
+    self.ensure_loaded(collection).await?;
+    let cache = self.cache.read().await;
+    let (document_count, size_bytes) = if let Some(docs) = cache.get(collection) {
+      let size = docs
+        .iter()
+        .map(|d| serde_json::to_string(d).map(|s| s.len()).unwrap_or(0))
+        .sum::<usize>() as u64;
+      (docs.len() as u64, size)
+    } else {
+      (0, 0)
+    };
+    Ok(CollectionStats {
+      name: collection.to_string(),
+      document_count,
+      size_bytes,
+      storage_size_bytes: size_bytes,
+      index_count: 0,
+      index_size_bytes: 0,
+      average_document_size: if document_count > 0 {
+        size_bytes / document_count
+      } else {
+        0
+      },
+    })
+  }
+
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    Ok(vec![])
+  }
+
+  async fn get_database_name(&self) -> OrmResult<String> {
+    Ok("json_file".to_string())
+  }
+}
+
+#[async_trait]
+impl AdminCommands for JsonProvider {
+  async fn execute_raw(&self, _query: &str, _params: Vec<Value>) -> OrmResult<RawResult> {
+    Err(OrmError::NotSupported(
+      "Raw execution not supported for JSON provider".to_string(),
     ))
+  }
+
+  async fn create_collection(
+    &self,
+    collection: &str,
+    _schema: Option<CollectionSchema>,
+  ) -> OrmResult<()> {
+    self.ensure_loaded(collection).await?;
+    let mut cache = self.cache.write().await;
+    cache.entry(collection.to_string()).or_insert(vec![]);
+    drop(cache);
+    self.flush(collection).await
+  }
+
+  async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
+    let path = self.collection_path(collection);
+    let mut cache = self.cache.write().await;
+    cache.remove(collection);
+    drop(cache);
+    if path.exists() {
+      tokio::fs::remove_file(&path).await?;
+    }
+    Ok(())
+  }
+
+  async fn rename_collection(&self, from: &str, to: &str) -> OrmResult<()> {
+    let mut cache = self.cache.write().await;
+    if let Some(docs) = cache.remove(from) {
+      cache.insert(to.to_string(), docs);
+    } else {
+      return Err(OrmError::NotFound(format!(
+        "Collection '{}' not found",
+        from
+      )));
+    }
+    drop(cache);
+
+    let from_path = self.collection_path(from);
+    let to_path = self.collection_path(to);
+
+    if from_path.exists() {
+      tokio::fs::rename(&from_path, &to_path).await?;
+    }
+    Ok(())
+  }
+
+  async fn get_server_version(&self) -> OrmResult<String> {
+    Ok("N/A".to_string())
+  }
+
+  async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
+    Ok(ConnectionHealth {
+      healthy: true,
+      latency_ms: None,
+      server_version: Some("N/A".to_string()),
+      connected_at: None,
+      pool_stats: None,
+    })
+  }
+}
+
+#[async_trait]
+impl TransactionControl for JsonProvider {
+  async fn begin_transaction(&self) -> OrmResult<TransactionId> {
+    let mut guard = self.transaction_manager.lock().unwrap();
+    if guard.is_some() {
+      return Err(OrmError::Transaction(
+        "Transaction already active".to_string(),
+      ));
+    }
+    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
+    *guard = Some(id.clone());
+    Ok(id)
+  }
+
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut guard = self.transaction_manager.lock().unwrap();
+    match guard.as_ref() {
+      Some(active_id) if active_id == &id => {
+        *guard = None;
+        Ok(())
+      }
+      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => Err(OrmError::Transaction("No active transaction".to_string())),
+    }
+  }
+
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut guard = self.transaction_manager.lock().unwrap();
+    match guard.as_ref() {
+      Some(active_id) if active_id == &id => {
+        *guard = None;
+        Ok(())
+      }
+      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => Err(OrmError::Transaction("No active transaction".to_string())),
+    }
+  }
+
+  async fn is_transaction_active(&self) -> OrmResult<bool> {
+    Ok(self.transaction_manager.lock().unwrap().is_some())
   }
 }

@@ -5,6 +5,11 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 
+pub use crate::admin_types::{
+  CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo, IndexInfo,
+  PoolStats, RawResult, TransactionId,
+};
+
 #[derive(Debug, Clone)]
 pub struct ProviderConfig {
   pub connection: String,
@@ -78,11 +83,22 @@ pub trait DatabaseProvider: Send + Sync + Clone + 'static {
       .await
   }
 
+  async fn find_all_typed<T: serde::de::DeserializeOwned + Send>(
+    &self,
+    collection: &str,
+  ) -> OrmResult<Vec<T>> {
+    let values = self.find_all(collection).await?;
+    values
+      .into_iter()
+      .map(|v| serde_json::from_value(v).map_err(OrmError::Serialization))
+      .collect()
+  }
+
   async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()>;
 
   async fn drop_index(&self, collection: &str, index_name: &str) -> OrmResult<()>;
 
-  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>>;
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>>;
 
   async fn index_exists(&self, collection: &str, index_name: &str) -> OrmResult<bool> {
     let indexes = self.list_indexes(collection).await?;
@@ -100,4 +116,31 @@ pub trait DatabaseProvider: Send + Sync + Clone + 'static {
   async fn insert_many(&self, _collection: &str, _docs: Vec<Value>) -> OrmResult<usize> {
     Err(OrmError::Provider("Not implemented".to_string()))
   }
+}
+
+#[async_trait]
+pub trait SchemaIntrospection: Send + Sync + Clone + 'static {
+  async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>>;
+  async fn describe_collection(&self, collection: &str) -> OrmResult<CollectionSchema>;
+  async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats>;
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>>;
+  async fn get_database_name(&self) -> OrmResult<String>;
+}
+
+#[async_trait]
+pub trait AdminCommands: Send + Sync + Clone + 'static {
+  async fn execute_raw(&self, sql: &str, params: Vec<Value>) -> OrmResult<RawResult>;
+  async fn create_collection(&self, name: &str, schema: Option<CollectionSchema>) -> OrmResult<()>;
+  async fn drop_collection(&self, name: &str) -> OrmResult<()>;
+  async fn rename_collection(&self, old_name: &str, new_name: &str) -> OrmResult<()>;
+  async fn get_server_version(&self) -> OrmResult<String>;
+  async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth>;
+}
+
+#[async_trait]
+pub trait TransactionControl: Send + Sync + Clone + 'static {
+  async fn begin_transaction(&self) -> OrmResult<TransactionId>;
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()>;
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()>;
+  async fn is_transaction_active(&self) -> OrmResult<bool>;
 }

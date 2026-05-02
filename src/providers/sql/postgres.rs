@@ -2,7 +2,11 @@
 
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
-use crate::provider::{DatabaseProvider, ProviderConfig};
+use crate::provider::{
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, ProviderConfig, RawResult,
+  SchemaIntrospection, TransactionControl, TransactionId,
+};
 use crate::providers::sql::row;
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
@@ -10,6 +14,8 @@ use crate::sql::SqlQueryBuilder;
 use async_trait::async_trait;
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// PostgreSQL-backed provider.
 #[derive(Clone)]
@@ -17,6 +23,7 @@ pub struct PostgresProvider {
   pool: Pool,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
+  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
 }
 
 impl PostgresProvider {
@@ -40,6 +47,7 @@ impl PostgresProvider {
       pool,
       dialect: SqlDialect::PostgreSQL,
       query_builder: SqlQueryBuilder::new(SqlDialect::PostgreSQL),
+      transaction_manager: Arc::new(Mutex::new(None)),
     })
   }
 
@@ -287,7 +295,7 @@ impl DatabaseProvider for PostgresProvider {
     Ok(())
   }
 
-  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
     let sql = "
             SELECT indexname, indexdef
             FROM pg_indexes
@@ -295,7 +303,6 @@ impl DatabaseProvider for PostgresProvider {
         ";
 
     let client = map_err_connection(self.pool.get().await)?;
-
     let rows = map_err_query(client.query(sql, &[&collection]).await)?;
 
     let indexes = rows
@@ -306,15 +313,13 @@ impl DatabaseProvider for PostgresProvider {
         let unique = indexdef.contains("UNIQUE");
         let fields = extract_index_fields(&indexdef);
 
-        NosqlIndexInfo {
+        IndexInfo {
           name,
-          namespace: format!("public.{}", collection),
+          collection: collection.to_string(),
+          fields: fields.into_iter().map(|(f, _)| f).collect(),
+          index_type: determine_index_type(&indexdef),
           unique,
           sparse: false,
-          ttl_seconds: None,
-          version: None,
-          index_type: determine_index_type(&indexdef),
-          fields,
         }
       })
       .collect();
@@ -340,5 +345,300 @@ fn determine_index_type(indexdef: &str) -> String {
     "hash".to_string()
   } else {
     "b-tree".to_string()
+  }
+}
+
+#[async_trait]
+impl SchemaIntrospection for PostgresProvider {
+  async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>> {
+    let sql = "
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+        ";
+
+    let client = map_err_connection(self.pool.get().await)?;
+    let rows = map_err_query(client.query(sql, &[]).await)?;
+
+    let mut collections = Vec::new();
+    for row in rows {
+      let name: String = row.get("table_name");
+      let count_sql = format!(
+        "SELECT COUNT(*) FROM {}",
+        self.dialect.quote_identifier(&name)
+      );
+      let count_row = map_err_query(client.query_one(&count_sql, &[]).await)?;
+      let count: i64 = count_row.get(0);
+      collections.push(CollectionMeta {
+        name,
+        document_count: count as u64,
+        size_bytes: 0,
+        created_at: None,
+        updated_at: None,
+      });
+    }
+    Ok(collections)
+  }
+
+  async fn describe_collection(&self, collection: &str) -> OrmResult<CollectionSchema> {
+    let sql = "
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1
+        ";
+
+    let client = map_err_connection(self.pool.get().await)?;
+    let rows = map_err_query(client.query(sql, &[&collection]).await)?;
+
+    let mut fields = HashMap::new();
+    for row in rows {
+      let name: String = row.get("column_name");
+      let data_type: String = row.get("data_type");
+      fields.insert(
+        name.clone(),
+        FieldInfo {
+          name,
+          field_type: data_type,
+          nullable: true,
+          default_value: None,
+        },
+      );
+    }
+    Ok(CollectionSchema {
+      name: collection.to_string(),
+      fields,
+      indexes: vec![],
+      options: Default::default(),
+    })
+  }
+
+  async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
+    let count_sql = format!(
+      "SELECT COUNT(*) FROM {}",
+      self.dialect.quote_identifier(collection)
+    );
+    let size_sql = format!(
+      "SELECT pg_total_relation_size('{}')",
+      self.dialect.quote_identifier(collection)
+    );
+
+    let client = map_err_connection(self.pool.get().await)?;
+    let count_row = map_err_query(client.query_one(&count_sql, &[]).await)?;
+    let count: i64 = count_row.get(0);
+
+    let size_row = map_err_query(client.query_one(&size_sql, &[]).await)?;
+    let size: i64 = size_row.get(0);
+
+    Ok(CollectionStats {
+      name: collection.to_string(),
+      document_count: count as u64,
+      size_bytes: size as u64,
+      storage_size_bytes: size as u64,
+      index_count: 0,
+      index_size_bytes: 0,
+      average_document_size: if count > 0 { size / count } else { 0 } as u64,
+    })
+  }
+
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    let sql = "
+            SELECT indexname, indexdef
+            FROM pg_indexes
+            WHERE schemaname = 'public' AND tablename = $1
+        ";
+
+    let client = map_err_connection(self.pool.get().await)?;
+    let rows = map_err_query(client.query(sql, &[&collection]).await)?;
+
+    let indexes = rows
+      .iter()
+      .map(|row| {
+        let name: String = row.get("indexname");
+        let indexdef: String = row.get("indexdef");
+        let unique = indexdef.contains("UNIQUE");
+        let fields = extract_index_fields(&indexdef);
+
+        IndexInfo {
+          name,
+          collection: collection.to_string(),
+          fields: fields.into_iter().map(|(f, _)| f).collect(),
+          index_type: determine_index_type(&indexdef),
+          unique,
+          sparse: false,
+        }
+      })
+      .collect();
+    Ok(indexes)
+  }
+
+  async fn get_database_name(&self) -> OrmResult<String> {
+    let sql = "SELECT current_database()";
+    let client = map_err_connection(self.pool.get().await)?;
+    let row = map_err_query(client.query_one(sql, &[]).await)?;
+    let name: String = row.get(0);
+    Ok(name)
+  }
+}
+
+#[async_trait]
+impl AdminCommands for PostgresProvider {
+  async fn execute_raw(&self, query: &str, _params: Vec<Value>) -> OrmResult<RawResult> {
+    let client = map_err_connection(self.pool.get().await)?;
+    let rows = map_err_query(client.query(query, &[]).await)?;
+
+    if rows.is_empty() {
+      return Ok(RawResult {
+        columns: vec![],
+        rows: vec![],
+        affected_rows: 0,
+        last_insert_id: None,
+      });
+    }
+
+    let columns: Vec<String> = rows[0]
+      .columns()
+      .iter()
+      .map(|c| c.name().to_string())
+      .collect();
+
+    let rows_data: Vec<Vec<Value>> = rows
+      .iter()
+      .map(|row| {
+        columns
+          .iter()
+          .enumerate()
+          .map(|(i, _)| {
+            row::row_to_json_postgres(&row)
+              .get(i)
+              .cloned()
+              .unwrap_or(Value::Null)
+          })
+          .collect()
+      })
+      .collect();
+
+    Ok(RawResult {
+      columns,
+      rows: rows_data,
+      affected_rows: 0,
+      last_insert_id: None,
+    })
+  }
+
+  async fn create_collection(
+    &self,
+    collection: &str,
+    _schema: Option<CollectionSchema>,
+  ) -> OrmResult<()> {
+    let sql = format!(
+      "CREATE TABLE {} (id TEXT PRIMARY KEY)",
+      self.dialect.quote_identifier(collection)
+    );
+    let client = map_err_connection(self.pool.get().await)?;
+    map_err_query(client.execute(&sql, &[]).await)?;
+    Ok(())
+  }
+
+  async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
+    let sql = format!(
+      "DROP TABLE IF EXISTS {}",
+      self.dialect.quote_identifier(collection)
+    );
+    let client = map_err_connection(self.pool.get().await)?;
+    map_err_query(client.execute(&sql, &[]).await)?;
+    Ok(())
+  }
+
+  async fn rename_collection(&self, from: &str, to: &str) -> OrmResult<()> {
+    let sql = format!(
+      "ALTER TABLE {} RENAME TO {}",
+      self.dialect.quote_identifier(from),
+      self.dialect.quote_identifier(to)
+    );
+    let client = map_err_connection(self.pool.get().await)?;
+    map_err_query(client.execute(&sql, &[]).await)?;
+    Ok(())
+  }
+
+  async fn get_server_version(&self) -> OrmResult<String> {
+    let sql = "SELECT version()";
+    let client = map_err_connection(self.pool.get().await)?;
+    let row = map_err_query(client.query_one(sql, &[]).await)?;
+    let version: String = row.get(0);
+    Ok(version)
+  }
+
+  async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
+    let healthy = self.health_check().await.unwrap_or(false);
+    let server_version = self
+      .get_server_version()
+      .await
+      .unwrap_or_else(|_| "unknown".to_string());
+    Ok(ConnectionHealth {
+      healthy,
+      latency_ms: None,
+      server_version: Some(server_version),
+      connected_at: None,
+      pool_stats: None,
+    })
+  }
+}
+
+#[async_trait]
+impl TransactionControl for PostgresProvider {
+  async fn begin_transaction(&self) -> OrmResult<TransactionId> {
+    let id = {
+      let mut guard = self.transaction_manager.lock().unwrap();
+      if guard.is_some() {
+        return Err(OrmError::Transaction(
+          "Transaction already active".to_string(),
+        ));
+      }
+      let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
+      *guard = Some(id.clone());
+      id
+    };
+
+    let client = map_err_connection(self.pool.get().await)?;
+    map_err_query(client.execute("BEGIN", &[]).await)?;
+    Ok(id)
+  }
+
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    {
+      let mut guard = self.transaction_manager.lock().unwrap();
+      match guard.as_ref() {
+        Some(active_id) if active_id == &id => {
+          *guard = None;
+        }
+        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+        None => return Err(OrmError::Transaction("No active transaction".to_string())),
+      }
+    }
+
+    let client = map_err_connection(self.pool.get().await)?;
+    map_err_query(client.execute("COMMIT", &[]).await)?;
+    Ok(())
+  }
+
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    {
+      let mut guard = self.transaction_manager.lock().unwrap();
+      match guard.as_ref() {
+        Some(active_id) if active_id == &id => {
+          *guard = None;
+        }
+        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+        None => return Err(OrmError::Transaction("No active transaction".to_string())),
+      }
+    }
+
+    let client = map_err_connection(self.pool.get().await)?;
+    map_err_query(client.execute("ROLLBACK", &[]).await)?;
+    Ok(())
+  }
+
+  async fn is_transaction_active(&self) -> OrmResult<bool> {
+    Ok(self.transaction_manager.lock().unwrap().is_some())
   }
 }

@@ -2,7 +2,11 @@
 
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
-use crate::provider::{DatabaseProvider, ProviderConfig};
+use crate::provider::{
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, ProviderConfig, RawResult,
+  SchemaIntrospection, TransactionControl, TransactionId,
+};
 use crate::providers::sql::row;
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
@@ -11,12 +15,15 @@ use async_trait::async_trait;
 use mysql_async::prelude::*;
 use mysql_async::{Opts, Pool, Row};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct MySqlProvider {
   pool: Pool,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
+  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
 }
 
 impl MySqlProvider {
@@ -32,6 +39,7 @@ impl MySqlProvider {
       pool,
       dialect: SqlDialect::MySQL,
       query_builder: SqlQueryBuilder::new(SqlDialect::MySQL),
+      transaction_manager: Arc::new(Mutex::new(None)),
     })
   }
 
@@ -306,7 +314,318 @@ impl DatabaseProvider for MySqlProvider {
     Ok(())
   }
 
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
     Ok(vec![])
+  }
+}
+
+#[async_trait]
+impl SchemaIntrospection for MySqlProvider {
+  async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>> {
+    let sql = "SHOW TABLES";
+
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let rows: Vec<Row> = map_err_query(
+      map_err_query(conn.exec_iter(sql, ()).await)?
+        .collect()
+        .await,
+    )?;
+
+    let mut collections = Vec::new();
+    for row in rows {
+      let json = row::row_to_json_mysql(row);
+      let name = json.get("Tables_in_database").or_else(|| json.get(0));
+      match name {
+        Some(name_val) => {
+          let name_str = name_val.as_str().unwrap_or("").to_string();
+          let count_sql = format!(
+            "SELECT COUNT(*) FROM {}",
+            self.dialect.quote_identifier(&name_str)
+          );
+          let (count,): (i64,) =
+            map_err_query(conn.exec_first(&count_sql, ()).await)?.unwrap_or((0,));
+          collections.push(CollectionMeta {
+            name: name_str,
+            document_count: count as u64,
+            size_bytes: 0,
+            created_at: None,
+            updated_at: None,
+          });
+        }
+        None => continue,
+      }
+    }
+    Ok(collections)
+  }
+
+  async fn describe_collection(&self, collection: &str) -> OrmResult<CollectionSchema> {
+    let sql = format!("DESCRIBE {}", self.dialect.quote_identifier(collection));
+
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let rows: Vec<Row> = map_err_query(
+      map_err_query(conn.exec_iter(&sql, ()).await)?
+        .collect()
+        .await,
+    )?;
+
+    let mut fields = HashMap::new();
+    for row in rows {
+      let json = row::row_to_json_mysql(row.clone());
+      let name = json
+        .get("Field")
+        .or_else(|| json.get("Field"))
+        .ok_or_else(|| OrmError::Query("Missing Field column".to_string()))?
+        .as_str()
+        .ok_or_else(|| OrmError::Query("Field value is not a string".to_string()))?
+        .to_string();
+      let field_type = json
+        .get("Type")
+        .or_else(|| json.get("Type"))
+        .ok_or_else(|| OrmError::Query("Missing Type column".to_string()))?
+        .as_str()
+        .ok_or_else(|| OrmError::Query("Type value is not a string".to_string()))?
+        .to_string();
+      fields.insert(
+        name.clone(),
+        FieldInfo {
+          name,
+          field_type,
+          nullable: true,
+          default_value: None,
+        },
+      );
+    }
+    Ok(CollectionSchema {
+      name: collection.to_string(),
+      fields,
+      indexes: vec![],
+      options: Default::default(),
+    })
+  }
+
+  async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
+    let count_sql = format!(
+      "SELECT COUNT(*) FROM {}",
+      self.dialect.quote_identifier(collection)
+    );
+    let size_sql = format!(
+      "SELECT (data_length + index_length) FROM information_schema.tables WHERE table_name = ?"
+    );
+
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let (count,): (i64,) = map_err_query(conn.exec_first(&count_sql, ()).await)?.unwrap_or((0,));
+
+    let size: i64 = match conn.exec_iter(&size_sql, (&collection,)).await {
+      Ok(mut r) => match r.collect::<Row>().await {
+        Ok(rows) => rows
+          .first()
+          .and_then(|row| row.get::<i64, _>(0))
+          .unwrap_or(0),
+        Err(_) => 0,
+      },
+      Err(_) => 0,
+    };
+
+    Ok(CollectionStats {
+      name: collection.to_string(),
+      document_count: count as u64,
+      size_bytes: size as u64,
+      storage_size_bytes: size as u64,
+      index_count: 0,
+      index_size_bytes: 0,
+      average_document_size: if count > 0 { size / count } else { 0 } as u64,
+    })
+  }
+
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    Ok(vec![])
+  }
+
+  async fn get_database_name(&self) -> OrmResult<String> {
+    let sql = "SELECT DATABASE()";
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let (name,): (String,) =
+      map_err_query(conn.exec_first(sql, ()).await)?.unwrap_or(("unknown".to_string(),));
+    Ok(name)
+  }
+}
+
+#[async_trait]
+impl AdminCommands for MySqlProvider {
+  async fn execute_raw(&self, query: &str, _params: Vec<JsonValue>) -> OrmResult<RawResult> {
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+
+    let is_select = query.trim().to_uppercase().starts_with("SELECT");
+
+    if is_select {
+      let rows: Vec<Row> = map_err_query(
+        map_err_query(conn.exec_iter(query, ()).await)?
+          .collect()
+          .await,
+      )?;
+
+      if rows.is_empty() {
+        return Ok(RawResult {
+          columns: vec![],
+          rows: vec![],
+          affected_rows: 0,
+          last_insert_id: None,
+        });
+      }
+
+      let columns: Vec<String> = rows[0]
+        .columns()
+        .iter()
+        .map(|c| c.name_str().as_ref().to_string())
+        .collect();
+
+      let rows_data: Vec<Vec<JsonValue>> = rows
+        .iter()
+        .map(|row| {
+          columns
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+              row::row_to_json_mysql(row.clone())
+                .get(i)
+                .cloned()
+                .unwrap_or(JsonValue::Null)
+            })
+            .collect()
+        })
+        .collect();
+
+      Ok(RawResult {
+        columns,
+        rows: rows_data,
+        affected_rows: 0,
+        last_insert_id: None,
+      })
+    } else {
+      map_err_query(conn.exec_drop(query, ()).await)?;
+      Ok(RawResult {
+        columns: vec![],
+        rows: vec![],
+        affected_rows: 0,
+        last_insert_id: None,
+      })
+    }
+  }
+
+  async fn create_collection(
+    &self,
+    collection: &str,
+    _schema: Option<CollectionSchema>,
+  ) -> OrmResult<()> {
+    let sql = format!(
+      "CREATE TABLE {} (id TEXT PRIMARY KEY)",
+      self.dialect.quote_identifier(collection)
+    );
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    map_err_query(conn.exec_drop(&sql, ()).await)?;
+    Ok(())
+  }
+
+  async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
+    let sql = format!(
+      "DROP TABLE IF EXISTS {}",
+      self.dialect.quote_identifier(collection)
+    );
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    map_err_query(conn.exec_drop(&sql, ()).await)?;
+    Ok(())
+  }
+
+  async fn rename_collection(&self, from: &str, to: &str) -> OrmResult<()> {
+    let sql = format!(
+      "RENAME TABLE {} TO {}",
+      self.dialect.quote_identifier(from),
+      self.dialect.quote_identifier(to)
+    );
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    map_err_query(conn.exec_drop(&sql, ()).await)?;
+    Ok(())
+  }
+
+  async fn get_server_version(&self) -> OrmResult<String> {
+    let sql = "SELECT VERSION()";
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let (version,): (String,) =
+      map_err_query(conn.exec_first(sql, ()).await)?.unwrap_or(("unknown".to_string(),));
+    Ok(version)
+  }
+
+  async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
+    let healthy = self.health_check().await.unwrap_or(false);
+    let server_version = self
+      .get_server_version()
+      .await
+      .unwrap_or_else(|_| "unknown".to_string());
+    Ok(ConnectionHealth {
+      healthy,
+      latency_ms: None,
+      server_version: Some(server_version),
+      connected_at: None,
+      pool_stats: None,
+    })
+  }
+}
+
+#[async_trait]
+impl TransactionControl for MySqlProvider {
+  async fn begin_transaction(&self) -> OrmResult<TransactionId> {
+    let id = {
+      let mut guard = self.transaction_manager.lock().unwrap();
+      if guard.is_some() {
+        return Err(OrmError::Transaction(
+          "Transaction already active".to_string(),
+        ));
+      }
+      let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
+      *guard = Some(id.clone());
+      id
+    };
+
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    map_err_query(conn.exec_drop("START TRANSACTION", ()).await)?;
+    Ok(id)
+  }
+
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    {
+      let mut guard = self.transaction_manager.lock().unwrap();
+      match guard.as_ref() {
+        Some(active_id) if active_id == &id => {
+          *guard = None;
+        }
+        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+        None => return Err(OrmError::Transaction("No active transaction".to_string())),
+      }
+    }
+
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    map_err_query(conn.exec_drop("COMMIT", ()).await)?;
+    Ok(())
+  }
+
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    {
+      let mut guard = self.transaction_manager.lock().unwrap();
+      match guard.as_ref() {
+        Some(active_id) if active_id == &id => {
+          *guard = None;
+        }
+        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+        None => return Err(OrmError::Transaction("No active transaction".to_string())),
+      }
+    }
+
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    map_err_query(conn.exec_drop("ROLLBACK", ()).await)?;
+    Ok(())
+  }
+
+  async fn is_transaction_active(&self) -> OrmResult<bool> {
+    Ok(self.transaction_manager.lock().unwrap().is_some())
   }
 }

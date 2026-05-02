@@ -1,16 +1,23 @@
 use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
-use crate::provider::DatabaseProvider;
+use crate::provider::{
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, RawResult, SchemaIntrospection,
+  TransactionControl, TransactionId,
+};
 use crate::query::Filter;
 use async_trait::async_trait;
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct RedisProvider {
   conn: ConnectionManager,
   prefix: String,
+  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
 }
 
 impl RedisProvider {
@@ -20,6 +27,7 @@ impl RedisProvider {
     Ok(Self {
       conn,
       prefix: "nosql_orm:".to_string(),
+      transaction_manager: Arc::new(Mutex::new(None)),
     })
   }
 
@@ -250,7 +258,7 @@ impl DatabaseProvider for RedisProvider {
     Ok(())
   }
 
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
     Ok(vec![])
   }
 }
@@ -282,5 +290,177 @@ impl RedisProvider {
     let full_key = format!("{}:{}", self.prefix, key);
     let result: Option<String> = conn.get(&full_key).await?;
     Ok(result.map(|s| serde_json::from_str(&s).unwrap_or(Value::String(s))))
+  }
+}
+
+#[async_trait]
+impl SchemaIntrospection for RedisProvider {
+  async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>> {
+    let mut conn = self.conn.clone();
+    let pattern = format!("{}*:ids", self.prefix);
+    let keys: Vec<String> = conn.keys(&pattern).await?;
+    let collections = keys
+      .iter()
+      .map(|k| {
+        let name = k
+          .strip_prefix(&self.prefix)
+          .unwrap_or(k)
+          .trim_end_matches(":ids")
+          .to_string();
+        name
+      })
+      .collect::<Vec<_>>();
+    let mut result = Vec::new();
+    for name in collections {
+      let count: u64 = conn.scard(format!("{}{}:ids", self.prefix, name)).await?;
+      result.push(CollectionMeta {
+        name,
+        document_count: count,
+        size_bytes: 0,
+        created_at: None,
+        updated_at: None,
+      });
+    }
+    Ok(result)
+  }
+
+  async fn describe_collection(&self, _collection: &str) -> OrmResult<CollectionSchema> {
+    Ok(CollectionSchema {
+      name: _collection.to_string(),
+      fields: HashMap::new(),
+      indexes: vec![],
+      options: Default::default(),
+    })
+  }
+
+  async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
+    let mut conn = self.conn.clone();
+    let count: u64 = conn.scard(self.collection_key(collection)).await?;
+    Ok(CollectionStats {
+      name: collection.to_string(),
+      document_count: count,
+      size_bytes: 0,
+      storage_size_bytes: 0,
+      index_count: 0,
+      index_size_bytes: 0,
+      average_document_size: 0,
+    })
+  }
+
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    Ok(vec![])
+  }
+
+  async fn get_database_name(&self) -> OrmResult<String> {
+    Ok("redis".to_string())
+  }
+}
+
+#[async_trait]
+impl AdminCommands for RedisProvider {
+  async fn execute_raw(&self, _query: &str, _params: Vec<Value>) -> OrmResult<RawResult> {
+    Err(OrmError::NotSupported(
+      "Raw execution not supported for Redis provider".to_string(),
+    ))
+  }
+
+  async fn create_collection(
+    &self,
+    collection: &str,
+    _schema: Option<CollectionSchema>,
+  ) -> OrmResult<()> {
+    let mut conn = self.conn.clone();
+    let _: () = conn.sadd(self.collection_key(collection), "").await?;
+    let _: () = conn.srem(self.collection_key(collection), "").await?;
+    Ok(())
+  }
+
+  async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
+    let mut conn = self.conn.clone();
+    let ids: Vec<String> = conn.smembers(self.collection_key(collection)).await?;
+    let mut keys: Vec<String> = ids.iter().map(|id| self.key(collection, id)).collect();
+    keys.push(self.collection_key(collection));
+    if !keys.is_empty() {
+      let _: () = redis::cmd("DEL").arg(&keys).query_async(&mut conn).await?;
+    }
+    Ok(())
+  }
+
+  async fn get_server_version(&self) -> OrmResult<String> {
+    let mut conn = self.conn.clone();
+    let info: String = redis::cmd("INFO")
+      .arg("server")
+      .query_async(&mut conn)
+      .await?;
+    let version = info
+      .lines()
+      .find(|l| l.starts_with("redis_version:"))
+      .map(|l| l.split(':').nth(1).unwrap_or("unknown").trim().to_string())
+      .unwrap_or_else(|| "unknown".to_string());
+    Ok(version)
+  }
+
+  async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
+    let healthy = self.health_check().await.unwrap_or(false);
+    let server_version = self
+      .get_server_version()
+      .await
+      .unwrap_or_else(|_| "unknown".to_string());
+    Ok(ConnectionHealth {
+      healthy,
+      latency_ms: None,
+      server_version: Some(server_version),
+      connected_at: None,
+      pool_stats: None,
+    })
+  }
+
+  async fn rename_collection(&self, _from: &str, _to: &str) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "rename_collection not supported for Redis provider".to_string(),
+    ))
+  }
+}
+
+#[async_trait]
+impl TransactionControl for RedisProvider {
+  async fn begin_transaction(&self) -> OrmResult<TransactionId> {
+    let mut guard = self.transaction_manager.lock().unwrap();
+    if guard.is_some() {
+      return Err(OrmError::Transaction(
+        "Transaction already active".to_string(),
+      ));
+    }
+    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
+    *guard = Some(id.clone());
+    Ok(id)
+  }
+
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut guard = self.transaction_manager.lock().unwrap();
+    match guard.as_ref() {
+      Some(active_id) if active_id == &id => {
+        *guard = None;
+        Ok(())
+      }
+      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => Err(OrmError::Transaction("No active transaction".to_string())),
+    }
+  }
+
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut guard = self.transaction_manager.lock().unwrap();
+    match guard.as_ref() {
+      Some(active_id) if active_id == &id => {
+        *guard = None;
+        Ok(())
+      }
+      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => Err(OrmError::Transaction("No active transaction".to_string())),
+    }
+  }
+
+  async fn is_transaction_active(&self) -> OrmResult<bool> {
+    Ok(self.transaction_manager.lock().unwrap().is_some())
   }
 }

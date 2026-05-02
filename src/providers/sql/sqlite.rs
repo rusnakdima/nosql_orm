@@ -2,13 +2,18 @@
 
 use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
-use crate::provider::{DatabaseProvider, ProviderConfig};
+use crate::provider::{
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, ProviderConfig, RawResult,
+  SchemaIntrospection, TransactionControl, TransactionId,
+};
 use crate::providers::sql::row;
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
 use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -18,6 +23,7 @@ pub struct SqliteProvider {
   conn: Arc<Mutex<rusqlite::Connection>>,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
+  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
 }
 
 impl SqliteProvider {
@@ -48,6 +54,7 @@ impl SqliteProvider {
       conn: Arc::new(Mutex::new(conn)),
       dialect: SqlDialect::SQLite,
       query_builder: SqlQueryBuilder::new(SqlDialect::SQLite),
+      transaction_manager: Arc::new(Mutex::new(None)),
     })
   }
 
@@ -381,7 +388,291 @@ impl DatabaseProvider for SqliteProvider {
       .await
   }
 
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
     Ok(vec![])
+  }
+}
+
+#[async_trait]
+impl SchemaIntrospection for SqliteProvider {
+  async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>> {
+    self
+      .with_connection(move |conn_guard| {
+        let mut stmt = conn_guard.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+        )?;
+        let mut rows = stmt.query([])?;
+        let mut collections = Vec::new();
+        while let Some(row) = rows.next()? {
+          let name: String = row.get(0)?;
+          let count: i64 =
+            conn_guard.query_row(&format!("SELECT COUNT(*) FROM {}", name), [], |r| r.get(0))?;
+          collections.push(CollectionMeta {
+            name,
+            document_count: count as u64,
+            size_bytes: 0,
+            created_at: None,
+            updated_at: None,
+          });
+        }
+        Ok(collections)
+      })
+      .await
+  }
+
+  async fn describe_collection(&self, collection: &str) -> OrmResult<CollectionSchema> {
+    let dialect = self.dialect;
+    let collection = collection.to_string();
+    self
+      .with_connection(move |conn_guard| {
+        let mut stmt = conn_guard.prepare(&format!(
+          "PRAGMA table_info({})",
+          dialect.quote_identifier(&collection)
+        ))?;
+        let mut rows = stmt.query([])?;
+        let mut fields = HashMap::new();
+        while let Some(row) = rows.next()? {
+          let name: String = row.get(1)?;
+          let field_type: String = row.get(2)?;
+          fields.insert(
+            name.clone(),
+            FieldInfo {
+              name,
+              field_type,
+              nullable: true,
+              default_value: None,
+            },
+          );
+        }
+        Ok(CollectionSchema {
+          name: collection.to_string(),
+          fields,
+          indexes: vec![],
+          options: Default::default(),
+        })
+      })
+      .await
+  }
+
+  async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
+    let dialect = self.dialect;
+    let collection = collection.to_string();
+    self
+      .with_connection(move |conn_guard| {
+        let count: i64 =
+          conn_guard.query_row(&format!("SELECT COUNT(*) FROM {}", collection), [], |r| {
+            r.get(0)
+          })?;
+        let page_count: i64 = conn_guard
+          .query_row(
+            &format!(
+              "SELECT page_count FROM sqlite_master WHERE name = '{}'",
+              collection
+            ),
+            [],
+            |r| r.get(0),
+          )
+          .unwrap_or(0);
+        let page_size: i64 = conn_guard
+          .query_row("PRAGMA page_size", [], |r| r.get(0))
+          .unwrap_or(4096);
+        Ok(CollectionStats {
+          name: collection.to_string(),
+          document_count: count as u64,
+          size_bytes: (page_count * page_size) as u64,
+          storage_size_bytes: (page_count * page_size) as u64,
+          index_count: 0,
+          index_size_bytes: 0,
+          average_document_size: if count > 0 {
+            (page_count * page_size) / count
+          } else {
+            0
+          } as u64,
+        })
+      })
+      .await
+  }
+
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    Ok(vec![])
+  }
+
+  async fn get_database_name(&self) -> OrmResult<String> {
+    Ok("sqlite".to_string())
+  }
+}
+
+#[async_trait]
+impl AdminCommands for SqliteProvider {
+  async fn execute_raw(&self, query: &str, _params: Vec<Value>) -> OrmResult<RawResult> {
+    let query = query.to_string();
+    self
+      .with_connection(move |conn_guard| {
+        let mut stmt = conn_guard.prepare(&query)?;
+        let column_count = stmt.column_count();
+        let columns: Vec<String> = (0..column_count)
+          .map(|i| stmt.column_name(i).unwrap_or("?").to_string())
+          .collect();
+
+        let mut rows = stmt.query([])?;
+        let mut rows_data = Vec::new();
+        while let Some(row) = rows.next()? {
+          let mut row_values = Vec::new();
+          for i in 0..column_count {
+            let value: rusqlite::types::Value = row.get(i)?;
+            let json_value = match value {
+              rusqlite::types::Value::Null => Value::Null,
+              rusqlite::types::Value::Integer(i) => Value::Number(i.into()),
+              rusqlite::types::Value::Real(f) => Value::Number(
+                serde_json::Number::from_f64(f).unwrap_or(serde_json::Number::from(0)),
+              ),
+              rusqlite::types::Value::Text(s) => Value::String(s),
+              rusqlite::types::Value::Blob(b) => Value::String(format!("<blob {} bytes>", b.len())),
+            };
+            row_values.push(json_value);
+          }
+          rows_data.push(row_values);
+        }
+        Ok(RawResult {
+          columns,
+          rows: rows_data,
+          affected_rows: 0,
+          last_insert_id: None,
+        })
+      })
+      .await
+  }
+
+  async fn create_collection(
+    &self,
+    collection: &str,
+    _schema: Option<CollectionSchema>,
+  ) -> OrmResult<()> {
+    let sql = format!(
+      "CREATE TABLE {} (id TEXT PRIMARY KEY)",
+      self.dialect.quote_identifier(collection)
+    );
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute(&sql, [])?;
+        Ok(())
+      })
+      .await
+  }
+
+  async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
+    let sql = format!(
+      "DROP TABLE IF EXISTS {}",
+      self.dialect.quote_identifier(collection)
+    );
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute(&sql, [])?;
+        Ok(())
+      })
+      .await
+  }
+
+  async fn rename_collection(&self, from: &str, to: &str) -> OrmResult<()> {
+    let sql = format!(
+      "ALTER TABLE {} RENAME TO {}",
+      self.dialect.quote_identifier(from),
+      self.dialect.quote_identifier(to)
+    );
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute(&sql, [])?;
+        Ok(())
+      })
+      .await
+  }
+
+  async fn get_server_version(&self) -> OrmResult<String> {
+    self
+      .with_connection(move |conn_guard| {
+        let version: String = conn_guard.query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
+        Ok(version)
+      })
+      .await
+  }
+
+  async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
+    let healthy = self.health_check().await.unwrap_or(false);
+    let server_version = self
+      .get_server_version()
+      .await
+      .unwrap_or_else(|_| "unknown".to_string());
+    Ok(ConnectionHealth {
+      healthy,
+      latency_ms: None,
+      server_version: Some(server_version),
+      connected_at: None,
+      pool_stats: None,
+    })
+  }
+}
+
+#[async_trait]
+impl TransactionControl for SqliteProvider {
+  async fn begin_transaction(&self) -> OrmResult<TransactionId> {
+    let mut guard = self.transaction_manager.lock().await;
+    if guard.is_some() {
+      return Err(OrmError::Transaction(
+        "Transaction already active".to_string(),
+      ));
+    }
+    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
+    *guard = Some(id.clone());
+    drop(guard);
+
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute("BEGIN", [])?;
+        Ok(())
+      })
+      .await?;
+    Ok(id)
+  }
+
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut guard = self.transaction_manager.lock().await;
+    match guard.as_ref() {
+      Some(active_id) if active_id == &id => {
+        *guard = None;
+        drop(guard);
+
+        self
+          .with_connection(move |conn_guard| {
+            conn_guard.execute("COMMIT", [])?;
+            Ok(())
+          })
+          .await
+      }
+      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => Err(OrmError::Transaction("No active transaction".to_string())),
+    }
+  }
+
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut guard = self.transaction_manager.lock().await;
+    match guard.as_ref() {
+      Some(active_id) if active_id == &id => {
+        *guard = None;
+        drop(guard);
+
+        self
+          .with_connection(move |conn_guard| {
+            conn_guard.execute("ROLLBACK", [])?;
+            Ok(())
+          })
+          .await
+      }
+      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => Err(OrmError::Transaction("No active transaction".to_string())),
+    }
+  }
+
+  async fn is_transaction_active(&self) -> OrmResult<bool> {
+    Ok(self.transaction_manager.lock().await.is_some())
   }
 }
