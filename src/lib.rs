@@ -33,6 +33,7 @@
 //! }
 //! ```
 
+pub mod admin_types;
 pub mod aggregation;
 pub mod cascade;
 pub mod cdc;
@@ -118,13 +119,19 @@ pub use sql::{
 
 /// Re-exports everything you need for typical usage.
 pub mod prelude {
+  pub use crate::admin_types::{
+    CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, IndexInfo, PoolStats,
+    RawResult, TransactionId,
+  };
   pub use crate::entity::{Entity, EntityMeta, FrontendProjection};
   pub use crate::error::{OrmError, OrmResult};
   pub use crate::field_meta::{
     EntityFieldMeta, EntityFields, FieldMeta, FieldType, RelationFieldType, RelationMeta,
     ValidateMeta, ValidatorType,
   };
-  pub use crate::provider::{DatabaseProvider, ProviderConfig};
+  pub use crate::provider::{
+    AdminCommands, DatabaseProvider, ProviderConfig, SchemaIntrospection, TransactionControl,
+  };
   pub use crate::query::{Filter, OrderBy, Projection, QueryBuilder, SortDirection};
   pub use crate::relations::{
     get_collection_relations, get_relation_def, register_collection_relations,
