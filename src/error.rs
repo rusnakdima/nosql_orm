@@ -18,6 +18,9 @@ pub enum OrmError {
   #[error("Provider error: {0}")]
   Provider(String),
 
+  #[error("Not supported: {0}")]
+  NotSupported(String),
+
   #[error("Relation error: {0}")]
   Relation(String),
 
