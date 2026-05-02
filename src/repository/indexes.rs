@@ -21,7 +21,8 @@ where
   }
 
   pub async fn list_indexes(&self) -> OrmResult<Vec<crate::nosql_index::NosqlIndexInfo>> {
-    self.provider.list_indexes(&Self::collection()).await
+    let manager = self.indexes();
+    manager.list_indexes(&Self::collection()).await
   }
 
   pub async fn sync_indexes(&self) -> OrmResult<Vec<String>> {

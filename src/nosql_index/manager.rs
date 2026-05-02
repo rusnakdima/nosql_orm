@@ -210,7 +210,22 @@ impl<P: DatabaseProvider> IndexManager<P> {
     &self,
     collection: &str,
   ) -> OrmResult<Vec<super::definition::NosqlIndexInfo>> {
-    self.provider.list_indexes(collection).await
+    let indexes = self.provider.list_indexes(collection).await?;
+    Ok(
+      indexes
+        .into_iter()
+        .map(|idx| super::definition::NosqlIndexInfo {
+          name: idx.name,
+          namespace: idx.collection,
+          unique: idx.unique,
+          sparse: idx.sparse,
+          ttl_seconds: None,
+          version: None,
+          index_type: idx.index_type,
+          fields: idx.fields.into_iter().map(|f| (f, 1i32)).collect(),
+        })
+        .collect(),
+    )
   }
 
   /// Check if an index exists by name.
