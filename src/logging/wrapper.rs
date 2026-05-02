@@ -1,6 +1,6 @@
 use crate::error::OrmResult;
-use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
-use crate::provider::DatabaseProvider;
+use crate::nosql_index::NosqlIndex;
+use crate::provider::{DatabaseProvider, IndexInfo};
 use crate::query::Filter;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -321,6 +321,33 @@ impl<P: DatabaseProvider, L: LoggingStrategy + Clone + 'static> DatabaseProvider
     result
   }
 
+  async fn find_all_typed<T: serde::de::DeserializeOwned + Send>(
+    &self,
+    collection: &str,
+  ) -> OrmResult<Vec<T>> {
+    let start = Instant::now();
+    self.logger.log_start("FIND_ALL_TYPED", collection).await;
+    let result = self.inner.find_all_typed(collection).await;
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    match &result {
+      Ok(_) => {
+        self
+          .logger
+          .log_complete("FIND_ALL_TYPED", collection, duration_ms, true)
+          .await;
+      }
+      Err(e) => {
+        self
+          .logger
+          .log_error("FIND_ALL_TYPED", collection, &e.to_string())
+          .await;
+      }
+    }
+
+    result
+  }
+
   async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
     let start = Instant::now();
     self.logger.log_start("CREATE_INDEX", collection).await;
@@ -369,7 +396,7 @@ impl<P: DatabaseProvider, L: LoggingStrategy + Clone + 'static> DatabaseProvider
     result
   }
 
-  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>> {
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
     let start = Instant::now();
     self.logger.log_start("LIST_INDEXES", collection).await;
     let result = self.inner.list_indexes(collection).await;

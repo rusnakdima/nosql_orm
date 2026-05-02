@@ -1,5 +1,6 @@
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::nosql_index::NosqlIndex;
+use crate::provider::{DatabaseProvider, IndexInfo};
 use crate::query::Filter;
 use log::{debug, info, warn};
 use serde_json::Value;
@@ -174,6 +175,22 @@ impl<P: DatabaseProvider> DatabaseProvider for QueryLogger<P> {
     result
   }
 
+  async fn find_all_typed<T: serde::de::DeserializeOwned + Send>(
+    &self,
+    collection: &str,
+  ) -> OrmResult<Vec<T>> {
+    debug!("[Query] FIND_ALL_TYPED '{}'", collection);
+    let result = self.inner.find_all_typed(collection).await;
+    if let Ok(ref docs) = result {
+      info!(
+        "[Query] FIND_ALL_TYPED '{}' -> {} results",
+        collection,
+        docs.len()
+      );
+    }
+    result
+  }
+
   async fn create_index(
     &self,
     collection: &str,
@@ -192,10 +209,7 @@ impl<P: DatabaseProvider> DatabaseProvider for QueryLogger<P> {
     self.inner.drop_index(collection, index_name).await
   }
 
-  async fn list_indexes(
-    &self,
-    collection: &str,
-  ) -> OrmResult<Vec<crate::nosql_index::NosqlIndexInfo>> {
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
     debug!("[Query] LIST_INDEXES '{}'", collection);
     self.inner.list_indexes(collection).await
   }
