@@ -1,5 +1,6 @@
 use crate::error::{map_err_connection, OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::nosql_index::NosqlIndex;
+use crate::provider::{DatabaseProvider, IndexInfo, TransactionId};
 use crate::providers::json::JsonProvider;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -281,10 +282,7 @@ impl DatabaseProvider for PooledJson {
     self.provider.drop_index(collection, index_name).await
   }
 
-  async fn list_indexes(
-    &self,
-    collection: &str,
-  ) -> OrmResult<Vec<crate::nosql_index::NosqlIndexInfo>> {
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
     self.provider.list_indexes(collection).await
   }
 }
