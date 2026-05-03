@@ -9,10 +9,7 @@ pub struct AggregationPipeline {
 
 impl From<Vec<Value>> for AggregationPipeline {
   fn from(pipeline: Vec<Value>) -> Self {
-    let stages = pipeline
-      .into_iter()
-      .filter_map(|v| Stage::from_value(v))
-      .collect();
+    let stages = pipeline.into_iter().filter_map(Stage::from_value).collect();
     Self { stages }
   }
 }

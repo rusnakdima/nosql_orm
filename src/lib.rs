@@ -184,8 +184,6 @@ pub mod prelude {
   #[cfg(feature = "query_cache")]
   pub use crate::cache::{CacheConfig, CacheStats, CachedResult, QueryCache};
 
-  pub use crate::filter;
-  pub use crate::filters;
   pub use crate::macros::{
     and_filter, eq_filter, gt_filter, gte_filter, in_filter, is_not_null_filter, is_null_filter,
     lt_filter, lte_filter, ne_filter, not_filter, or_filter,

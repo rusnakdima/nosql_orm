@@ -26,21 +26,11 @@ pub struct FieldInfo {
   pub default_value: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CollectionOptions {
   pub validation_level: Option<String>,
   pub validation_action: Option<String>,
   pub expire_after_seconds: Option<u64>,
-}
-
-impl Default for CollectionOptions {
-  fn default() -> Self {
-    Self {
-      validation_level: None,
-      validation_action: None,
-      expire_after_seconds: None,
-    }
-  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

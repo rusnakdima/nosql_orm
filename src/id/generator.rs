@@ -12,7 +12,8 @@ impl IdGenerator {
     }
   }
 
-  pub fn default_instance() -> Self {
+  #[allow(clippy::should_implement_trait)]
+  pub fn default() -> Self {
     Self::new(super::strategy::UuidStrategy)
   }
 
@@ -39,6 +40,6 @@ impl Clone for IdGenerator {
 
 impl Default for IdGenerator {
   fn default() -> Self {
-    Self::default_instance()
+    Self::with_uuid()
   }
 }
