@@ -10,6 +10,7 @@ pub trait WithRelations: crate::entity::Entity {
   }
 }
 
+/// Represents the type of relationship between entities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelationType {
   OneToOne,
@@ -25,6 +26,11 @@ pub struct TransformMapVia {
   pub source_key: String,
 }
 
+/// Defines a relationship between two entities.
+///
+/// `RelationDef` encapsulates all information needed to load and manage
+/// related entities, including the relation type, target collection,
+/// keys for joining, and cascade behavior.
 #[derive(Debug, Clone)]
 pub struct RelationDef {
   pub name: String,
