@@ -19,7 +19,7 @@ pub fn row_to_json_sqlite(row: &rusqlite::Row) -> Result<Value, rusqlite::Error>
         serde_json::json!(std::str::from_utf8(s).unwrap_or(""))
       }
       Ok(ValueRef::Blob(b)) => {
-        serde_json::json!(base64_encode(&b))
+        serde_json::json!(base64_encode(b))
       }
       Err(_) => break,
     };
@@ -36,6 +36,7 @@ pub fn row_to_json_mysql(row: mysql_async::Row) -> Value {
   let columns = row.columns();
   let len = columns.len();
 
+  #[allow(clippy::needless_range_loop)]
   for i in 0..len {
     if let Some(col) = columns.get(i) {
       let col_name = col.name_str().as_ref().to_string();
@@ -71,8 +72,7 @@ pub fn row_to_json_postgres(row: &tokio_postgres::Row) -> Value {
   use tokio_postgres::types::Type;
   let mut map = serde_json::Map::new();
   let columns = row.columns();
-  for i in 0..columns.len() {
-    let col = &columns[i];
+  for (i, col) in columns.iter().enumerate() {
     let col_name = col.name();
     let col_type = col.type_();
     let json_val = match *col_type {
