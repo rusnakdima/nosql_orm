@@ -1,11 +1,11 @@
 //! SQLite provider for nosql_orm.
 
 use crate::error::{map_err_connection, OrmError, OrmResult};
-use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
+use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, ProviderConfig, RawResult,
-  SchemaIntrospection, TransactionControl, TransactionId,
+  DatabaseProvider, FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
+  TransactionControl, TransactionId,
 };
 use crate::providers::sql::row;
 use crate::query::Filter;
@@ -455,7 +455,6 @@ impl SchemaIntrospection for SqliteProvider {
   }
 
   async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
-    let dialect = self.dialect;
     let collection = collection.to_string();
     self
       .with_connection(move |conn_guard| {

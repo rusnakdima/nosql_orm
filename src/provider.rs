@@ -1,5 +1,5 @@
 use crate::error::{OrmError, OrmResult};
-use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
+use crate::nosql_index::NosqlIndex;
 use crate::query::Filter;
 use async_trait::async_trait;
 use serde_json::Value;

@@ -1,11 +1,11 @@
 //! MySQL provider for nosql_orm.
 
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
-use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
+use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, ProviderConfig, RawResult,
-  SchemaIntrospection, TransactionControl, TransactionId,
+  DatabaseProvider, FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
+  TransactionControl, TransactionId,
 };
 use crate::providers::sql::row;
 use crate::query::Filter;
@@ -408,9 +408,8 @@ impl SchemaIntrospection for MySqlProvider {
       "SELECT COUNT(*) FROM {}",
       self.dialect.quote_identifier(collection)
     );
-    let size_sql = format!(
-      "SELECT (data_length + index_length) FROM information_schema.tables WHERE table_name = ?"
-    );
+    let size_sql =
+      "SELECT (data_length + index_length) FROM information_schema.tables WHERE table_name = ?";
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
     let (count,): (i64,) = map_err_query(conn.exec_first(&count_sql, ()).await)?.unwrap_or((0,));

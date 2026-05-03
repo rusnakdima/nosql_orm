@@ -1,5 +1,4 @@
 use crate::error::OrmResult;
-use crate::nosql_index::NosqlIndex;
 use crate::provider::{DatabaseProvider, IndexInfo};
 use crate::query::Filter;
 use log::{debug, info, warn};

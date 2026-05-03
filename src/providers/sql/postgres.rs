@@ -1,11 +1,11 @@
 //! PostgreSQL provider for nosql_orm.
 
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
-use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
+use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, ProviderConfig, RawResult,
-  SchemaIntrospection, TransactionControl, TransactionId,
+  DatabaseProvider, FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
+  TransactionControl, TransactionId,
 };
 use crate::providers::sql::row;
 use crate::query::Filter;
@@ -157,7 +157,7 @@ impl DatabaseProvider for PostgresProvider {
 
     let rows = map_err_query(client.query(&sql, &[]).await)?;
 
-    Ok(rows.iter().map(|r| row::row_to_json_postgres(r)).collect())
+    Ok(rows.iter().map(row::row_to_json_postgres).collect())
   }
 
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
@@ -508,7 +508,7 @@ impl AdminCommands for PostgresProvider {
           .iter()
           .enumerate()
           .map(|(i, _)| {
-            row::row_to_json_postgres(&row)
+            row::row_to_json_postgres(row)
               .get(i)
               .cloned()
               .unwrap_or(Value::Null)

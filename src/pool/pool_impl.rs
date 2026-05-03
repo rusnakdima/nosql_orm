@@ -1,6 +1,5 @@
 use crate::error::{map_err_connection, OrmError, OrmResult};
-use crate::nosql_index::NosqlIndex;
-use crate::provider::{DatabaseProvider, IndexInfo, TransactionId};
+use crate::provider::{DatabaseProvider, IndexInfo};
 use crate::providers::json::JsonProvider;
 use async_trait::async_trait;
 use serde_json::Value;

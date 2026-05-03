@@ -1,9 +1,8 @@
 use crate::error::{map_err_connection, OrmError, OrmResult};
-use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
+use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, RawResult, SchemaIntrospection,
-  TransactionControl, TransactionId,
+  DatabaseProvider, IndexInfo, RawResult, SchemaIntrospection, TransactionControl, TransactionId,
 };
 use crate::query::Filter;
 use async_trait::async_trait;

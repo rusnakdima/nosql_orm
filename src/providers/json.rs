@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
 use crate::error::{OrmError, OrmResult};
-use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
+use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
   DatabaseProvider, FieldInfo, IndexInfo, RawResult, SchemaIntrospection, TransactionControl,
@@ -364,35 +364,33 @@ impl SchemaIntrospection for JsonProvider {
     self.ensure_loaded(collection).await?;
     let cache = self.cache.read().await;
     if let Some(docs) = cache.get(collection) {
-      if let Some(doc) = docs.first() {
-        if let Value::Object(obj) = doc {
-          let mut fields = HashMap::new();
-          for (k, v) in obj {
-            let field_type = match v {
-              Value::Null => "null".to_string(),
-              Value::Bool(_) => "boolean".to_string(),
-              Value::Number(_) => "number".to_string(),
-              Value::String(_) => "string".to_string(),
-              Value::Array(_) => "array".to_string(),
-              Value::Object(_) => "object".to_string(),
-            };
-            fields.insert(
-              k.clone(),
-              FieldInfo {
-                name: k.clone(),
-                field_type,
-                nullable: true,
-                default_value: None,
-              },
-            );
-          }
-          return Ok(CollectionSchema {
-            name: collection.to_string(),
-            fields,
-            indexes: vec![],
-            options: Default::default(),
-          });
+      if let Some(Value::Object(obj)) = docs.first() {
+        let mut fields = HashMap::new();
+        for (k, v) in obj {
+          let field_type = match v {
+            Value::Null => "null".to_string(),
+            Value::Bool(_) => "boolean".to_string(),
+            Value::Number(_) => "number".to_string(),
+            Value::String(_) => "string".to_string(),
+            Value::Array(_) => "array".to_string(),
+            Value::Object(_) => "object".to_string(),
+          };
+          fields.insert(
+            k.clone(),
+            FieldInfo {
+              name: k.clone(),
+              field_type,
+              nullable: true,
+              default_value: None,
+            },
+          );
         }
+        return Ok(CollectionSchema {
+          name: collection.to_string(),
+          fields,
+          indexes: vec![],
+          options: Default::default(),
+        });
       }
     }
     Ok(CollectionSchema {

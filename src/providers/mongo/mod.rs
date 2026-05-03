@@ -2,14 +2,14 @@ use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, PoolStats, ProviderConfig, RawResult,
-  SchemaIntrospection, TransactionControl, TransactionId,
+  DatabaseProvider, FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
+  TransactionControl, TransactionId,
 };
 use crate::query::Filter;
 use crate::utils::generate_id;
 use async_trait::async_trait;
 use mongodb::{
-  bson::{doc, to_bson, Bson, Document},
+  bson::{doc, Bson, Document},
   options::FindOptions,
   Database,
 };
