@@ -135,15 +135,14 @@ impl DatabaseProvider for JsonProvider {
     self.ensure_loaded(collection).await?;
     let r = self.cache.read().await;
     let records = match r.get(collection) {
-      Some(v) => v.clone(),
+      Some(v) => v,
       None => return Ok(vec![]),
     };
-    drop(r);
 
-    // Filter
     let mut results: Vec<Value> = records
-      .into_iter()
+      .iter()
       .filter(|d| filter.is_none_or(|f| f.matches(d)))
+      .cloned()
       .collect();
 
     // Sort
