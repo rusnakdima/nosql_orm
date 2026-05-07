@@ -154,7 +154,7 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
 
   if is_orm_entity {
     all_outputs.push(quote! {
-        #[derive(Serialize, Deserialize, Debug, Clone)]
+        #[derive(Serialize, Deserialize, Debug)]
     });
   }
 

@@ -3,12 +3,13 @@ use crate::lazy::lazy_relation::{LazyMany, LazyRelation};
 use crate::provider::DatabaseProvider;
 use crate::relations::RelationDef;
 use crate::repository::Repository;
+use std::sync::Arc;
 
 pub struct LazyLoader;
 
 impl LazyLoader {
   pub fn relation<E, P>(
-    repo: Repository<E, P>,
+    repo: Arc<Repository<E, P>>,
     relation: RelationDef,
     local_id: String,
   ) -> LazyRelation<E, P>
@@ -20,7 +21,7 @@ impl LazyLoader {
   }
 
   pub fn many<E, P>(
-    repo: Repository<E, P>,
+    repo: Arc<Repository<E, P>>,
     relation: RelationDef,
     local_id: String,
   ) -> LazyMany<E, P>
@@ -37,8 +38,8 @@ where
   E: Entity,
   P: DatabaseProvider,
 {
-  fn lazy_relation(&self, relation: RelationDef, local_id: String) -> LazyRelation<E, P>;
-  fn lazy_many(&self, relation: RelationDef, local_id: String) -> LazyMany<E, P>;
+  fn lazy_relation(self: Arc<Self>, relation: RelationDef, local_id: String) -> LazyRelation<E, P>;
+  fn lazy_many(self: Arc<Self>, relation: RelationDef, local_id: String) -> LazyMany<E, P>;
 }
 
 impl<E, P> RepositoryLazyExt<E, P> for Repository<E, P>
@@ -46,11 +47,11 @@ where
   E: Entity,
   P: DatabaseProvider,
 {
-  fn lazy_relation(&self, relation: RelationDef, local_id: String) -> LazyRelation<E, P> {
-    LazyLoader::relation(self.clone(), relation, local_id)
+  fn lazy_relation(self: Arc<Self>, relation: RelationDef, local_id: String) -> LazyRelation<E, P> {
+    LazyLoader::relation(self, relation, local_id)
   }
 
-  fn lazy_many(&self, relation: RelationDef, local_id: String) -> LazyMany<E, P> {
-    LazyLoader::many(self.clone(), relation, local_id)
+  fn lazy_many(self: Arc<Self>, relation: RelationDef, local_id: String) -> LazyMany<E, P> {
+    LazyLoader::many(self, relation, local_id)
   }
 }

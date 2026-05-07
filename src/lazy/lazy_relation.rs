@@ -11,12 +11,12 @@ type LoaderFuture<T> =
   std::pin::Pin<Box<dyn std::future::Future<Output = OrmResult<T>> + Send + 'static>>;
 type LoaderFn<T> = Arc<dyn Fn() -> LoaderFuture<T> + Send + Sync>;
 
-pub struct Lazy<T: Clone> {
-  data: Arc<RwLock<Option<T>>>,
+pub struct Lazy<T> {
+  data: Arc<RwLock<Option<Arc<T>>>>,
   loader: LoaderFn<T>,
 }
 
-impl<T: Clone> Lazy<T> {
+impl<T> Lazy<T> {
   pub fn new<F, Fut>(loader: F) -> Self
   where
     F: Fn() -> Fut + Send + Sync + 'static,
@@ -30,7 +30,7 @@ impl<T: Clone> Lazy<T> {
     }
   }
 
-  pub async fn get(&self) -> OrmResult<T> {
+  pub async fn get(&self) -> OrmResult<Arc<T>> {
     {
       let read = self.data.read().await;
       if let Some(ref v) = *read {
@@ -38,7 +38,7 @@ impl<T: Clone> Lazy<T> {
       }
     }
 
-    let value = (self.loader)().await?;
+    let value = Arc::new((self.loader)().await?);
     {
       let mut write = self.data.write().await;
       *write = Some(value.clone());
@@ -51,8 +51,8 @@ impl<T: Clone> Lazy<T> {
     read.is_some()
   }
 
-  pub async fn reload(&self) -> OrmResult<T> {
-    let value = (self.loader)().await?;
+  pub async fn reload(&self) -> OrmResult<Arc<T>> {
+    let value = Arc::new((self.loader)().await?);
     {
       let mut write = self.data.write().await;
       *write = Some(value.clone());
@@ -61,7 +61,7 @@ impl<T: Clone> Lazy<T> {
   }
 }
 
-impl<T: Clone> Clone for Lazy<T> {
+impl<T> Clone for Lazy<T> {
   fn clone(&self) -> Self {
     Self {
       data: self.data.clone(),
@@ -75,9 +75,9 @@ where
   E: Entity,
   P: DatabaseProvider,
 {
-  repo: Repository<E, P>,
+  repo: Arc<Repository<E, P>>,
   local_id: String,
-  cached: Arc<RwLock<Option<Option<E>>>>,
+  cached: Arc<RwLock<Option<Arc<Option<E>>>>>,
 }
 
 impl<E, P> LazyRelation<E, P>
@@ -85,7 +85,7 @@ where
   E: Entity,
   P: DatabaseProvider,
 {
-  pub fn new(repo: Repository<E, P>, _relation: RelationDef, local_id: String) -> Self {
+  pub fn new(repo: Arc<Repository<E, P>>, _relation: RelationDef, local_id: String) -> Self {
     Self {
       repo,
       local_id,
@@ -93,7 +93,7 @@ where
     }
   }
 
-  pub async fn get(&self) -> OrmResult<Option<E>> {
+  pub async fn get(&self) -> OrmResult<Arc<Option<E>>> {
     {
       let read = self.cached.read().await;
       if let Some(result) = &*read {
@@ -105,7 +105,7 @@ where
 
     {
       let mut write = self.cached.write().await;
-      *write = Some(result?);
+      *write = Some(Arc::new(result?));
     }
 
     let read = self.cached.read().await;
@@ -118,11 +118,11 @@ where
   E: Entity,
   P: DatabaseProvider,
 {
-  repo: Repository<E, P>,
+  repo: Arc<Repository<E, P>>,
   relation: RelationDef,
   local_id: String,
   filter: Option<crate::query::Filter>,
-  cached: Arc<RwLock<Option<Vec<E>>>>,
+  cached: Arc<RwLock<Option<Arc<Vec<E>>>>>,
 }
 
 impl<E, P> LazyMany<E, P>
@@ -130,7 +130,7 @@ where
   E: Entity,
   P: DatabaseProvider,
 {
-  pub fn new(repo: Repository<E, P>, relation: RelationDef, local_id: String) -> Self {
+  pub fn new(repo: Arc<Repository<E, P>>, relation: RelationDef, local_id: String) -> Self {
     Self {
       repo,
       relation,
@@ -145,7 +145,7 @@ where
     self
   }
 
-  pub async fn get(&self) -> OrmResult<Vec<E>> {
+  pub async fn get(&self) -> OrmResult<Arc<Vec<E>>> {
     {
       let read = self.cached.read().await;
       if let Some(result) = &*read {
@@ -176,13 +176,14 @@ where
 
     {
       let mut write = self.cached.write().await;
-      *write = Some(result.clone());
+      *write = Some(Arc::new(result));
     }
 
-    Ok(result)
+    let read = self.cached.read().await;
+    Ok(read.clone().unwrap())
   }
 
-  pub async fn reload(&self) -> OrmResult<Vec<E>> {
+  pub async fn reload(&self) -> OrmResult<Arc<Vec<E>>> {
     {
       let mut write = self.cached.write().await;
       *write = None;

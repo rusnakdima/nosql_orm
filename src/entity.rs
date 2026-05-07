@@ -64,7 +64,7 @@ pub trait FrontendProjection: Entity {
 /// Core trait every ORM-managed struct must implement.
 ///
 /// Typically derived via the `#[derive(Entity)]` macro (or implemented manually).
-pub trait Entity: Serialize + DeserializeOwned + Debug + Clone + Send + Sync + 'static {
+pub trait Entity: Serialize + DeserializeOwned + Debug + Send + Sync + 'static {
   /// Returns the metadata describing this entity.
   fn meta() -> EntityMeta;
 
