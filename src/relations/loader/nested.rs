@@ -49,9 +49,11 @@ pub async fn load_recursive<P: DatabaseProvider>(
     docs = loader.load_many(docs, &rel_def, filter_deleted).await?;
   }
 
-  docs = loader
-    .load_all_relations(docs, &current_collection, filter_deleted, ancestors)
-    .await?;
+  if path_segments.len() > 1 {
+    docs = loader
+      .load_all_relations(docs, &current_collection, filter_deleted, ancestors)
+      .await?;
+  }
 
   if path_segments.len() == 1 {
     return Ok(docs);
