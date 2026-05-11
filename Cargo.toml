@@ -19,16 +19,17 @@ json = []
 mongo = ["dep:mongodb", "dep:futures-util"]
 redis = ["dep:redis"]
 full = ["json", "mongo", "redis"]
+sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
+sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres"]
+sql-sqlite = ["dep:rusqlite"]
+sql-mysql = ["dep:mysql_async"]
 query_cache = []
 
 validators = []
-
-sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:base64"]
-sql-sqlite = ["dep:rusqlite", "dep:base64"]
-sql-mysql = ["dep:mysql_async", "dep:base64"]
-sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
+opentelemetry = ["dep:opentelemetry"]
 
 [dependencies]
+opentelemetry = { version = "0.21", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 async-trait = "0.1"
@@ -46,7 +47,8 @@ deadpool-postgres = { version = "0.12", optional = true }
 mysql_async = { version = "0.33", optional = true }
 tokio-postgres = { version = "0.7", optional = true }
 rusqlite = { version = "0.33", optional = true, features = ["bundled"] }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.22" }
+ring = "0.17"
 nosql_orm_derive = { path = "nosql_orm_derive" }
 
 [dev-dependencies]
