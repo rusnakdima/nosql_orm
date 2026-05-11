@@ -103,15 +103,15 @@ impl<T> Drop for Pooled<T> {
   }
 }
 
-pub struct PoolInner {
-  semaphore: Arc<Semaphore>,
-  available: std::sync::atomic::AtomicUsize,
+pub(crate) struct PoolInner {
+  pub(crate) semaphore: Arc<Semaphore>,
+  pub(crate) available: std::sync::atomic::AtomicUsize,
   #[allow(dead_code)]
-  total: std::sync::atomic::AtomicUsize,
+  pub(crate) total: std::sync::atomic::AtomicUsize,
 }
 
 impl PoolInner {
-  fn new(max_size: usize) -> Self {
+  pub(crate) fn new(max_size: usize) -> Self {
     Self {
       semaphore: Arc::new(Semaphore::new(max_size)),
       available: std::sync::atomic::AtomicUsize::new(max_size),
@@ -119,7 +119,7 @@ impl PoolInner {
     }
   }
 
-  async fn acquire(&self, wait_for_available: bool) -> OrmResult<OwnedSemaphorePermit> {
+  pub(crate) async fn acquire(&self, wait_for_available: bool) -> OrmResult<OwnedSemaphorePermit> {
     let semaphore = self.semaphore.clone();
     let permit = if wait_for_available {
       semaphore
