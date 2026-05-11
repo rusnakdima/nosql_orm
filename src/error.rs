@@ -55,6 +55,9 @@ pub enum OrmError {
 
   #[error("Internal error: {0}")]
   Internal(String),
+
+  #[error("Query timeout: {0}")]
+  Timeout(String),
 }
 
 impl OrmError {
