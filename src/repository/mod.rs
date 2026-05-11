@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 mod crud;
 mod delete;
+mod fast_path;
 mod find;
 mod indexes;
 mod query;
@@ -16,6 +17,8 @@ mod relations;
 pub use crud::*;
 #[allow(unused_imports)]
 pub use delete::*;
+#[allow(unused_imports)]
+pub use fast_path::*;
 #[allow(unused_imports)]
 pub use find::*;
 #[allow(unused_imports)]
@@ -64,7 +67,19 @@ where
 {
   pub(crate) provider: P,
   pub(crate) events: Option<Arc<EntityEvents>>,
+  pub(crate) query_timeout: Option<QueryTimeout>,
   _phantom: PhantomData<E>,
+}
+
+#[derive(Debug, Clone)]
+pub struct QueryTimeout {
+  pub timeout_ms: u64,
+}
+
+impl Default for QueryTimeout {
+  fn default() -> Self {
+    Self { timeout_ms: 30000 }
+  }
 }
 
 impl<E, P> Repository<E, P>
@@ -76,6 +91,7 @@ where
     Self {
       provider,
       events: None,
+      query_timeout: None,
       _phantom: PhantomData,
     }
   }
@@ -86,6 +102,11 @@ where
 
   pub fn with_events(mut self, events: Arc<EntityEvents>) -> Self {
     self.events = Some(events);
+    self
+  }
+
+  pub fn with_timeout(mut self, timeout_ms: u64) -> Self {
+    self.query_timeout = Some(QueryTimeout { timeout_ms });
     self
   }
 

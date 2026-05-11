@@ -3,8 +3,9 @@ use crate::error::{OrmError, OrmResult};
 use crate::provider::DatabaseProvider;
 use crate::query::Projection;
 use serde_json::Value;
+use tokio::time::{timeout, Duration};
 
-use super::Repository;
+use super::{QueryTimeout, Repository};
 
 impl<E, P> Repository<E, P>
 where
@@ -79,6 +80,70 @@ where
         Ok(Some(E::from_value(filtered)?))
       }
       None => Ok(None),
+    }
+  }
+
+  pub async fn find_by_id_with_timeout(&self, id: impl AsRef<str>) -> OrmResult<Option<E>> {
+    let timeout_ms = self
+      .query_timeout
+      .as_ref()
+      .map(|t| t.timeout_ms)
+      .unwrap_or(30000);
+    let result = timeout(
+      Duration::from_millis(timeout_ms),
+      self.provider.find_by_id(&Self::collection(), id.as_ref()),
+    )
+    .await;
+    match result {
+      Ok(Ok(Some(v))) => Ok(Some(E::from_value(v)?)),
+      Ok(Ok(None)) => Ok(None),
+      Ok(Err(e)) => Err(e),
+      Err(_) => Err(OrmError::Timeout(format!(
+        "Query timed out after {}ms",
+        timeout_ms
+      ))),
+    }
+  }
+
+  pub async fn find_all_with_timeout(&self) -> OrmResult<Vec<E>> {
+    let timeout_ms = self
+      .query_timeout
+      .as_ref()
+      .map(|t| t.timeout_ms)
+      .unwrap_or(30000);
+    let result = timeout(
+      Duration::from_millis(timeout_ms),
+      self.provider.find_all(&Self::collection()),
+    )
+    .await;
+    match result {
+      Ok(Ok(docs)) => docs.into_iter().map(E::from_value).collect(),
+      Ok(Err(e)) => Err(e),
+      Err(_) => Err(OrmError::Timeout(format!(
+        "Query timed out after {}ms",
+        timeout_ms
+      ))),
+    }
+  }
+
+  pub async fn count_with_timeout(&self) -> OrmResult<u64> {
+    let timeout_ms = self
+      .query_timeout
+      .as_ref()
+      .map(|t| t.timeout_ms)
+      .unwrap_or(30000);
+    let result = timeout(
+      Duration::from_millis(timeout_ms),
+      self.provider.count(&Self::collection(), None),
+    )
+    .await;
+    match result {
+      Ok(Ok(count)) => Ok(count),
+      Ok(Err(e)) => Err(e),
+      Err(_) => Err(OrmError::Timeout(format!(
+        "Query timed out after {}ms",
+        timeout_ms
+      ))),
     }
   }
 }

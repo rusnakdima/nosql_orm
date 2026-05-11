@@ -115,4 +115,38 @@ where
       .await?;
     E::from_value(stored)
   }
+
+  pub async fn save_from_value(&self, value: Value) -> OrmResult<E> {
+    let id = value.get("id").and_then(|v| v.as_str()).map(String::from);
+    if let Some(id) = id {
+      if self
+        .provider
+        .find_by_id(&Self::collection(), &id)
+        .await?
+        .is_some()
+      {
+        return self.update_from_value(value).await;
+      }
+    }
+    let mut entity = E::from_value(value)?;
+    if entity.get_id().is_none() {
+      entity.set_id(generate_id());
+    }
+    let mut doc = entity.to_value()?;
+    apply_timestamps(&mut doc, true);
+    let stored = self.provider.insert(&Self::collection(), doc).await?;
+    E::from_value(stored)
+  }
+
+  pub async fn update_from_value(&self, value: Value) -> OrmResult<E> {
+    let id = value
+      .get("id")
+      .ok_or_else(|| OrmError::InvalidQuery("Cannot update without id".to_string()))?
+      .as_str()
+      .ok_or_else(|| OrmError::InvalidQuery("Id must be string".to_string()))?;
+    let mut doc = value.clone();
+    apply_timestamps(&mut doc, false);
+    let stored = self.provider.update(&Self::collection(), id, doc).await?;
+    E::from_value(stored)
+  }
 }
