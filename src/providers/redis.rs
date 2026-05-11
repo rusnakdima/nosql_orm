@@ -248,12 +248,10 @@ impl DatabaseProvider for RedisProvider {
   }
 
   async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
-    log::warn!("Indexes are not supported by the Redis provider");
     Ok(())
   }
 
   async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
-    log::warn!("Indexes are not supported by the Redis provider");
     Ok(())
   }
 

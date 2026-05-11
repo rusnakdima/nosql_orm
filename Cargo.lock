@@ -1685,7 +1685,6 @@ dependencies = [
  "deadpool",
  "deadpool-postgres",
  "futures-util",
- "log",
  "mongodb",
  "mysql_async",
  "nosql_orm_derive",

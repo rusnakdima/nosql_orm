@@ -16,11 +16,6 @@ pub async fn load<P: DatabaseProvider>(
   let target = relation.target_collection.clone();
 
   if visited.contains(&target) {
-    log::debug!(
-      "Skipping relation '{}' -> '{}': loop detected",
-      relation.name,
-      target
-    );
     return Ok(docs);
   }
 
@@ -33,11 +28,6 @@ pub async fn load<P: DatabaseProvider>(
       let child_target = child_rel.target_collection.clone();
 
       if visited.contains(&child_target) {
-        log::debug!(
-          "Skipping nested relation '{}' -> '{}': loop detected",
-          child_rel.name,
-          child_target
-        );
         continue;
       }
 
@@ -68,11 +58,6 @@ pub async fn load<P: DatabaseProvider>(
             let grandchild_target = grandchild_rel.target_collection.clone();
 
             if visited.contains(&grandchild_target) {
-              log::debug!(
-                "Skipping grandchild relation '{}' -> '{}': loop detected",
-                grandchild_rel.name,
-                grandchild_target
-              );
               continue;
             }
 

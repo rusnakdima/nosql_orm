@@ -327,6 +327,21 @@ impl SchemaIntrospection for MongoProvider {
     Ok(collections)
   }
 
+  async fn list_databases(&self) -> OrmResult<Vec<String>> {
+    let result = self.db.run_command(doc! { "listDatabases": 1 }, None).await?;
+    let mut names = Vec::new();
+    if let Some(databases) = result.get("databases").and_then(|v: &Bson| v.as_array()) {
+      for db_info in databases {
+        if let Bson::Document(doc) = db_info {
+          if let Some(name) = doc.get("name").and_then(|v| v.as_str()) {
+            names.push(name.to_string());
+          }
+        }
+      }
+    }
+    Ok(names)
+  }
+
   async fn describe_collection(&self, collection: &str) -> OrmResult<CollectionSchema> {
     let coll = self.db.collection::<Document>(collection);
     let sample = coll.find_one(doc! {}, None).await?;

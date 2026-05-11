@@ -94,6 +94,77 @@ impl AggregationPipeline {
   }
 }
 
+fn evaluate_condition(condition: &Value, docs: &[Value]) -> bool {
+  if let Some(obj) = condition.as_object() {
+    if let Some(gt) = obj.get("$gt") {
+      if let Some(arr) = gt.as_array() {
+        if arr.len() == 2 {
+          let left = resolve_field_value(&arr[0], docs);
+          let right = resolve_field_value(&arr[1], docs);
+          if let (Some(l), Some(r)) = (left.as_f64(), right.as_f64()) {
+            return l > r;
+          }
+        }
+      }
+    }
+    if let Some(lt) = obj.get("$lt") {
+      if let Some(arr) = lt.as_array() {
+        if arr.len() == 2 {
+          let left = resolve_field_value(&arr[0], docs);
+          let right = resolve_field_value(&arr[1], docs);
+          if let (Some(l), Some(r)) = (left.as_f64(), right.as_f64()) {
+            return l < r;
+          }
+        }
+      }
+    }
+    if let Some(gte) = obj.get("$gte") {
+      if let Some(arr) = gte.as_array() {
+        if arr.len() == 2 {
+          let left = resolve_field_value(&arr[0], docs);
+          let right = resolve_field_value(&arr[1], docs);
+          if let (Some(l), Some(r)) = (left.as_f64(), right.as_f64()) {
+            return l >= r;
+          }
+        }
+      }
+    }
+    if let Some(lte) = obj.get("$lte") {
+      if let Some(arr) = lte.as_array() {
+        if arr.len() == 2 {
+          let left = resolve_field_value(&arr[0], docs);
+          let right = resolve_field_value(&arr[1], docs);
+          if let (Some(l), Some(r)) = (left.as_f64(), right.as_f64()) {
+            return l <= r;
+          }
+        }
+      }
+    }
+    if let Some(eq) = obj.get("$eq") {
+      if let Some(arr) = eq.as_array() {
+        if arr.len() == 2 {
+          let left = resolve_field_value(&arr[0], docs);
+          let right = resolve_field_value(&arr[1], docs);
+          return left == right;
+        }
+      }
+    }
+  }
+  false
+}
+
+fn resolve_field_value(expr: &Value, docs: &[Value]) -> Value {
+  match expr {
+    Value::String(s) if s.starts_with('$') => {
+      let field = &s[1..];
+      docs.iter()
+        .find_map(|d| d.get(field).cloned())
+        .unwrap_or(Value::Null)
+    }
+    _ => expr.clone(),
+  }
+}
+
 #[derive(Debug, Clone)]
 pub enum Stage {
   Match(Value),
@@ -287,18 +358,63 @@ impl Stage {
   fn compute_accumulator(expr: &Value, docs: &[Value]) -> Value {
     if let Some(obj) = expr.as_object() {
       if let Some(sum) = obj.get("$sum") {
-        let field = sum.as_str().unwrap_or("_id");
-        let total: f64 = docs
-          .iter()
-          .filter_map(|d| d.get(field).and_then(|v| v.as_f64()))
-          .sum();
+        let total: f64 = match sum {
+          Value::Array(fields) => {
+            let mut field_totals: Vec<f64> = Vec::new();
+            for f in fields {
+              if let Some(field_str) = f.as_str() {
+                let field_name = field_str.strip_prefix('$').unwrap_or(field_str);
+                let field_sum: f64 = docs
+                  .iter()
+                  .filter_map(|d| d.get(field_name).and_then(|v| v.as_f64()))
+                  .sum();
+                field_totals.push(field_sum);
+              }
+            }
+            field_totals.into_iter().sum()
+          }
+          Value::String(field) => {
+            let field_name = field.strip_prefix('$').unwrap_or(field);
+            let result: f64 = docs
+              .iter()
+              .filter_map(|d| d.get(field_name).and_then(|v| v.as_f64()))
+              .sum();
+            result
+          }
+          Value::Object(_inner_obj) => {
+            if let Some(cond) = sum.get("$cond") {
+              if let Some(arr) = cond.as_array() {
+                if arr.len() == 3 {
+                  let condition = &arr[0];
+                  let true_val = &arr[1];
+                  let false_val = &arr[2];
+                  if evaluate_condition(condition, docs) {
+                    true_val.as_f64().unwrap_or(1.0)
+                  } else {
+                    false_val.as_f64().unwrap_or(0.0)
+                  }
+                } else {
+                  0.0
+                }
+              } else {
+                0.0
+              }
+            } else if let Some(_inner_sum) = sum.get("$sum") {
+              Self::compute_accumulator(sum, docs).as_f64().unwrap_or(0.0)
+            } else {
+              0.0
+            }
+          }
+          _ => 0.0,
+        };
         return serde_json::json!(total);
       }
       if let Some(avg) = obj.get("$avg") {
         let field = avg.as_str().unwrap_or("_id");
+        let field_name = field.strip_prefix('$').unwrap_or(field);
         let values: Vec<f64> = docs
           .iter()
-          .filter_map(|d| d.get(field).and_then(|v| v.as_f64()))
+          .filter_map(|d| d.get(field_name).and_then(|v| v.as_f64()))
           .collect();
         let avg_val = if values.is_empty() {
           0.0
@@ -326,6 +442,20 @@ impl Stage {
       if let Some(_count) = obj.get("$count") {
         return serde_json::json!(docs.len());
       }
+      if let Some(cond) = obj.get("$cond") {
+        if let Some(arr) = cond.as_array() {
+          if arr.len() == 3 {
+            let condition = &arr[0];
+            let true_val = &arr[1];
+            let _false_val = &arr[2];
+            if evaluate_condition(condition, docs) {
+              return true_val.clone();
+            } else {
+              return _false_val.clone();
+            }
+          }
+        }
+      }
     }
     serde_json::Value::Null
   }
@@ -339,7 +469,7 @@ fn value_matches(filter: &Value, doc: &Value) -> bool {
   if let Some(obj) = filter.as_object() {
     for (key, val) in obj {
       if let Some(doc_val) = doc.get(key) {
-        if doc_val != val {
+        if !value_matches_single(doc_val, val) {
           return false;
         }
       } else {
@@ -350,4 +480,90 @@ fn value_matches(filter: &Value, doc: &Value) -> bool {
   } else {
     true
   }
+}
+
+fn value_matches_single(doc_val: &Value, filter_val: &Value) -> bool {
+  if let Some(filter_obj) = filter_val.as_object() {
+    if let Some(oper) = filter_obj.iter().next() {
+      let op = oper.0.as_str();
+      let op_val = oper.1;
+      match op {
+        "$gt" => {
+          if let (Some(d), Some(f)) = (doc_val.as_f64(), op_val.as_f64()) {
+            return d > f;
+          }
+          if let (Some(d), Some(f)) = (doc_val.as_i64(), op_val.as_i64()) {
+            return d > f;
+          }
+          return false;
+        }
+        "$gte" => {
+          if let (Some(d), Some(f)) = (doc_val.as_f64(), op_val.as_f64()) {
+            return d >= f;
+          }
+          if let (Some(d), Some(f)) = (doc_val.as_i64(), op_val.as_i64()) {
+            return d >= f;
+          }
+          return false;
+        }
+        "$lt" => {
+          if let (Some(d), Some(f)) = (doc_val.as_f64(), op_val.as_f64()) {
+            return d < f;
+          }
+          if let (Some(d), Some(f)) = (doc_val.as_i64(), op_val.as_i64()) {
+            return d < f;
+          }
+          return false;
+        }
+        "$lte" => {
+          if let (Some(d), Some(f)) = (doc_val.as_f64(), op_val.as_f64()) {
+            return d <= f;
+          }
+          if let (Some(d), Some(f)) = (doc_val.as_i64(), op_val.as_i64()) {
+            return d <= f;
+          }
+          return false;
+        }
+        "$eq" => return doc_val == op_val,
+        "$ne" => return doc_val != op_val,
+        "$in" => {
+          if let Some(arr) = op_val.as_array() {
+            return arr.iter().any(|v| v == doc_val);
+          }
+          return false;
+        }
+        "$nin" => {
+          if let Some(arr) = op_val.as_array() {
+            return !arr.iter().any(|v| v == doc_val);
+          }
+          return true;
+        }
+        "$exists" => {
+          let exists = !doc_val.is_null();
+          let target = op_val.as_bool().unwrap_or(true);
+          return exists == target;
+        }
+        "$regex" | "$like" => {
+          if let (Some(pattern), Some(doc_str)) = (op_val.as_str(), doc_val.as_str()) {
+            let pattern = pattern.replace("%", ".*").replace("_", ".");
+            return regex::Regex::new(&pattern)
+              .map(|r| r.is_match(doc_str))
+              .unwrap_or(false);
+          }
+          return false;
+        }
+        _ => {
+          if doc_val != filter_val {
+            return false;
+          }
+        }
+      }
+    }
+    if doc_val != filter_val {
+      return false;
+    }
+  } else if doc_val != filter_val {
+    return false;
+  }
+  true
 }

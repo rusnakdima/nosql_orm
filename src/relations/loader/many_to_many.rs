@@ -74,16 +74,15 @@ pub async fn load<P: DatabaseProvider>(
   for doc in docs.iter_mut() {
     if let Some(obj) = doc.as_object_mut() {
       if let Some(arr) = obj.get(join_field).and_then(|v| v.as_array()) {
-        let mut resolved: Vec<Value> = arr
-          .iter()
-          .filter_map(|item| item.as_str().and_then(|id| related_map.get(id).cloned()))
-          .collect();
-        for rel_doc in &mut resolved {
-          if let Some(rel_obj) = rel_doc.as_object_mut() {
-            rel_obj.insert(
-              "_collection".to_string(),
-              Value::String(relation.target_collection.clone()),
-            );
+        let mut resolved: Vec<Value> = Vec::new();
+        for item in arr.iter() {
+          if let Some(id) = item.as_str() {
+            if let Some(mut related) = related_map.get(id).cloned() {
+              if let Some(rel_obj) = related.as_object_mut() {
+                rel_obj.insert("_collection".to_string(), Value::String(relation.target_collection.clone()));
+              }
+              resolved.push(related);
+            }
           }
         }
         obj.insert(relation.name.clone(), Value::Array(resolved));

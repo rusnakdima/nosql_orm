@@ -300,14 +300,12 @@ impl DatabaseProvider for JsonProvider {
   /// JSON provider does not support indexes natively.
   /// This is a no-op that logs a warning.
   async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
-    log::warn!("Indexes are not supported by the JSON provider");
     Ok(())
   }
 
   /// JSON provider does not support indexes natively.
   /// This is a no-op that logs a warning.
   async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
-    log::warn!("Indexes are not supported by the JSON provider");
     Ok(())
   }
 
@@ -433,6 +431,10 @@ impl SchemaIntrospection for JsonProvider {
 
   async fn get_database_name(&self) -> OrmResult<String> {
     Ok("json_file".to_string())
+  }
+
+  async fn list_databases(&self) -> OrmResult<Vec<String>> {
+    Ok(vec!["json_file".to_string()])
   }
 }
 

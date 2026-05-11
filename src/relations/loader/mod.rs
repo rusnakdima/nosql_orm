@@ -31,7 +31,7 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     relation: &RelationDef,
     filter_deleted: bool,
   ) -> OrmResult<Vec<Value>> {
-    match relation.relation_type {
+    let result = match relation.relation_type {
       RelationType::ManyToOne | RelationType::OneToOne => {
         many_to_one::load(self.provider.clone(), &mut docs, relation, filter_deleted).await
       }
@@ -41,7 +41,9 @@ impl<P: DatabaseProvider> RelationLoader<P> {
       RelationType::ManyToMany => {
         many_to_many::load(self.provider.clone(), &mut docs, relation, filter_deleted).await
       }
-    }
+    };
+
+    result
   }
 
   pub async fn load(
@@ -406,39 +408,24 @@ impl<P: DatabaseProvider> RelationLoader<P> {
   #[allow(dead_code)]
   fn get_relation_def_for_path(&self, docs: &[Value], segment: &str) -> OrmResult<RelationDef> {
     if docs.is_empty() {
-      return Err(OrmError::InvalidQuery(format!(
-        "Cannot determine relation for '{}': no documents provided",
-        segment
-      )));
+      return Err(OrmError::Internal("No documents provided".into()));
     }
 
-    let first = &docs[0];
-    let collection = first
+    let collection = docs[0]
       .get("_collection")
       .and_then(|v| v.as_str())
       .unwrap_or("");
 
-    let target = match get_relation_def(collection, segment) {
-      Some(def) => def,
-      None => {
-        let available_relations =
-          if let Some(rels) = get_registered_collection_relations(collection) {
-            rels
-              .iter()
-              .map(|r| r.name.as_str())
-              .collect::<Vec<_>>()
-              .join(", ")
-          } else {
-            "none".to_string()
-          };
-        return Err(OrmError::InvalidQuery(format!(
-          "Unknown relation path: collection='{}', segment='{}'. Available relations: [{}]. Register relations using register_collection_relations().",
-          collection, segment, available_relations
-        )));
-      }
-    };
-
-    Ok(target)
+    get_relation_def(collection, segment).ok_or_else(|| {
+      let available = get_registered_collection_relations(collection);
+      OrmError::Internal(
+        format!(
+          "Unknown relation '{}' on collection '{}'. Available: {:?}",
+          segment, collection, available
+        )
+        .into(),
+      )
+    })
   }
 
   pub async fn load_relations_on_docs(

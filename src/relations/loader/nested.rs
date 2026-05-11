@@ -22,6 +22,7 @@ pub async fn load_recursive<P: DatabaseProvider>(
   let current_collection = base_collection.to_string();
 
   let first_segment = path_segments[0];
+
   let rel_def = get_relation_def(&current_collection, first_segment).ok_or_else(|| {
     let available = get_registered_collection_relations(&current_collection)
       .map(|rels| {
@@ -39,11 +40,21 @@ pub async fn load_recursive<P: DatabaseProvider>(
   })?;
 
   let children_already_loaded = docs.iter().any(|doc| {
-    doc
+    if let Some(arr) = doc.get(first_segment).and_then(|v| v.as_array()) {
+      if arr.iter().any(|child| child.get("_collection").is_some()) {
+        return true;
+      }
+    }
+    if doc
       .get(first_segment)
-      .and_then(|v| v.as_array())
-      .is_some_and(|arr| arr.iter().any(|child| child.get("_collection").is_some()))
+      .and_then(|v| v.as_object())
+      .is_some_and(|obj| obj.get("_collection").is_some())
+    {
+      return true;
+    }
+    false
   });
+
 
   if !children_already_loaded {
     docs = loader.load_many(docs, &rel_def, filter_deleted).await?;

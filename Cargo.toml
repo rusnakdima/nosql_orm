@@ -40,7 +40,6 @@ futures-util = { version = "0.3", optional = true }
 mongodb = { version = "2", optional = true }
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"], optional = true }
 regex = "1"
-log = "0.4"
 deadpool = "0.10"
 rand = "0.8"
 deadpool-postgres = { version = "0.12", optional = true }
