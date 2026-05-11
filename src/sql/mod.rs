@@ -3,9 +3,11 @@
 //! This module provides SQL-specific types that work alongside the
 //! existing `DatabaseProvider` trait to enable SQL database support.
 
+pub mod prepared;
 pub mod query;
 pub mod types;
 
+pub use prepared::{BatchPreparedStatements, PreparedStatement, PreparedStatementCache};
 pub use query::SqlQueryBuilder;
 pub use types::{
   SqlColumnDef, SqlColumnType, SqlDialect, SqlIndexDef, SqlIndexType, SqlPrimaryKey, SqlTableDef,
