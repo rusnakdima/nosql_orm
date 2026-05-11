@@ -55,7 +55,6 @@ pub async fn load_recursive<P: DatabaseProvider>(
     false
   });
 
-
   if !children_already_loaded {
     docs = loader.load_many(docs, &rel_def, filter_deleted).await?;
   }

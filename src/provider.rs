@@ -126,7 +126,9 @@ pub trait SchemaIntrospection: Send + Sync + Clone + 'static {
   async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>>;
   async fn get_database_name(&self) -> OrmResult<String>;
   async fn list_databases(&self) -> OrmResult<Vec<String>> {
-    Err(OrmError::NotSupported("list_databases not implemented".to_string()))
+    Err(OrmError::NotSupported(
+      "list_databases not implemented".to_string(),
+    ))
   }
 }
 

@@ -74,7 +74,7 @@ pub async fn load<P: DatabaseProvider>(
     map
   };
 
-for doc in docs.iter_mut() {
+  for doc in docs.iter_mut() {
     if let Some(obj) = doc.as_object_mut() {
       if let Some(parent_id) = obj.get(source_key).and_then(|v| v.as_str()) {
         let mut related = grouped.get(parent_id).cloned().unwrap_or_default();

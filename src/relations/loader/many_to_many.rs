@@ -79,7 +79,10 @@ pub async fn load<P: DatabaseProvider>(
           if let Some(id) = item.as_str() {
             if let Some(mut related) = related_map.get(id).cloned() {
               if let Some(rel_obj) = related.as_object_mut() {
-                rel_obj.insert("_collection".to_string(), Value::String(relation.target_collection.clone()));
+                rel_obj.insert(
+                  "_collection".to_string(),
+                  Value::String(relation.target_collection.clone()),
+                );
               }
               resolved.push(related);
             }

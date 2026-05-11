@@ -157,7 +157,8 @@ fn resolve_field_value(expr: &Value, docs: &[Value]) -> Value {
   match expr {
     Value::String(s) if s.starts_with('$') => {
       let field = &s[1..];
-      docs.iter()
+      docs
+        .iter()
         .find_map(|d| d.get(field).cloned())
         .unwrap_or(Value::Null)
     }
