@@ -219,8 +219,4 @@ impl QueryBuilder {
       _ => Some(Filter::And(self.filters.clone())),
     }
   }
-
-  pub fn get_cursor(&self) -> Option<String> {
-    None
-  }
 }

@@ -1,15 +1,21 @@
 use super::types::{RelationDef, WithRelations};
 use crate::entity::Entity;
+use crate::error::OrmResult;
+use std::sync::RwLock;
 
-static RELATION_REGISTRY: std::sync::RwLock<
-  Option<std::collections::HashMap<String, Vec<RelationDef>>>,
-> = std::sync::RwLock::new(None);
+static RELATION_REGISTRY: RwLock<Option<std::collections::HashMap<String, Vec<RelationDef>>>> =
+  RwLock::new(None);
 
-static REGISTERED_COLLECTIONS: std::sync::RwLock<Option<std::collections::HashMap<String, bool>>> =
-  std::sync::RwLock::new(None);
+static REGISTERED_COLLECTIONS: RwLock<Option<std::collections::HashMap<String, bool>>> =
+  RwLock::new(None);
 
 pub fn register_collection_relations(collection: &str, relations: Vec<RelationDef>) {
-  let mut registered = REGISTERED_COLLECTIONS.write().unwrap();
+  let mut registered = match REGISTERED_COLLECTIONS.write() {
+    Ok(g) => g,
+    Err(e) => {
+      return;
+    }
+  };
   if registered
     .as_ref()
     .is_some_and(|r| r.contains_key(collection))
@@ -17,7 +23,12 @@ pub fn register_collection_relations(collection: &str, relations: Vec<RelationDe
     return;
   }
 
-  let mut guard = RELATION_REGISTRY.write().unwrap();
+  let mut guard = match RELATION_REGISTRY.write() {
+    Ok(g) => g,
+    Err(e) => {
+      return;
+    }
+  };
   if guard.is_none() {
     *guard = Some(std::collections::HashMap::new());
   }
@@ -34,18 +45,19 @@ pub fn register_collection_relations(collection: &str, relations: Vec<RelationDe
   }
 }
 
-pub fn get_registered_collection_relations(collection: &str) -> Option<Vec<RelationDef>> {
-  let guard = RELATION_REGISTRY.read().unwrap();
+pub fn get_collection_relations(collection: &str) -> Option<Vec<RelationDef>> {
+  let guard = match RELATION_REGISTRY.read() {
+    Ok(g) => g,
+    Err(_) => return None,
+  };
   guard
     .as_ref()
     .and_then(|registry| registry.get(collection).cloned())
 }
 
-pub fn get_collection_relations(collection: &str) -> Option<Vec<RelationDef>> {
-  let guard = RELATION_REGISTRY.read().unwrap();
-  guard
-    .as_ref()
-    .and_then(|registry| registry.get(collection).cloned())
+#[doc(hidden)]
+pub fn get_registered_collection_relations(collection: &str) -> Option<Vec<RelationDef>> {
+  get_collection_relations(collection)
 }
 
 pub fn register_relations_for_entity<E: WithRelations + Entity>() {
@@ -57,7 +69,10 @@ pub fn register_relations_for_entity<E: WithRelations + Entity>() {
 }
 
 pub fn get_relation_def(collection: &str, relation_name: &str) -> Option<RelationDef> {
-  let guard = RELATION_REGISTRY.read().unwrap();
+  let guard = match RELATION_REGISTRY.read() {
+    Ok(g) => g,
+    Err(_) => return None,
+  };
   guard.as_ref().and_then(|registry| {
     registry
       .get(collection)
@@ -65,10 +80,40 @@ pub fn get_relation_def(collection: &str, relation_name: &str) -> Option<Relatio
   })
 }
 
-#[allow(dead_code)]
 pub fn clear_relation_registry() {
-  let mut guard = RELATION_REGISTRY.write().unwrap();
-  *guard = None;
-  let mut registered = REGISTERED_COLLECTIONS.write().unwrap();
-  *registered = None;
+  if let Ok(mut guard) = RELATION_REGISTRY.write() {
+    *guard = None;
+  }
+}
+
+pub fn clear_registered_collections() {
+  if let Ok(mut guard) = REGISTERED_COLLECTIONS.write() {
+    *guard = None;
+  }
+}
+
+pub fn clear_all_registries() -> OrmResult<()> {
+  clear_relation_registry();
+  clear_registered_collections();
+  Ok(())
+}
+
+pub fn is_relation_registry_empty() -> bool {
+  let guard = match RELATION_REGISTRY.read() {
+    Ok(g) => g,
+    Err(_) => return true,
+  };
+  guard.as_ref().map_or(true, |r| r.is_empty())
+}
+
+pub fn is_registered_collections_empty() -> bool {
+  let guard = match REGISTERED_COLLECTIONS.read() {
+    Ok(g) => g,
+    Err(_) => return true,
+  };
+  guard.as_ref().map_or(true, |r| r.is_empty())
+}
+
+pub fn is_all_empty() -> bool {
+  is_relation_registry_empty() && is_registered_collections_empty()
 }

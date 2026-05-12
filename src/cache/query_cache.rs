@@ -1,12 +1,11 @@
-use crate::error::OrmResult;
+use crate::error::{OrmError, OrmResult};
 use chrono::{DateTime, Utc};
 use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// Cache configuration
 #[derive(Debug, Clone)]
 pub struct CacheConfig {
   pub max_size: usize,
@@ -24,7 +23,6 @@ impl Default for CacheConfig {
   }
 }
 
-/// A cached query result
 #[derive(Debug, Clone)]
 pub struct CachedResult<T: Clone> {
   pub data: T,
@@ -45,6 +43,7 @@ struct CachedEntry {
   data: serde_json::Value,
   cached_at: DateTime<Utc>,
   expires_at: Option<DateTime<Utc>>,
+  access_order: u64,
 }
 
 impl Debug for CachedEntry {
@@ -52,6 +51,7 @@ impl Debug for CachedEntry {
     f.debug_struct("CachedEntry")
       .field("cached_at", &self.cached_at)
       .field("expires_at", &self.expires_at)
+      .field("access_order", &self.access_order)
       .finish()
   }
 }
@@ -64,21 +64,35 @@ pub struct CacheStats {
   pub evictions: u64,
 }
 
+struct CacheState {
+  entries: std::collections::HashMap<String, CachedEntry>,
+  access_order: BTreeMap<u64, String>,
+  stats: CacheStats,
+  next_access_order: u64,
+}
+
+impl Default for CacheState {
+  fn default() -> Self {
+    Self {
+      entries: std::collections::HashMap::new(),
+      access_order: BTreeMap::new(),
+      stats: CacheStats::default(),
+      next_access_order: 0,
+    }
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct QueryCache {
   config: CacheConfig,
-  entries: Arc<RwLock<HashMap<String, CachedEntry>>>,
-  access_order: Arc<RwLock<Vec<String>>>,
-  stats: Arc<RwLock<CacheStats>>,
+  state: Arc<RwLock<CacheState>>,
 }
 
 impl QueryCache {
   pub fn new(config: CacheConfig) -> Self {
     Self {
       config,
-      entries: Arc::new(RwLock::new(HashMap::new())),
-      access_order: Arc::new(RwLock::new(Vec::new())),
-      stats: Arc::new(RwLock::new(CacheStats::default())),
+      state: Arc::new(RwLock::new(CacheState::default())),
     }
   }
 
@@ -107,123 +121,121 @@ impl QueryCache {
   }
 
   pub async fn get<T: DeserializeOwned>(&self, key: &str) -> OrmResult<Option<T>> {
-    let mut entries = self.entries.write().await;
-    let mut access_order = self.access_order.write().await;
+    let mut state = self.state.write().await;
 
-    if let Some(entry) = entries.get(key) {
+    if let Some(entry) = state.entries.get_mut(key) {
       if let Some(expires) = entry.expires_at {
         if Utc::now() > expires {
-          entries.remove(key);
-          access_order.retain(|k| k != key);
-          drop(entries);
-          drop(access_order);
-          let mut stats = self.stats.write().await;
-          stats.misses += 1;
+          state.entries.remove(key);
+          state.access_order.retain(|_, k| k != key);
+          state.stats.misses += 1;
           return Ok(None);
         }
       }
 
-      if let Some(pos) = access_order.iter().position(|k| k == key) {
-        access_order.remove(pos);
-      }
-      access_order.push(key.to_string());
+      let old_order = entry.access_order;
+      let new_order = state.next_access_order;
+      state.next_access_order += 1;
+      entry.access_order = new_order;
+      state.access_order.remove(&old_order);
+      state.access_order.insert(new_order, key.to_string());
 
-      let mut stats = self.stats.write().await;
-      stats.hits += 1;
+      state.stats.hits += 1;
 
       let result = serde_json::from_value(entry.data.clone())?;
       return Ok(Some(result));
     }
 
-    drop(access_order);
-    let mut stats = self.stats.write().await;
-    stats.misses += 1;
+    state.stats.misses += 1;
     Ok(None)
   }
 
   pub async fn set<T: Serialize>(&self, key: String, data: &T) -> OrmResult<()> {
-    let mut entries = self.entries.write().await;
-    let mut access_order = self.access_order.write().await;
+    let mut state = self.state.write().await;
 
-    if entries.len() >= self.config.max_size && !entries.contains_key(&key) {
-      if let Some(oldest) = access_order.first().cloned() {
-        entries.remove(&oldest);
-        access_order.remove(0);
-        let mut stats = self.stats.write().await;
-        stats.evictions += 1;
+    if state.entries.len() >= self.config.max_size && !state.entries.contains_key(&key) {
+      if let Some((oldest_order, oldest_key)) = state.access_order.pop_first() {
+        state.entries.remove(&oldest_key);
+        state.stats.evictions += 1;
       }
     }
 
-    let value = serde_json::to_value(data)?;
+    let value = serde_json::to_value(data).map_err(|e| OrmError::Serialization(e.to_string()))?;
     let now = Utc::now();
     let expires_at = self
       .config
       .ttl_secs
       .map(|secs| now + chrono::Duration::seconds(secs as i64));
 
-    entries.insert(
-      key.clone(),
-      CachedEntry {
-        data: value,
-        cached_at: now,
-        expires_at,
-      },
-    );
+    let new_order = state.next_access_order;
+    state.next_access_order += 1;
 
-    if let Some(pos) = access_order.iter().position(|k| k == &key) {
-      access_order.remove(pos);
+    if let Some(old_entry) = state.entries.get_mut(&key) {
+      let old_order = old_entry.access_order;
+      state.access_order.remove(&old_order);
+      old_entry.data = value;
+      old_entry.cached_at = now;
+      old_entry.expires_at = expires_at;
+      old_entry.access_order = new_order;
+      state.access_order.insert(new_order, key);
+    } else {
+      state.entries.insert(
+        key.clone(),
+        CachedEntry {
+          data: value,
+          cached_at: now,
+          expires_at,
+          access_order: new_order,
+        },
+      );
+      state.access_order.insert(new_order, key);
     }
-    access_order.push(key);
 
     Ok(())
   }
 
   pub async fn invalidate_collection(&self, collection: &str) -> OrmResult<()> {
     let prefix = format!("{}|{}|", self.config.key_prefix, collection);
-    let mut entries = self.entries.write().await;
-    let mut access_order = self.access_order.write().await;
+    let mut state = self.state.write().await;
 
-    let keys_to_remove: Vec<String> = entries
+    let keys_to_remove: Vec<String> = state
+      .entries
       .keys()
       .filter(|k| k.starts_with(&prefix))
       .cloned()
       .collect();
 
     for key in keys_to_remove {
-      entries.remove(&key);
-      access_order.retain(|k| k != &key);
+      state.entries.remove(&key);
+      state.access_order.retain(|_, k| k != &key);
     }
 
     Ok(())
   }
 
   pub async fn invalidate(&self, key: &str) -> OrmResult<()> {
-    let mut entries = self.entries.write().await;
-    let mut access_order = self.access_order.write().await;
-    entries.remove(key);
-    access_order.retain(|k| k != key);
+    let mut state = self.state.write().await;
+    state.entries.remove(key);
+    state.access_order.retain(|_, k| k != key);
     Ok(())
   }
 
   pub async fn clear(&self) -> OrmResult<()> {
-    let mut entries = self.entries.write().await;
-    let mut access_order = self.access_order.write().await;
-    let mut stats = self.stats.write().await;
-    entries.clear();
-    access_order.clear();
-    stats.evictions += stats.entries as u64;
-    stats.entries = 0;
+    let mut state = self.state.write().await;
+    state.stats.evictions += state.entries.len() as u64;
+    state.entries.clear();
+    state.access_order.clear();
+    state.stats.entries = 0;
     Ok(())
   }
 
   pub async fn stats(&self) -> CacheStats {
-    let entries = self.entries.read().await;
-    let stats = self.stats.read().await;
+    let state = self.state.read().await;
     CacheStats {
-      entries: entries.len(),
-      hits: stats.hits,
-      misses: stats.misses,
-      evictions: stats.evictions,
+      entries: state.entries.len(),
+      hits: state.stats.hits,
+      misses: state.stats.misses,
+      evictions: state.stats.evictions,
     }
   }
 }

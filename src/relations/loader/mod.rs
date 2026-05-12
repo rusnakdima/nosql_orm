@@ -368,7 +368,6 @@ impl<P: DatabaseProvider> RelationLoader<P> {
       .await
   }
 
-  #[allow(dead_code)]
   fn find_child_relation(
     &self,
     parent_relation: &RelationDef,
@@ -405,7 +404,6 @@ impl<P: DatabaseProvider> RelationLoader<P> {
     get_collection_relations(collection).unwrap_or_default()
   }
 
-  #[allow(dead_code)]
   fn get_relation_def_for_path(&self, docs: &[Value], segment: &str) -> OrmResult<RelationDef> {
     if docs.is_empty() {
       return Err(OrmError::Internal("No documents provided".into()));

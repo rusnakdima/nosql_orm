@@ -171,7 +171,12 @@ pub fn parse_field_filter(field: &str, value: &Value) -> OrmResult<Filter> {
                 }
               }
             }
-            _ => {}
+            _ => {
+              return Err(OrmError::InvalidInput(format!(
+                "Unhandled filter operator '{}'",
+                op
+              )))
+            }
           }
         }
       }
