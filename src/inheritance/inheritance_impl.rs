@@ -50,12 +50,6 @@ macro_rules! entity_inheritance {
         Vec::new()
       }
     }
-
-    impl $child {
-      pub fn parent(&self) -> $parent {
-        unimplemented!()
-      }
-    }
   };
 
   (parent, $entity:ident) => {

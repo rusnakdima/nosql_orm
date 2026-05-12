@@ -4,7 +4,7 @@ use crate::provider::DatabaseProvider;
 use crate::relations::RelationDef;
 use crate::repository::Repository;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tokio::sync::RwLock;
 
 type LoaderFuture<T> =
@@ -75,7 +75,7 @@ where
   E: Entity,
   P: DatabaseProvider,
 {
-  repo: Arc<Repository<E, P>>,
+  repo: Weak<Repository<E, P>>,
   local_id: String,
   cached: Arc<RwLock<Option<Arc<Option<E>>>>>,
 }
@@ -87,7 +87,7 @@ where
 {
   pub fn new(repo: Arc<Repository<E, P>>, _relation: RelationDef, local_id: String) -> Self {
     Self {
-      repo,
+      repo: Arc::downgrade(&repo),
       local_id,
       cached: Arc::new(RwLock::new(None)),
     }
@@ -101,7 +101,11 @@ where
       }
     }
 
-    let result = self.repo.find_by_id(&self.local_id).await;
+    let repo = self
+      .repo
+      .upgrade()
+      .ok_or_else(|| crate::error::OrmError::Internal("Repository has been dropped".to_string()))?;
+    let result = repo.find_by_id(&self.local_id).await;
 
     {
       let mut write = self.cached.write().await;
@@ -111,6 +115,11 @@ where
     let read = self.cached.read().await;
     Ok(read.clone().unwrap())
   }
+
+  pub fn close(&self) {
+    let mut write = self.cached.blocking_write();
+    *write = None;
+  }
 }
 
 pub struct LazyMany<E, P>
@@ -118,7 +127,7 @@ where
   E: Entity,
   P: DatabaseProvider,
 {
-  repo: Arc<Repository<E, P>>,
+  repo: Weak<Repository<E, P>>,
   relation: RelationDef,
   local_id: String,
   filter: Option<crate::query::Filter>,
@@ -132,7 +141,7 @@ where
 {
   pub fn new(repo: Arc<Repository<E, P>>, relation: RelationDef, local_id: String) -> Self {
     Self {
-      repo,
+      repo: Arc::downgrade(&repo),
       relation,
       local_id,
       filter: None,
@@ -153,7 +162,11 @@ where
       }
     }
 
-    let mut query = self.repo.query();
+    let repo = self
+      .repo
+      .upgrade()
+      .ok_or_else(|| crate::error::OrmError::Internal("Repository has been dropped".to_string()))?;
+    let mut query = repo.query();
 
     match self.relation.relation_type {
       crate::relations::RelationType::OneToMany => {
@@ -189,5 +202,10 @@ where
       *write = None;
     }
     self.get().await
+  }
+
+  pub fn close(&self) {
+    let mut write = self.cached.blocking_write();
+    *write = None;
   }
 }

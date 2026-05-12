@@ -125,7 +125,9 @@ impl SchemaEvolution {
                         ));
                     }
                 }
-                _ => {}
+                _ => return Err(OrmError::InvalidInput(
+                    format!("Unhandled case in {}", std::any::type_name::<Self>())
+                )),
             }
         }
         Ok(())

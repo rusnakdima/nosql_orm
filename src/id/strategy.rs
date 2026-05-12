@@ -1,5 +1,7 @@
 use crate::error::OrmResult;
 use async_trait::async_trait;
+use rand::rngs::OsRng;
+use rand::Rng;
 
 #[async_trait]
 pub trait IdStrategy: Send + Sync {
@@ -116,8 +118,9 @@ impl IdStrategy for NanoidStrategy {
     let len = self.alphabet.len();
     let mut id = String::with_capacity(self.size);
 
+    let mut rng = OsRng;
     for _ in 0..self.size {
-      let idx = rand::random::<usize>() % len;
+      let idx = rng.gen::<usize>() % len;
       id.push(self.alphabet.chars().nth(idx).unwrap_or('a'));
     }
     Ok(id)
