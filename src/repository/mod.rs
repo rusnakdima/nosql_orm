@@ -1,7 +1,8 @@
 use crate::entity::Entity;
 use crate::error::OrmResult;
 use crate::events::listener::EntityEvents;
-use crate::provider::DatabaseProvider;
+use crate::provider::{AdminCommands, DatabaseProvider};
+use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -139,7 +140,185 @@ where
     Ok(())
   }
 
-  pub async fn execute_sql(&self, _sql: &str) -> OrmResult<()> {
+  pub async fn execute_sql(&self, sql: &str) -> OrmResult<usize>
+  where
+    P: AdminCommands,
+  {
+    let result = self.provider.execute_raw(sql, vec![]).await?;
+    Ok(result.affected_rows as usize)
+  }
+}
+
+pub trait QueryStreamTrait<E> {
+  type Item;
+  fn next(&mut self) -> impl std::future::Future<Output = Option<Self::Item>> + Send;
+}
+
+pub struct QueryStream<E, P>
+where
+  E: Entity,
+  P: DatabaseProvider,
+{
+  provider: P,
+  collection: String,
+  filter: Option<crate::query::Filter>,
+  skip: Option<u64>,
+  limit: Option<u64>,
+  sort_by: Option<String>,
+  sort_asc: bool,
+  batch: Option<VecDeque<E>>,
+  batch_index: usize,
+  batch_size: u64,
+}
+
+impl<E, P> QueryStream<E, P>
+where
+  E: Entity,
+  P: DatabaseProvider,
+{
+  pub fn new(
+    provider: P,
+    collection: impl Into<String>,
+    filter: Option<crate::query::Filter>,
+    skip: Option<u64>,
+    limit: Option<u64>,
+    sort_by: Option<String>,
+    sort_asc: bool,
+  ) -> Self {
+    Self {
+      provider,
+      collection: collection.into(),
+      filter,
+      skip,
+      limit,
+      sort_by,
+      sort_asc,
+      batch: None,
+      batch_index: 0,
+      batch_size: 100,
+    }
+  }
+
+  pub fn with_limit(mut self, limit: u64) -> Self {
+    self.limit = Some(limit);
+    self
+  }
+
+  pub fn with_skip(mut self, skip: u64) -> Self {
+    self.skip = Some(skip);
+    self
+  }
+
+  pub fn with_batch_size(mut self, batch_size: u64) -> Self {
+    self.batch_size = batch_size;
+    self
+  }
+
+  async fn fetch_batch(&mut self) -> OrmResult<()> {
+    let current_index = self.batch_index as u64;
+    let remaining_limit = self
+      .limit
+      .map(|l| l - current_index)
+      .unwrap_or(self.batch_size);
+    let fetch_limit = remaining_limit.min(self.batch_size);
+
+    let items = self
+      .provider
+      .find_many(
+        &self.collection,
+        self.filter.as_ref(),
+        Some(current_index),
+        if fetch_limit > 0 {
+          Some(fetch_limit)
+        } else {
+          None
+        },
+        self.sort_by.as_deref(),
+        self.sort_asc,
+      )
+      .await?;
+
+    let entities: Vec<E> = items
+      .into_iter()
+      .map(|v| E::from_value(v))
+      .collect::<Result<Vec<_>, _>>()?;
+
+    self.batch = Some(entities.into());
+    self.batch_index = 0;
     Ok(())
+  }
+
+  pub async fn next_item(&mut self) -> OrmResult<Option<E>> {
+    if let Some(ref mut batch) = self.batch {
+      if self.batch_index < batch.len() {
+        let item = batch.pop_front().unwrap();
+        self.batch_index += 1;
+        return Ok(Some(item));
+      }
+    }
+
+    if let Some(limit) = self.limit {
+      if self.batch_index >= limit as usize {
+        return Ok(None);
+      }
+    }
+
+    self.fetch_batch().await?;
+
+    if let Some(ref mut batch) = self.batch {
+      if !batch.is_empty() {
+        let item = batch.pop_front().unwrap();
+        self.batch_index += 1;
+        return Ok(Some(item));
+      }
+    }
+
+    Ok(None)
+  }
+}
+
+impl<E, P> QueryStreamTrait<E> for QueryStream<E, P>
+where
+  E: Entity,
+  P: DatabaseProvider,
+{
+  type Item = OrmResult<E>;
+
+  async fn next(&mut self) -> Option<Self::Item> {
+    self.next_item().await.ok().and_then(|v| v.map(Ok))
+  }
+}
+
+impl<E, P> Repository<E, P>
+where
+  E: Entity,
+  P: DatabaseProvider,
+{
+  pub async fn find_stream(
+    &self,
+    filter: Option<crate::query::Filter>,
+    skip: Option<u64>,
+    limit: Option<u64>,
+    sort_by: Option<String>,
+    sort_asc: bool,
+  ) -> OrmResult<QueryStream<E, P>> {
+    Ok(QueryStream::new(
+      self.provider.clone(),
+      Self::collection(),
+      filter,
+      skip,
+      limit,
+      sort_by,
+      sort_asc,
+    ))
+  }
+
+  pub async fn find_many_stream(
+    &self,
+    filter: Option<crate::query::Filter>,
+    skip: Option<u64>,
+    limit: Option<u64>,
+  ) -> OrmResult<QueryStream<E, P>> {
+    self.find_stream(filter, skip, limit, None, true).await
   }
 }

@@ -1,3 +1,4 @@
+use crate::error::{OrmError, OrmResult};
 use crate::query::{Filter, OrderBy, Projection, SortDirection};
 
 use super::builder::SqlQueryBuilder;
@@ -109,7 +110,7 @@ impl SqlQueryBuilder {
     order_by: Option<&[OrderBy]>,
     limit: Option<u32>,
     offset: Option<u64>,
-  ) -> String {
+  ) -> OrmResult<String> {
     let table_name = self.dialect().quote_identifier(table);
 
     let select_clause = match projection {
@@ -142,7 +143,7 @@ impl SqlQueryBuilder {
     let mut sql = format!("SELECT {} FROM {}", select_clause, table_name);
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.filter_to_sql(f)?));
     }
 
     if let Some(order) = order_by {
@@ -170,7 +171,7 @@ impl SqlQueryBuilder {
       sql.push_str(&format!(" OFFSET {}", o));
     }
 
-    sql
+    Ok(sql)
   }
 
   pub fn build_update(
@@ -178,7 +179,7 @@ impl SqlQueryBuilder {
     table: &str,
     set_columns: &[(&str, String)],
     filter: Option<&Filter>,
-  ) -> String {
+  ) -> OrmResult<String> {
     let table_name = self.dialect().quote_identifier(table);
 
     let set_clause = set_columns
@@ -190,33 +191,33 @@ impl SqlQueryBuilder {
     let mut sql = format!("UPDATE {} SET {}", table_name, set_clause);
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.filter_to_sql(f)?));
     }
 
-    sql
+    Ok(sql)
   }
 
-  pub fn build_delete(&self, table: &str, filter: Option<&Filter>) -> String {
+  pub fn build_delete(&self, table: &str, filter: Option<&Filter>) -> OrmResult<String> {
     let table_name = self.dialect().quote_identifier(table);
 
     let mut sql = format!("DELETE FROM {}", table_name);
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.filter_to_sql(f)?));
     }
 
-    sql
+    Ok(sql)
   }
 
-  pub fn build_count(&self, table: &str, filter: Option<&Filter>) -> String {
+  pub fn build_count(&self, table: &str, filter: Option<&Filter>) -> OrmResult<String> {
     let table_name = self.dialect().quote_identifier(table);
 
     let mut sql = format!("SELECT COUNT(*) FROM {}", table_name);
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.filter_to_sql(f)?));
     }
 
-    sql
+    Ok(sql)
   }
 }

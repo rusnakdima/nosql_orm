@@ -5,23 +5,35 @@ use serde_json::Value;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+const MAX_LOG_SIZE: u64 = 10 * 1024 * 1024;
+const MAX_LOG_FILES: usize = 5;
 
 #[derive(Clone)]
 pub struct FileQueryLogger<P: DatabaseProvider> {
   inner: Arc<P>,
   log_path: PathBuf,
   enabled: Arc<RwLock<bool>>,
+  current_size: Arc<AtomicU64>,
+  max_size: u64,
+  max_files: usize,
 }
 
 impl<P: DatabaseProvider> FileQueryLogger<P> {
   pub fn new(inner: Arc<P>, log_dir: PathBuf) -> Self {
     std::fs::create_dir_all(&log_dir).ok();
+    let log_path = log_dir.join("query_log.txt");
+    let current_size = std::fs::metadata(&log_path).map(|m| m.len()).unwrap_or(0);
     Self {
       inner,
-      log_path: log_dir.join("query_log.txt"),
+      log_path,
       enabled: Arc::new(RwLock::new(true)),
+      current_size: Arc::new(AtomicU64::new(current_size)),
+      max_size: MAX_LOG_SIZE,
+      max_files: MAX_LOG_FILES,
     }
   }
 
@@ -37,15 +49,57 @@ impl<P: DatabaseProvider> FileQueryLogger<P> {
     *self.enabled.read().await
   }
 
+  fn rotate_logs(&self) -> std::io::Result<()> {
+    let log_dir = self.log_path.parent().unwrap();
+    let base_name = self.log_path.file_stem().unwrap().to_string_lossy();
+    let ext = self.log_path.extension().unwrap().to_string_lossy();
+
+    for i in (1..self.max_files).rev() {
+      let from = log_dir.join(format!("{}.{}.{}", base_name, i, ext));
+      let to = log_dir.join(format!("{}.{}.{}", base_name, i + 1, ext));
+      if from.exists() {
+        std::fs::rename(&from, &to)?;
+      }
+    }
+
+    let first = log_dir.join(format!("{}.1.{}", base_name, ext));
+    if self.log_path.exists() {
+      std::fs::rename(&self.log_path, &first)?;
+    }
+
+    self.current_size.store(0, Ordering::SeqCst);
+    Ok(())
+  }
+
   fn write_log(&self, entry: &str) {
+    if self.current_size.load(Ordering::SeqCst) > self.max_size {
+      if let Err(e) = self.rotate_logs() {
+        eprintln!("Failed to rotate logs: {}", e);
+        return;
+      }
+    }
+
     if let Ok(mut file) = OpenOptions::new()
       .create(true)
       .append(true)
       .open(&self.log_path)
     {
       let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f");
-      let _ = writeln!(file, "[{}] {}", timestamp, entry);
+      let line = format!("[{}] {}\n", timestamp, entry);
+      if writeln!(file, "[{}] {}", timestamp, entry).is_ok() {
+        self
+          .current_size
+          .fetch_add(line.len() as u64, Ordering::SeqCst);
+      }
     }
+  }
+
+  pub fn set_max_size(&mut self, max_size: u64) {
+    self.max_size = max_size;
+  }
+
+  pub fn set_max_files(&mut self, max_files: usize) {
+    self.max_files = max_files;
   }
 
   fn log_query(&self, operation: &str, collection: &str, filter: Option<&Filter>) {

@@ -1,3 +1,4 @@
+use crate::error::OrmError;
 use std::collections::HashSet;
 use std::sync::RwLock;
 
@@ -54,7 +55,30 @@ impl QueryAllowlist {
         self.allowed_operations.insert(operation.to_string());
     }
 
+    fn validate_regex_pattern(pattern: &str) -> Result<(), OrmError> {
+        if pattern.len() > 500 {
+            return Err(OrmError::Validation(
+                "Regex pattern exceeds maximum length of 500 characters".to_string(),
+            ));
+        }
+
+        if pattern.contains("(?=") || pattern.contains("(?!") || pattern.contains("(?<=") || pattern.contains("(?<!") {
+            return Err(OrmError::Validation(
+                "Regex pattern contains prohibited lookahead/lookbehind assertions".to_string(),
+            ));
+        }
+
+        if pattern.contains("{1000") || pattern.contains("{2000") || pattern.contains("{5000") {
+            return Err(OrmError::Validation(
+                "Regex pattern contains potentially catastrophic quantifier".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     pub fn block_pattern(&mut self, pattern: &str) -> Result<(), regex::Error> {
+        Self::validate_regex_pattern(pattern).map_err(|e| regex::Error::Syntax(e.to_string()))?;
         let re = Regex::new(pattern)?;
         self.blocked_patterns.push(re);
         Ok(())
@@ -66,7 +90,12 @@ impl QueryAllowlist {
         }
 
         {
-            let mut state = self.state.write().unwrap();
+            let mut state = match self.state.write() {
+                Ok(s) => s,
+                Err(e) => {
+                    return false;
+                }
+            };
             state.total_checked += 1;
         }
 
@@ -74,7 +103,12 @@ impl QueryAllowlist {
 
         for pattern in &self.blocked_patterns {
             if pattern.is_match(&sql_upper) {
-                let mut state = self.state.write().unwrap();
+                let mut state = match self.state.write() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return false;
+                    }
+                };
                 state.blocked_count += 1;
                 return false;
             }
@@ -83,7 +117,12 @@ impl QueryAllowlist {
         let mut parts = sql_upper.split_whitespace();
         if let Some(operation) = parts.next() {
             if !self.allowed_operations.contains(operation) {
-                let mut state = self.state.write().unwrap();
+                let mut state = match self.state.write() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return false;
+                    }
+                };
                 state.blocked_count += 1;
                 return false;
             }
@@ -102,7 +141,12 @@ impl QueryAllowlist {
                     {
                         let table_name = after_from[5..5 + end_idx].trim();
                         if !self.allowed_tables.contains(table_name) {
-                            let mut state = self.state.write().unwrap();
+                            let mut state = match self.state.write() {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    return false;
+                                }
+                            };
                             state.blocked_count += 1;
                             return false;
                         }
@@ -118,7 +162,12 @@ impl QueryAllowlist {
                     {
                         let table_name = after_into[5..5 + end_idx].trim();
                         if !self.allowed_tables.contains(table_name) {
-                            let mut state = self.state.write().unwrap();
+                            let mut state = match self.state.write() {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    return false;
+                                }
+                            };
                             state.blocked_count += 1;
                             return false;
                         }
@@ -134,7 +183,12 @@ impl QueryAllowlist {
                     {
                         let table_name = after_update[7..7 + end_idx].trim();
                         if !self.allowed_tables.contains(table_name) {
-                            let mut state = self.state.write().unwrap();
+                            let mut state = match self.state.write() {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    return false;
+                                }
+                            };
                             state.blocked_count += 1;
                             return false;
                         }
@@ -147,14 +201,18 @@ impl QueryAllowlist {
     }
 
     pub fn get_stats(&self) -> (u64, u64) {
-        let state = self.state.read().unwrap();
+        let state = match self.state.read() {
+            Ok(s) => s,
+            Err(_) => return (0, 0),
+        };
         (state.total_checked, state.blocked_count)
     }
 
     pub fn reset_stats(&self) {
-        let mut state = self.state.write().unwrap();
-        state.total_checked = 0;
-        state.blocked_count = 0;
+        if let Ok(mut state) = self.state.write() {
+            state.total_checked = 0;
+            state.blocked_count = 0;
+        }
     }
 }
 

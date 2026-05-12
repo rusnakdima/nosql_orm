@@ -1,6 +1,7 @@
 use crate::error::OrmResult;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Topic {
@@ -54,6 +55,7 @@ impl SubscriptionMessage {
 }
 
 pub struct Subscription {
+  pub id: String,
   pub topic: Topic,
   pub handler: Arc<dyn SubscriptionHandler>,
   pub options: SubscriptionOptions,
@@ -62,6 +64,7 @@ pub struct Subscription {
 impl Clone for Subscription {
   fn clone(&self) -> Self {
     Subscription {
+      id: self.id.clone(),
       topic: self.topic.clone(),
       handler: self.handler.clone(),
       options: self.options.clone(),
@@ -86,19 +89,61 @@ impl Default for SubscriptionOptions {
   }
 }
 
+#[derive(Clone)]
+pub struct SubscriptionConfig {
+  pub max_subscriptions: usize,
+}
+
+impl Default for SubscriptionConfig {
+  fn default() -> Self {
+    Self {
+      max_subscriptions: 10000,
+    }
+  }
+}
+
 pub struct SubscriptionManager {
-  subscriptions: std::collections::HashMap<String, Vec<Subscription>>,
+  subscriptions: std::collections::HashMap<String, std::collections::HashMap<String, Subscription>>,
+  config: SubscriptionConfig,
+  creation_order: std::collections::VecDeque<(String, String)>,
 }
 
 impl SubscriptionManager {
   pub fn new() -> Self {
     Self {
       subscriptions: std::collections::HashMap::new(),
+      config: SubscriptionConfig::default(),
+      creation_order: std::collections::VecDeque::new(),
     }
   }
 
-  pub fn subscribe<S: SubscriptionHandler + 'static>(&mut self, topic: &str, handler: S) {
+  pub fn with_max_subscriptions(mut self, max: usize) -> Self {
+    self.config.max_subscriptions = max;
+    self
+  }
+
+  fn evict_if_needed(&mut self) {
+    while self.creation_order.len() >= self.config.max_subscriptions {
+      if let Some((topic_id, sub_id)) = self.creation_order.pop_front() {
+        if let Some(subs) = self.subscriptions.get_mut(&topic_id) {
+          subs.remove(&sub_id);
+        }
+        if self
+          .subscriptions
+          .get(&topic_id)
+          .map_or(true, |s| s.is_empty())
+        {
+          self.subscriptions.remove(&topic_id);
+        }
+      }
+    }
+  }
+
+  pub fn subscribe<S: SubscriptionHandler + 'static>(&mut self, topic: &str, handler: S) -> String {
+    self.evict_if_needed();
+    let id = Uuid::new_v4().to_string();
     let subscription = Subscription {
+      id: id.clone(),
       topic: Topic::new(topic),
       handler: Arc::new(handler),
       options: SubscriptionOptions::default(),
@@ -107,11 +152,40 @@ impl SubscriptionManager {
       .subscriptions
       .entry(topic.to_string())
       .or_default()
-      .push(subscription);
+      .insert(id.clone(), subscription);
+    self
+      .creation_order
+      .push_back((topic.to_string(), id.clone()));
+    id
   }
 
-  pub async fn unsubscribe(&mut self, topic: &str) {
+  pub fn unsubscribe(&mut self, topic: &str) {
     self.subscriptions.remove(topic);
+  }
+
+  pub fn unsubscribe_by_id(&mut self, id: &str) -> bool {
+    for (topic, subs) in &mut self.subscriptions {
+      if subs.remove(id).is_some() {
+        self
+          .creation_order
+          .retain(|(t, s)| !(t == topic && s == id));
+        return true;
+      }
+    }
+    false
+  }
+
+  pub fn get_subscription(&self, id: &str) -> Option<&Subscription> {
+    for subs in self.subscriptions.values() {
+      if let Some(sub) = subs.get(id) {
+        return Some(sub);
+      }
+    }
+    None
+  }
+
+  pub fn subscription_count(&self) -> usize {
+    self.creation_order.len()
   }
 }
 
