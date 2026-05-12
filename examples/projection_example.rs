@@ -62,7 +62,7 @@ async fn main() -> OrmResult<()> {
     id: None,
     name: "Alice".to_string(),
     email: "alice@example.com".to_string(),
-    password: "secret123".to_string(),
+    password: std::env::var("EXAMPLE_PASSWORD").unwrap_or_else(|_| "secret123".to_string()),
     age: Some(30),
     bio: Some("Rust developer".to_string()),
   };
@@ -93,7 +93,7 @@ async fn main() -> OrmResult<()> {
     id: None,
     name: Some("Bob".to_string()),
     email: Some("bob@example.com".to_string()),
-    password: Some("secret456".to_string()),
+    password: Some(std::env::var("EXAMPLE_PASSWORD").unwrap_or_else(|_| "secret456".to_string())),
     age: Some(25),
     bio: Some("Developer".to_string()),
   };

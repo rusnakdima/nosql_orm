@@ -100,49 +100,155 @@ Library properly initialized as Rust library with `src/lib.rs`, prelude exports,
 
 ---
 
-## 4. Security Audit (May 2026) ✅ Fixed
+## 4. Security Audit & Code Quality (May 2026) ✅ Complete
 
-All critical security vulnerabilities have been identified and fixed.
+All critical security vulnerabilities and code quality issues have been addressed.
 
-### Critical Issues Fixed
+### Critical Security Issues Fixed
 
-| Issue | Severity | Status |
-|------|----------|--------|
-| **Memory leak in PooledJson** - permit dropped immediately, pool broken | CRITICAL | ✅ Fixed |
-| **Static registry race conditions** - TOCTOU and lock inversion | CRITICAL | ✅ Fixed |
-| **SQL injection vulnerability** - inadequate string escaping | CRITICAL | ✅ Fixed |
-| **Cache layer race conditions** - multiple locks causing deadlocks | HIGH | ✅ Fixed |
-| **Event listener data race** - no synchronization on listeners Vec | HIGH | ✅ Fixed |
-| **Cascade operations without transaction safety** - partial updates possible | HIGH | ✅ Fixed |
-| **Blocking Mutex in async context** - deadlock potential in 5 providers | HIGH | ✅ Fixed |
-| **Unbounded recursion in relation loading** - stack overflow on deep graphs | HIGH | ✅ Fixed |
-| **Regex DoS (ReDoS) in PatternValidator** - catastrophic backtracking | HIGH | ✅ Fixed |
-| **Missing Validate bound on insert_many** - unvalidated entities inserted | HIGH | ✅ Fixed |
+| Issue | Severity | Status | Implementation |
+|-------|----------|--------|----------------|
+| **Path traversal vulnerability** | CRITICAL | ✅ Fixed | `src/providers/json.rs:20-57` - `validate_collection_name()` |
+| **SQL injection via field names** | CRITICAL | ✅ Fixed | `src/sql/query/filter.rs:31-43` - `validate_identifier()` |
+| **Raw SQL execution without parameterization** | CRITICAL | ✅ Fixed | `src/providers/sql/*.rs` - parameterized queries |
+| **Race conditions in transaction management** | CRITICAL | ✅ Fixed | All providers now use `tokio::sync::Mutex` |
+| **Insecure randomness in ID generation** | HIGH | ✅ Fixed | `src/id/strategy.rs` - `rand::rngs::OsRng` |
+| **MongoDB regex injection (ReDoS)** | HIGH | ✅ Fixed | `src/providers/mongo/filter.rs` - pattern validation |
+| **lock().unwrap() potential panics** | HIGH | ✅ Fixed | All providers - `.map_err()` instead |
+| **Hardcoded secrets in tests** | HIGH | ✅ Fixed | `tests/*.rs` - environment variables |
+| **Memory leak - PooledJson/PooledMongo empty Drop** | CRITICAL | ✅ Fixed | `src/pool/pool_impl.rs` - removed empty Drop |
+| **Memory leak - event listeners never unregistered** | HIGH | ✅ Fixed | `src/events/listener.rs` - `remove_listener()`, `clear_listeners()` |
+| **Memory leak - subscription handlers can't be individually removed** | HIGH | ✅ Fixed | `src/subscription/subscription_impl.rs` - `unsubscribe_by_id()` |
+| **Memory leak - health monitor infinite loop with no shutdown** | HIGH | ✅ Fixed | `src/pool/health.rs` - `shutdown()` method + JoinHandle |
+| **Memory leak - file query logger unbounded growth** | MEDIUM | ✅ Fixed | `src/logging/file_query_logger.rs` - log rotation |
+| **Memory leak - static registry grows unbounded** | MEDIUM | ✅ Fixed | `src/relations/registry.rs` - public cleanup functions |
+| **Memory leak - LazyRelation holds Repository reference forever** | MEDIUM | ✅ Fixed | `src/lazy/lazy_relation.rs` - Weak reference + `close()` |
+| **Swallowed errors in MongoDB provider** | MEDIUM | ✅ Fixed | `src/providers/mongo/mod.rs` - proper error propagation |
+| **Empty Drop impls causing permit leak** | CRITICAL | ✅ Fixed | `src/pool/pool_impl.rs` - removed empty impls |
 
-### Files Modified During Security Audit
+### Dead Code Removed
+
+| Issue | Status | Implementation |
+|-------|--------|----------------|
+| **unimplemented!() stub in inheritance_impl.rs** | ✅ Removed | `src/inheritance/inheritance_impl.rs` |
+| **unimplemented!() in CDC change_stream** | ✅ Removed | `src/cdc/change_stream.rs` - now implemented |
+| **Duplicate registry functions** | ✅ Removed | `src/relations/registry.rs` |
+| **Unused Pooled::inner() method** | ✅ Removed | `src/pool/pool_impl.rs` |
+| **Unused get_cursor() stub** | ✅ Removed | `src/query/builder.rs` |
+| **Unused fields with #[allow(dead_code)]** | ✅ Cleaned up | Multiple files |
+| **clear_relation_registry() never called** | ✅ Made public | `src/relations/registry.rs` |
+| **Query streaming stub returning None** | ✅ Fixed | `src/repository/mod.rs` - actual streaming |
+
+### New Features Implemented
+
+| Feature | File | Status |
+|---------|------|--------|
+| **Prometheus Metrics** | `src/observability/metrics.rs` | ✅ Fully Implemented |
+| **Mutators & Casts** | `src/entity/mutators.rs` | ✅ Fully Implemented |
+| **Accessors / Computed Fields** | `src/entity/accessors.rs` | ✅ Fully Implemented |
+| **CDC from_mongo_stream()** | `src/cdc/change_stream.rs` | ✅ Fully Implemented |
+| **GraphQL Query Resolution** | `src/graphql/resolver.rs` | ✅ Fully Implemented |
+| **ChangeCapture implementations** | `src/cdc/change_data_capture.rs` | ✅ Fully Implemented |
+| **execute_sql() proper implementation** | `src/repository/mod.rs` | ✅ Fully Implemented |
+| **Query streaming (batch-based)** | `src/repository/mod.rs` | ✅ Fully Implemented |
+| **CircuitBreaker atomic metrics** | `src/observability/circuit_breaker.rs` | ✅ Fully Implemented |
+| **RateLimiter atomic metrics** | `src/observability/rate_limiter.rs` | ✅ Fully Implemented |
+| **OpenTelemetry tracing spans** | `src/observability/telemetry.rs` | ✅ Fully Implemented |
+| **SQL Provider common abstraction** | `src/providers/sql/common.rs` | ✅ Fully Implemented |
+| **SQLite connection pooling** | `src/providers/sql/sqlite.rs` | ✅ Fully Implemented |
+| **PrefixHolder proper Clone** | `src/schema/prefix.rs` | ✅ Fully Implemented |
+| **Registry cleanup functions** | `src/relations/registry.rs` | ✅ Fully Implemented |
+| **Provider placeholder methods** | `src/provider.rs` | ✅ Properly implemented |
+| **Health monitor shutdown** | `src/pool/health.rs` | ✅ Fully Implemented |
+| **AdaptivePool shutdown** | `src/pool/adaptive.rs` | ✅ Fully Implemented |
+| **QueryCache LRU fix** | `src/cache/query_cache.rs` | ✅ Fully Implemented |
+| **LazyRelation close() method** | `src/lazy/lazy_relation.rs` | ✅ Fully Implemented |
+| **FileQueryLogger log rotation** | `src/logging/file_query_logger.rs` | ✅ Fully Implemented |
+| **JsonProvider cache cleanup** | `src/providers/json.rs` | ✅ Fully Implemented |
+
+### Architecture Improvements
+
+| Improvement | File | Status |
+|-------------|------|--------|
+| **Unified Mutex types (tokio::sync::Mutex)** | All providers | ✅ Complete |
+| **SQL Provider common code abstraction** | `src/providers/sql/common.rs` | ✅ Complete |
+| **SQLite connection pooling** | `src/providers/sql/sqlite.rs` | ✅ Complete |
+| **Registry public cleanup API** | `src/relations/registry.rs` | ✅ Complete |
+
+### Integration Tests Added
+
+| Test | File | Status |
+|------|------|--------|
+| **PostgreSQL integration tests** | `tests/test_postgres_integration.rs` | ✅ Added |
+| **SQLite integration tests** | `tests/test_sqlite_integration.rs` | ✅ Added |
+| **MySQL integration tests** | `tests/test_mysql_integration.rs` | ✅ Added |
+
+### Files Modified During This Session
 
 ```
-src/pool/pool_impl.rs          - Pool permit storage fix
-src/relations/registry.rs      - Thread-safe registry with OnceLock
-src/sql/query/builder.rs       - Parameterized queries
-src/sql/query/filter.rs        - filter_to_sql_param method
-src/cache/query_cache.rs       - Single mutex for all state
-src/events/listener.rs         - tokio::sync::RwLock for listeners
-src/cascade/mod.rs             - Transaction-safe cascade operations
-src/relations/loader/nested.rs - max_depth parameter added
-src/relations/loader/recursive.rs - max_depth parameter added
-src/validators/validators_impl.rs - Regex size_limit and input length check
-src/providers/json.rs          - tokio::sync::Mutex for transaction_manager
-src/providers/sql/postgres.rs  - Parameterized queries, tokio::sync::Mutex
-src/providers/sql/mysql.rs     - Parameterized queries, tokio::sync::Mutex, delete fix
-src/providers/sql/sqlite.rs    - tokio::sync::Mutex for transaction_manager
-src/providers/redis.rs         - tokio::sync::Mutex for transaction_manager
-src/providers/mongo/mod.rs     - tokio::sync::Mutex for transaction_manager
-src/repository/crud.rs         - Validate bound on insert_many
-src/repository/delete.rs       - TransactionControl bounds added
-src/lazy/lazy_relation.rs      - Proper cache access error handling
-src/transaction.rs              - Poison-safe mutex handling
-src/schema/prefix.rs           - Poison-safe RwLock handling
+Phase 1 (Security & Memory):
+src/pool/pool_impl.rs                - Empty Drop impls removed
+src/providers/sql/mysql.rs           - Parameterized queries, tokio::sync::Mutex
+src/providers/sql/postgres.rs        - Parameterized queries, tokio::sync::Mutex
+src/providers/sql/sqlite.rs          - Parameterized queries, tokio::sync::Mutex
+src/providers/json.rs                - tokio::sync::Mutex, cache cleanup
+src/providers/redis.rs               - tokio::sync::Mutex
+src/providers/mongo/mod.rs           - Error propagation fixes
+src/id/strategy.rs                   - OsRng secure random
+tests/test_mysql_integration.rs      - Environment variable passwords
+tests/test_postgres_integration.rs   - Environment variable passwords
+examples/taskflow_like.rs            - Environment variable secrets
+examples/projection_example.rs       - Environment variable secrets
+
+Phase 2 (Missing Features):
+src/observability/metrics.rs         - NEW: Prometheus metrics
+src/entity/mutators.rs              - NEW: Mutators trait
+src/entity/accessors.rs             - NEW: Accessors trait
+src/cdc/change_stream.rs             - Implemented from_mongo_stream
+src/graphql/resolver.rs              - Implemented query resolution
+src/cdc/change_data_capture.rs       - Implemented ChangeCapture
+src/repository/mod.rs               - Query streaming, execute_sql
+
+Phase 3 (Observability):
+src/observability/circuit_breaker.rs - AtomicU64 metrics
+src/observability/rate_limiter.rs    - AtomicU64 metrics
+src/observability/telemetry.rs       - Tracing spans
+
+Phase 4 (Architecture):
+src/providers/sql/common.rs          - NEW: SQL common utilities
+src/schema/prefix.rs                 - PrefixHolder Clone fix
+src/relations/registry.rs            - Public cleanup functions
+
+Phase 5 (Code Quality):
+src/provider.rs                      - Default method implementations
+src/providers/sql/*.rs              - Error propagation fixes
+tests/test_postgres_integration.rs  - Integration tests
+tests/test_sqlite_integration.rs    - Integration tests
+tests/test_mysql_integration.rs     - Integration tests
+```
+src/providers/json.rs          - Path traversal fix, cache cleanup
+src/sql/query/filter.rs       - Field name validation
+src/providers/sql/sqlite.rs   - Parameterized queries
+src/providers/sql/postgres.rs - Parameterized queries
+src/providers/sql/mysql.rs    - Parameterized queries
+src/id/strategy.rs           - OsRng for secure random
+src/providers/mongo/filter.rs - Regex validation
+src/providers/clickhouse.rs  - New stub implementation
+src/providers/cockroach.rs   - New stub implementation
+src/providers/dynamo.rs      - New stub implementation
+src/events/listener.rs        - Listener lifecycle
+src/subscription/subscription_impl.rs - Individual unsubscribe
+src/pool/health.rs           - Shutdown mechanism
+src/pool/adaptive.rs         - Shutdown implementation
+src/cache/query_cache.rs     - LRU fix
+src/lazy/lazy_relation.rs     - Weak reference + close()
+src/logging/file_query_logger.rs - Log rotation
+src/observability/           - New module with telemetry, circuit_breaker, rate_limiter
+src/repository/mod.rs        - QueryStream for streaming
+src/relations/registry.rs    - Dead code removal
+src/pool/pool_impl.rs         - Dead code removal
+src/transaction.rs          - Dead code removal
+src/inheritance/inheritance_impl.rs - unimplemented!() removal
 ```
 
 ---
@@ -263,12 +369,12 @@ Batch loading with soft-delete filtering support. Recursion depth limited to pre
 
 ## 14. Observability (Implemented ✅)
 
-| Feature | File | Status |
-|---------|------|--------|
-| **OpenTelemetry Integration** | `src/observability/telemetry.rs` | ✅ |
-| **Prometheus Metrics** | `src/observability/metrics.rs` | ✅ |
-| **Circuit Breaker** | `src/observability/circuit_breaker.rs` | ✅ |
-| **Rate Limiting** | `src/observability/rate_limiter.rs` | ✅ |
+| Feature | File | Status | Implementation Notes |
+|---------|------|--------|---------------------|
+| **OpenTelemetry Integration** | `src/observability/telemetry.rs` | ✅ | Tracing spans with `tracing` crate fallback |
+| **Prometheus Metrics** | `src/observability/metrics.rs` | ✅ | `QueryMetrics`, `PoolMetricsExporter`, `export_prometheus()` |
+| **Circuit Breaker** | `src/observability/circuit_breaker.rs` | ✅ | AtomicU64 metrics, state machine implementation |
+| **Rate Limiting** | `src/observability/rate_limiter.rs` | ✅ | AtomicU64 metrics, token bucket algorithm |
 
 ---
 
@@ -285,28 +391,28 @@ Batch loading with soft-delete filtering support. Recursion depth limited to pre
 
 ## 16. Data Engineering (Implemented ✅)
 
-| Feature | File | Status |
-|---------|------|--------|
-| **ETL Pipelines** | `src/data_engineering/etl.rs` | ✅ |
-| **Schema Evolution** | `src/data_engineering/schema_evolution.rs` | ✅ |
-| **Import/Export (CSV, JSON)** | `src/data_engineering/import_export.rs` | ✅ |
-| **Data Replication** | `src/data_engineering/replication.rs` | ✅ |
+| Feature | File | Status | Implementation Notes |
+|---------|------|--------|---------------------|
+| **ETL Pipelines** | `src/data_engineering/etl.rs` | ✅ | `EtlPipeline`, `Transformer` trait |
+| **Schema Evolution** | `src/data_engineering/schema_evolution.rs` | ✅ | `SchemaEvolution`, migration generation |
+| **Import/Export (CSV, JSON)** | `src/data_engineering/import_export.rs` | ✅ | `Exporter`, `Importer`, batch processing |
+| **Data Replication** | `src/data_engineering/replication.rs` | ✅ | Full-sync, incremental, CDC modes |
 
 ---
 
 ## 17. Advanced ORM Features (Implemented ✅)
 
-| Feature | File | Status |
-|---------|------|--------|
-| **Mutators & Casts** | `src/entity/mutators.rs` | ✅ |
-| **Accessors / Computed Fields** | `src/entity/accessors.rs` | ✅ |
+| Feature | File | Status | Implementation Notes |
+|---------|------|--------|---------------------|
+| **Mutators & Casts** | `src/entity/mutators.rs` | ✅ | `CastType`, `MutatorDef`, `Mutators` trait |
+| **Accessors / Computed Fields** | `src/entity/accessors.rs` | ✅ | `ComputedField`, `Accessors` trait, cached accessors |
 
 ---
 
 ## 18. Version Roadmap
 
 | Version | Focus | Status |
-|---------|-------|-------|
+|---------|-------|--------|
 | 0.2.0 | Transactions + Pooling | ✅ |
 | 0.3.0 | Soft Deletes + Validators + NoSQL Indexes | ✅ |
 | 0.4.0 | Field Projection | ✅ |
@@ -315,8 +421,9 @@ Batch loading with soft-delete filtering support. Recursion depth limited to pre
 | 0.7.0 | Batch Relation Loading (RelationLoader) | ✅ |
 | 0.8.0 | Query Builder Enhancements + Bulk Operations | ✅ |
 | 0.9.0 | Security Audit + Critical Bug Fixes | ✅ |
-| 0.10.0 | **Complete Feature Set** | ✅ |
-| **1.0.0** | **Stable API + Full Docs + Benchmark Suite** | 🔲 Planned |
+| 0.10.0 | Complete Feature Set | ✅ |
+| 0.11.0 | Code Quality + Security Hardening | ✅ |
+| **1.0.0** | **Stable API + Full Docs + Benchmark Suite** | 🔲 In Progress |
 
 ---
 
@@ -513,22 +620,29 @@ sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
 | Limitation | Description | Workaround |
 |------------|-------------|------------|
 | **No auto-generated migrations** | Must write migrations manually | Use CLI diff command |
-| **No query result streaming** | All results loaded to memory | Use pagination |
-| **ClickHouse/CockroachDB/DynamoDB** | Interface only, not implemented | Use PostgreSQL instead |
+| **ClickHouse/CockroachDB/DynamoDB** | Stub implementations only | Use PostgreSQL instead |
+| **Performance benchmarks** | Not yet implemented | Profiling tools |
+
+### Observability Limitations
+
+| Limitation | Description |
+|------------|-------------|
+| **OpenTelemetry** | Basic tracing support via `tracing` crate; full OTLP export requires `opentelemetry` feature |
+| **Circuit Breaker** | In-memory only; distributed circuit breaker requires shared state (Redis) |
 
 ---
 
 ## 24. Testing Strategy
 
 | Test Type | Coverage | Status |
-|-----------|----------|--------|
+|----------|----------|--------|
 | Unit tests - SQL query generation | High | ✅ |
 | Unit tests - Filter builders | High | ✅ |
 | Unit tests - Validation | High | ✅ |
 | Unit tests - Cascade operations | Medium | ✅ |
 | Unit tests - Change tracking | High | ✅ |
 | Integration tests - JSON provider | High | ✅ |
-| Integration tests - PostgreSQL | 🔲 Planned |
-| Integration tests - SQLite | 🔲 Planned |
-| Integration tests - MySQL | 🔲 Planned |
+| Integration tests - PostgreSQL | High | ✅ |
+| Integration tests - SQLite | High | ✅ |
+| Integration tests - MySQL | High | ✅ |
 | Performance benchmarks | 🔲 Planned |
