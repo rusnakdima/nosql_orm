@@ -12,10 +12,10 @@ impl ChangeStream {
   }
 
   #[cfg(feature = "mongo")]
-  pub async fn from_mongo_stream<T: serde::de::DeserializeOwned + Unpin + Send + Sync>(
+  pub async fn from_mongo_stream<T: serde::de::DeserializeOwned + serde::Serialize + Unpin + Send + Sync>(
     stream: impl futures::Stream<
-      Item = Result<mongodb::change_stream::ChangeStreamEvent<T>, mongodb::error::Error>,
-    >,
+      Item = Result<mongodb::change_stream::event::ChangeStreamEvent<T>, mongodb::error::Error>,
+    > + Unpin,
   ) -> OrmResult<Self> {
     use futures::StreamExt;
     let mut changes = Vec::new();
@@ -45,14 +45,14 @@ impl ChangeStream {
   }
 
   #[cfg(feature = "mongo")]
-  fn convert_mongo_event<T: serde::de::DeserializeOwned>(
-    event: mongodb::change_stream::ChangeStreamEvent<T>,
+  fn convert_mongo_event<T: serde::de::DeserializeOwned + serde::Serialize>(
+    event: mongodb::change_stream::event::ChangeStreamEvent<T>,
   ) -> OrmResult<Change> {
-    let change_type = match event.operation_type.as_str() {
-      "insert" => ChangeType::Insert,
-      "update" => ChangeType::Update,
-      "replace" => ChangeType::Update,
-      "delete" => ChangeType::Delete,
+    let change_type = match event.operation_type {
+      mongodb::change_stream::event::OperationType::Insert => ChangeType::Insert,
+      mongodb::change_stream::event::OperationType::Update => ChangeType::Update,
+      mongodb::change_stream::event::OperationType::Replace => ChangeType::Update,
+      mongodb::change_stream::event::OperationType::Delete => ChangeType::Delete,
       _ => ChangeType::Update,
     };
 
@@ -63,15 +63,15 @@ impl ChangeStream {
       .and_then(|dk| dk.get("_id").and_then(|id| id.as_str().map(String::from)))
       .unwrap_or_default();
 
-    let before = event.full_document_before_change;
-    let after = event.full_document;
+    let before = event.full_document_before_change.as_ref().map(|d| serde_json::to_value(d).ok()).flatten();
+    let after = event.full_document.as_ref().map(|d| serde_json::to_value(d).ok()).flatten();
 
     let timestamp = event
       .cluster_time
-      .map(|ct| DateTime::from_timestamp(ct.timestamp as i64, 0).unwrap_or_else(Utc::now))
+      .map(|ct| DateTime::from_timestamp(ct.time as i64, 0).unwrap_or_else(Utc::now))
       .unwrap_or_else(Utc::now);
 
-    let user_id = event.txn_number.map(|t| t.to_string());
+    let user_id = None;
 
     Ok(Change {
       id: uuid::Uuid::new_v4().to_string(),

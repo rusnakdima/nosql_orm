@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [features]
 default = ["json"]
 json = []
-mongo = ["dep:mongodb", "dep:futures-util"]
+mongo = ["dep:mongodb", "dep:futures-util", "dep:futures"]
 redis = ["dep:redis"]
 full = ["json", "mongo", "redis"]
 sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
@@ -42,6 +42,7 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 futures-util = { version = "0.3", optional = true }
+futures = { version = "0.3", optional = true }
 mongodb = { version = "2", optional = true }
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"], optional = true }
 regex = "1"

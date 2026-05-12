@@ -64,6 +64,7 @@ pub struct CacheStats {
   pub evictions: u64,
 }
 
+#[derive(Debug)]
 struct CacheState {
   entries: std::collections::HashMap<String, CachedEntry>,
   access_order: BTreeMap<u64, String>,
@@ -123,31 +124,39 @@ impl QueryCache {
   pub async fn get<T: DeserializeOwned>(&self, key: &str) -> OrmResult<Option<T>> {
     let mut state = self.state.write().await;
 
-    if let Some(entry) = state.entries.get_mut(key) {
-      if let Some(expires) = entry.expires_at {
-        if Utc::now() > expires {
-          state.entries.remove(key);
-          state.access_order.retain(|_, k| k != key);
+    let (entry_data, old_order) = {
+      let entry = match state.entries.get_mut(key) {
+        Some(e) => e,
+        None => {
           state.stats.misses += 1;
           return Ok(None);
         }
+      };
+
+      let should_remove = if let Some(expires) = entry.expires_at {
+        Utc::now() > expires
+      } else {
+        false
+      };
+
+      if should_remove {
+        state.entries.remove(key);
+        state.access_order.retain(|_, k| k != key);
+        state.stats.misses += 1;
+        return Ok(None);
       }
 
-      let old_order = entry.access_order;
-      let new_order = state.next_access_order;
-      state.next_access_order += 1;
-      entry.access_order = new_order;
-      state.access_order.remove(&old_order);
-      state.access_order.insert(new_order, key.to_string());
+      (entry.data.clone(), entry.access_order)
+    };
 
-      state.stats.hits += 1;
+    let new_order = state.next_access_order;
+    state.next_access_order += 1;
+    state.access_order.remove(&old_order);
+    state.access_order.insert(new_order, key.to_string());
+    state.stats.hits += 1;
 
-      let result = serde_json::from_value(entry.data.clone())?;
-      return Ok(Some(result));
-    }
-
-    state.stats.misses += 1;
-    Ok(None)
+    let result = serde_json::from_value(entry_data)?;
+    Ok(Some(result))
   }
 
   pub async fn set<T: Serialize>(&self, key: String, data: &T) -> OrmResult<()> {
@@ -160,7 +169,7 @@ impl QueryCache {
       }
     }
 
-    let value = serde_json::to_value(data).map_err(|e| OrmError::Serialization(e.to_string()))?;
+    let value = serde_json::to_value(data).map_err(OrmError::Serialization)?;
     let now = Utc::now();
     let expires_at = self
       .config
@@ -170,14 +179,13 @@ impl QueryCache {
     let new_order = state.next_access_order;
     state.next_access_order += 1;
 
+    let old_order = state.entries.get(&key).map(|e| e.access_order);
+
     if let Some(old_entry) = state.entries.get_mut(&key) {
-      let old_order = old_entry.access_order;
-      state.access_order.remove(&old_order);
       old_entry.data = value;
       old_entry.cached_at = now;
       old_entry.expires_at = expires_at;
       old_entry.access_order = new_order;
-      state.access_order.insert(new_order, key);
     } else {
       state.entries.insert(
         key.clone(),
@@ -188,8 +196,12 @@ impl QueryCache {
           access_order: new_order,
         },
       );
-      state.access_order.insert(new_order, key);
     }
+
+    if let Some(old) = old_order {
+      state.access_order.remove(&old);
+    }
+    state.access_order.insert(new_order, key);
 
     Ok(())
   }

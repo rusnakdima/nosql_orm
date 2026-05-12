@@ -206,7 +206,7 @@ impl MongoChangeCapture {
 #[async_trait::async_trait]
 impl ChangeCapture for MongoChangeCapture {
   async fn capture(&self, change: Change) -> OrmResult<()> {
-    self.collection.insert_one(change).await?;
+    self.collection.insert_one(change, None).await?;
     Ok(())
   }
 
@@ -215,35 +215,33 @@ impl ChangeCapture for MongoChangeCapture {
     collection: &str,
     since: chrono::DateTime<Utc>,
   ) -> OrmResult<Vec<Change>> {
+    use futures::TryStreamExt;
     use mongodb::bson::doc;
+    let sys_time = std::time::SystemTime::from(since);
+    let bson_dt = mongodb::bson::DateTime::from(sys_time);
     let filter = doc! {
       "collection": collection,
-      "timestamp": { "$gte": since.into() }
+      "timestamp": { "$gte": bson_dt }
     };
-    let mut cursor = self.collection.find(filter).await?;
+    let mut cursor = self.collection.find(filter, None).await?;
     let mut changes = Vec::new();
-    while let Some(result) = cursor.next().await {
-      match result {
-        Ok(change) => changes.push(change),
-        Err(e) => tracing::warn!("Error reading change: {:?}", e),
-      }
+    while let Some(result) = cursor.try_next().await? {
+      changes.push(result);
     }
     Ok(changes)
   }
 
   async fn get_entity_history(&self, collection: &str, entity_id: &str) -> OrmResult<Vec<Change>> {
+    use futures::TryStreamExt;
     use mongodb::bson::doc;
     let filter = doc! {
       "collection": collection,
       "entity_id": entity_id
     };
-    let mut cursor = self.collection.find(filter).await?;
+    let mut cursor = self.collection.find(filter, None).await?;
     let mut changes = Vec::new();
-    while let Some(result) = cursor.next().await {
-      match result {
-        Ok(change) => changes.push(change),
-        Err(e) => tracing::warn!("Error reading change: {:?}", e),
-      }
+    while let Some(result) = cursor.try_next().await? {
+      changes.push(result);
     }
     Ok(changes)
   }

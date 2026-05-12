@@ -1,4 +1,4 @@
-use crate::error::{OrmError, OrmResult};
+use crate::error::OrmResult;
 use crate::provider::DatabaseProvider;
 use serde_json::Value;
 use std::collections::HashMap;

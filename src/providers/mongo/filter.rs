@@ -65,17 +65,17 @@ pub fn filter_to_doc(filter: &Filter) -> OrmResult<Document> {
       Ok(doc! { f: { "$regex": format!("^{}", escaped), "$options": "i" } })
     }
     Filter::And(filters) => {
-      let docs: Vec<Bson> = filters
-        .iter()
-        .map(|f| Bson::Document(filter_to_doc(f)?))
-        .collect();
+      let mut docs = Vec::new();
+      for f in filters {
+        docs.push(Bson::Document(filter_to_doc(f)?));
+      }
       Ok(doc! { "$and": docs })
     }
     Filter::Or(filters) => {
-      let docs: Vec<Bson> = filters
-        .iter()
-        .map(|f| Bson::Document(filter_to_doc(f)?))
-        .collect();
+      let mut docs = Vec::new();
+      for f in filters {
+        docs.push(Bson::Document(filter_to_doc(f)?));
+      }
       Ok(doc! { "$or": docs })
     }
     Filter::Not(inner) => Ok(doc! { "$nor": [filter_to_doc(inner)?] }),

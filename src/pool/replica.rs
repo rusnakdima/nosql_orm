@@ -1,4 +1,3 @@
-use crate::error::OrmResult;
 use crate::provider::DatabaseProvider;
 use rand::seq::SliceRandom;
 use rand::thread_rng;

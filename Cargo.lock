@@ -1684,6 +1684,7 @@ dependencies = [
  "chrono",
  "deadpool",
  "deadpool-postgres",
+ "futures",
  "futures-util",
  "mongodb",
  "mysql_async",

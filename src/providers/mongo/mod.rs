@@ -15,7 +15,8 @@ use mongodb::{
 };
 use serde_json::Value;
 use std::collections::HashMap;
-use tokio::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 mod convert;
 mod filter;
@@ -169,7 +170,8 @@ impl DatabaseProvider for MongoProvider {
     let query = filter
       .as_ref()
       .map(|f| Self::filter_to_doc(f))
-      .unwrap_or_default();
+      .transpose()?
+      .unwrap_or_else(Document::new);
     let mut opts = FindOptions::default();
     opts.skip = skip;
     opts.limit = limit.map(|n| n as i64);
@@ -216,7 +218,8 @@ impl DatabaseProvider for MongoProvider {
     let query = filter
       .as_ref()
       .map(|f| Self::filter_to_doc(f))
-      .unwrap_or_default();
+      .transpose()?
+      .unwrap_or_else(Document::new);
     let coll = self.db.collection::<Document>(collection);
     coll.count_documents(query, None).await.map_err(Into::into)
   }
@@ -231,7 +234,8 @@ impl DatabaseProvider for MongoProvider {
     let query = filter
       .as_ref()
       .map(|f| Self::filter_to_doc(f))
-      .unwrap_or_default();
+      .transpose()?
+      .unwrap_or_else(Document::new);
     let update_doc = Self::json_to_bson(updates)?;
     let result = coll
       .update_many(query, doc! { "$set": update_doc }, None)
@@ -244,7 +248,8 @@ impl DatabaseProvider for MongoProvider {
     let query = filter
       .as_ref()
       .map(|f| Self::filter_to_doc(f))
-      .unwrap_or_default();
+      .transpose()?
+      .unwrap_or_else(Document::new);
     let result = coll.delete_many(query, None).await?;
     Ok(result.deleted_count as usize)
   }
@@ -481,11 +486,7 @@ impl AdminCommands for MongoProvider {
 #[async_trait]
 impl TransactionControl for MongoProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let mut guard = self
-      .transaction_manager
-      .lock()
-      .await
-      .map_err(|e| OrmError::Transaction(format!("Lock poisoned: {}", e)))?;
+    let mut guard = self.transaction_manager.lock().await;
     if guard.is_some() {
       return Err(OrmError::Transaction(
         "Transaction already active".to_string(),
@@ -497,11 +498,7 @@ impl TransactionControl for MongoProvider {
   }
 
   async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self
-      .transaction_manager
-      .lock()
-      .await
-      .map_err(|e| OrmError::Transaction(format!("Lock poisoned: {}", e)))?;
+    let mut guard = self.transaction_manager.lock().await;
     match guard.as_ref() {
       Some(active_id) if active_id == &id => {
         *guard = None;
@@ -513,11 +510,7 @@ impl TransactionControl for MongoProvider {
   }
 
   async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self
-      .transaction_manager
-      .lock()
-      .await
-      .map_err(|e| OrmError::Transaction(format!("Lock poisoned: {}", e)))?;
+    let mut guard = self.transaction_manager.lock().await;
     match guard.as_ref() {
       Some(active_id) if active_id == &id => {
         *guard = None;
@@ -529,6 +522,7 @@ impl TransactionControl for MongoProvider {
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(self.transaction_manager.lock().await?.is_some())
+    let guard = self.transaction_manager.lock().await;
+    Ok(guard.is_some())
   }
 }

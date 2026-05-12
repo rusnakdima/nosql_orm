@@ -1,4 +1,4 @@
-use crate::error::{OrmError, OrmResult};
+use crate::error::OrmResult;
 use crate::query::{Filter, OrderBy, Projection, SortDirection};
 
 use super::builder::SqlQueryBuilder;

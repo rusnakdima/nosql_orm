@@ -5,7 +5,7 @@ use crate::query::Projection;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
 
-use super::{QueryTimeout, Repository};
+use super::Repository;
 
 impl<E, P> Repository<E, P>
 where
