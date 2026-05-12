@@ -1,4 +1,4 @@
-use crate::error::{map_err_connection, OrmError, OrmResult};
+use crate::error::{OrmError, OrmResult};
 use crate::provider::{DatabaseProvider, IndexInfo};
 use crate::providers::json::JsonProvider;
 use async_trait::async_trait;
@@ -71,11 +71,6 @@ impl<T> Pooled<T> {
     }
   }
 
-  #[allow(dead_code)]
-  pub fn inner(&self) -> &T {
-    &self.inner
-  }
-
   pub fn inner_mut(&mut self) -> &mut T {
     &mut self.inner
   }
@@ -106,8 +101,6 @@ impl<T> Drop for Pooled<T> {
 pub(crate) struct PoolInner {
   pub(crate) semaphore: Arc<Semaphore>,
   pub(crate) available: std::sync::atomic::AtomicUsize,
-  #[allow(dead_code)]
-  pub(crate) total: std::sync::atomic::AtomicUsize,
 }
 
 impl PoolInner {
@@ -115,7 +108,6 @@ impl PoolInner {
     Self {
       semaphore: Arc::new(Semaphore::new(max_size)),
       available: std::sync::atomic::AtomicUsize::new(max_size),
-      total: std::sync::atomic::AtomicUsize::new(max_size),
     }
   }
 
@@ -184,31 +176,22 @@ impl JsonPool {
   }
 
   pub async fn acquire(&self, wait_for_available: bool) -> OrmResult<PooledJson> {
-    let _ = self.pool.acquire(wait_for_available).await?;
+    let permit = self.pool.acquire(wait_for_available).await?;
     Ok(PooledJson {
       provider: self.provider.clone(),
-      pool: Some(self.pool.clone()),
+      permit: Arc::new(permit),
     })
-  }
-
-  #[allow(dead_code)]
-  pub fn pool(&self) -> &Arc<PoolInner> {
-    &self.pool
   }
 }
 
 #[derive(Clone)]
 pub struct PooledJson {
   provider: Arc<JsonProvider>,
-  pool: Option<Arc<PoolInner>>,
+  permit: Arc<OwnedSemaphorePermit>,
 }
 
 impl Drop for PooledJson {
-  fn drop(&mut self) {
-    if let Some(pool) = self.pool.take() {
-      pool.release();
-    }
-  }
+  fn drop(&mut self) {}
 }
 
 #[async_trait]
@@ -299,8 +282,11 @@ impl MongoPool {
     _db_name: impl AsRef<str>,
     config: PoolConfig,
   ) -> OrmResult<Self> {
-    let options = map_err_connection(mongodb::options::ClientOptions::parse(uri.as_ref()).await)?;
-    let client = map_err_connection(mongodb::Client::with_options(options))?;
+    let options = mongodb::options::ClientOptions::parse(uri.as_ref())
+      .await
+      .map_err(|e| OrmError::Connection(e.to_string()))?;
+    let client =
+      mongodb::Client::with_options(options).map_err(|e| OrmError::Connection(e.to_string()))?;
     Ok(Self {
       client,
       pool: Arc::new(PoolInner::new(config.max_size)),
@@ -308,10 +294,10 @@ impl MongoPool {
   }
 
   pub async fn acquire(&self, wait_for_available: bool) -> OrmResult<PooledMongo> {
-    let _permit = self.pool.acquire(wait_for_available).await?;
+    let permit = self.pool.acquire(wait_for_available).await?;
     Ok(PooledMongo {
       client: self.client.clone(),
-      pool: Some(self.pool.clone()),
+      permit: Arc::new(permit),
     })
   }
 
@@ -323,16 +309,11 @@ impl MongoPool {
 #[cfg(feature = "mongo")]
 #[derive(Clone)]
 pub struct PooledMongo {
-  #[allow(dead_code)]
   client: mongodb::Client,
-  pool: Option<Arc<PoolInner>>,
+  permit: Arc<OwnedSemaphorePermit>,
 }
 
 #[cfg(feature = "mongo")]
 impl Drop for PooledMongo {
-  fn drop(&mut self) {
-    if let Some(pool) = self.pool.take() {
-      pool.release();
-    }
-  }
+  fn drop(&mut self) {}
 }

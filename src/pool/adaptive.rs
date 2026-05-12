@@ -25,7 +25,6 @@ pub struct AdaptivePool<P: AdaptivePoolProvider> {
   provider: Arc<P>,
   scaler: Arc<AutoScaler>,
   utilization: AtomicU64,
-  #[allow(dead_code)]
   stop_ch: watch::Sender<()>,
 }
 
@@ -71,11 +70,11 @@ impl<P: AdaptivePoolProvider> AdaptivePool<P> {
 
   fn calculate_utilization(&self) -> u64 {
     let available = self.inner.available.load(Ordering::Relaxed);
-    let total = self.inner.total.load(Ordering::Relaxed);
-    if total == 0 {
+    let max_size = self.inner.semaphore.available_permits();
+    if max_size == 0 {
       0
     } else {
-      ((1.0 - (available as f64 / total as f64)) * UTILIZATION_MULTIPLIER as f64) as u64
+      ((1.0 - (available as f64 / max_size as f64)) * UTILIZATION_MULTIPLIER as f64) as u64
     }
   }
 
@@ -85,6 +84,10 @@ impl<P: AdaptivePoolProvider> AdaptivePool<P> {
 
   pub fn utilization(&self) -> f64 {
     self.utilization.load(Ordering::Relaxed) as f64 / UTILIZATION_MULTIPLIER as f64
+  }
+
+  pub fn shutdown(&self) {
+    let _ = self.stop_ch.send(());
   }
 }
 

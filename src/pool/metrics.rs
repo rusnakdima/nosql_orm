@@ -69,6 +69,41 @@ impl PoolMetrics {
   pub fn total_scale_downs(&self) -> u64 {
     self.scale_down_events.load(Ordering::Relaxed)
   }
+
+  pub fn export_prometheus(&self, pool_name: &str) -> String {
+    let acquired = self.acquired_total.load(Ordering::Relaxed);
+    let released = self.released_total.load(Ordering::Relaxed);
+    let wait_ns = self.wait_time_total_ns.load(Ordering::Relaxed);
+    let wait_count = self.wait_count.load(Ordering::Relaxed);
+    let scale_ups = self.scale_up_events.load(Ordering::Relaxed);
+    let scale_downs = self.scale_down_events.load(Ordering::Relaxed);
+    let avg_wait = self.avg_wait_time_ms();
+
+    format!(
+      r#"# HELP nosql_pool_acquired_total Total number of connections acquired
+# TYPE nosql_pool_acquired_total counter
+nosql_pool_acquired_total{{pool="{pool_name}"}} {acquired}
+# HELP nosql_pool_released_total Total number of connections released
+# TYPE nosql_pool_released_total counter
+nosql_pool_released_total{{pool="{pool_name}"}} {released}
+# HELP nosql_pool_wait_time_ns_total Total wait time in nanoseconds
+# TYPE nosql_pool_wait_time_ns_total counter
+nosql_pool_wait_time_ns_total{{pool="{pool_name}"}} {wait_ns}
+# HELP nosql_pool_wait_count_total Total number of waits
+# TYPE nosql_pool_wait_count_total counter
+nosql_pool_wait_count_total{{pool="{pool_name}"}} {wait_count}
+# HELP nosql_pool_scale_up_events_total Total scale up events
+# TYPE nosql_pool_scale_up_events_total counter
+nosql_pool_scale_up_events_total{{pool="{pool_name}"}} {scale_ups}
+# HELP nosql_pool_scale_down_events_total Total scale down events
+# TYPE nosql_pool_scale_down_events_total counter
+nosql_pool_scale_down_events_total{{pool="{pool_name}"}} {scale_downs}
+# HELP nosql_pool_avg_wait_time_ms Average wait time in milliseconds
+# TYPE nosql_pool_avg_wait_time_ms gauge
+nosql_pool_avg_wait_time_ms{{pool="{pool_name}"}} {avg_wait}
+"#
+    )
+  }
 }
 
 impl Default for PoolMetrics {

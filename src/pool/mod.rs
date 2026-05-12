@@ -11,7 +11,7 @@ pub use pool_impl::MongoPool;
 
 pub use adaptive::{AdaptivePool, AdaptivePoolProvider, AdaptivePooled};
 pub use auto_scaling::{AutoScaler, AutoScalerConfig};
-pub use health::{ConnectionHealthMonitor, HealthCheckable, HealthStatus};
+pub use health::{HealthCheckable, HealthStatus};
 pub use lifecycle::{ConnectionHealth, ConnectionLifecycle};
 pub use metrics::PoolMetrics;
 pub use pool_impl::{JsonPool, Pool, PoolConfig, Pooled};
