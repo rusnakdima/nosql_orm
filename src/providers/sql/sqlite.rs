@@ -16,14 +16,13 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct SqliteProvider {
-  conn: Arc<Mutex<rusqlite::Connection>>,
+  conn: Arc<tokio::sync::Mutex<rusqlite::Connection>>,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
-  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
+  transaction_manager: Arc<tokio::sync::Mutex<Option<TransactionId>>>,
 }
 
 impl SqliteProvider {
@@ -51,10 +50,10 @@ impl SqliteProvider {
       .map_err(|e| OrmError::Connection(format!("Failed to set pragma: {}", e)))?;
 
     Ok(Self {
-      conn: Arc::new(Mutex::new(conn)),
+      conn: Arc::new(tokio::sync::Mutex::new(conn)),
       dialect: SqlDialect::SQLite,
       query_builder: SqlQueryBuilder::new(SqlDialect::SQLite),
-      transaction_manager: Arc::new(Mutex::new(None)),
+      transaction_manager: Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
@@ -72,14 +71,10 @@ impl SqliteProvider {
     R: Send + 'static,
   {
     let conn = self.conn.clone();
-    map_err_connection(
-      tokio::task::spawn_blocking(move || {
-        let conn_guard = conn.blocking_lock();
-        f(&conn_guard)
-      })
+    let guard = conn.lock().await;
+    tokio::task::spawn_blocking(move || f(&guard))
       .await
-      .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?,
-    )
+      .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
   }
 }
 
@@ -596,11 +591,8 @@ impl AdminCommands for SqliteProvider {
   }
 
   async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
-    let healthy = self.health_check().await.unwrap_or(false);
-    let server_version = self
-      .get_server_version()
-      .await
-      .unwrap_or_else(|_| "unknown".to_string());
+    let healthy = self.health_check().await?;
+    let server_version = self.get_server_version().await?;
     Ok(ConnectionHealth {
       healthy,
       latency_ms: None,

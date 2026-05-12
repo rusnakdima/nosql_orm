@@ -15,7 +15,7 @@ use mongodb::{
 };
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use tokio::sync::{Arc, Mutex};
 
 mod convert;
 mod filter;
@@ -50,7 +50,7 @@ impl MongoProvider {
 
   pub async fn create_mongo_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
     let keys = build_index_keys(index);
-    let opts = build_index_options(index);
+    let opts = build_index_options(index)?;
     let model = mongodb::IndexModel::builder()
       .keys(keys)
       .options(opts)
@@ -126,7 +126,7 @@ impl MongoProvider {
     bson_to_json(doc)
   }
 
-  fn filter_to_doc(filter: &Filter) -> Document {
+  fn filter_to_doc(filter: &Filter) -> OrmResult<Document> {
     filter_to_doc(filter)
   }
 }
@@ -315,7 +315,7 @@ impl SchemaIntrospection for MongoProvider {
     let mut collections = Vec::new();
     for name in names {
       let coll = self.db.collection::<Document>(&name);
-      let count = coll.count_documents(doc! {}, None).await.unwrap_or(0);
+      let count = coll.count_documents(doc! {}, None).await?;
       collections.push(CollectionMeta {
         name,
         document_count: count,
@@ -387,7 +387,7 @@ impl SchemaIntrospection for MongoProvider {
 
   async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
     let coll = self.db.collection::<Document>(collection);
-    let count = coll.count_documents(doc! {}, None).await.unwrap_or(0);
+    let count = coll.count_documents(doc! {}, None).await?;
     Ok(CollectionStats {
       name: collection.to_string(),
       document_count: count,
@@ -466,11 +466,8 @@ impl AdminCommands for MongoProvider {
   }
 
   async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
-    let healthy = self.health_check().await.unwrap_or(false);
-    let server_version = self
-      .get_server_version()
-      .await
-      .unwrap_or_else(|_| "unknown".to_string());
+    let healthy = self.health_check().await?;
+    let server_version = self.get_server_version().await?;
     Ok(ConnectionHealth {
       healthy,
       latency_ms: None,
@@ -484,7 +481,11 @@ impl AdminCommands for MongoProvider {
 #[async_trait]
 impl TransactionControl for MongoProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let mut guard = self.transaction_manager.lock().unwrap();
+    let mut guard = self
+      .transaction_manager
+      .lock()
+      .await
+      .map_err(|e| OrmError::Transaction(format!("Lock poisoned: {}", e)))?;
     if guard.is_some() {
       return Err(OrmError::Transaction(
         "Transaction already active".to_string(),
@@ -496,7 +497,11 @@ impl TransactionControl for MongoProvider {
   }
 
   async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().unwrap();
+    let mut guard = self
+      .transaction_manager
+      .lock()
+      .await
+      .map_err(|e| OrmError::Transaction(format!("Lock poisoned: {}", e)))?;
     match guard.as_ref() {
       Some(active_id) if active_id == &id => {
         *guard = None;
@@ -508,7 +513,11 @@ impl TransactionControl for MongoProvider {
   }
 
   async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().unwrap();
+    let mut guard = self
+      .transaction_manager
+      .lock()
+      .await
+      .map_err(|e| OrmError::Transaction(format!("Lock poisoned: {}", e)))?;
     match guard.as_ref() {
       Some(active_id) if active_id == &id => {
         *guard = None;
@@ -520,6 +529,6 @@ impl TransactionControl for MongoProvider {
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(self.transaction_manager.lock().unwrap().is_some())
+    Ok(self.transaction_manager.lock().await?.is_some())
   }
 }

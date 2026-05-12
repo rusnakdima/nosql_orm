@@ -2,6 +2,7 @@
 //!
 //! Provides implementations for PostgreSQL, SQLite, and MySQL.
 
+pub mod common;
 pub mod row;
 pub mod utils;
 

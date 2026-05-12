@@ -31,3 +31,17 @@ pub use sql::SqliteProvider;
 
 #[cfg(feature = "sql-mysql")]
 pub use sql::MySqlProvider;
+
+#[cfg(feature = "clickhouse")]
+pub mod clickhouse;
+#[cfg(feature = "cockroach")]
+pub mod cockroach;
+#[cfg(feature = "dynamodb")]
+pub mod dynamo;
+
+#[cfg(feature = "clickhouse")]
+pub use clickhouse::ClickHouseProvider;
+#[cfg(feature = "cockroach")]
+pub use cockroach::CockroachProvider;
+#[cfg(feature = "dynamodb")]
+pub use dynamo::DynamoProvider;

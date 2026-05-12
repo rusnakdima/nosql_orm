@@ -15,7 +15,8 @@ use async_trait::async_trait;
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// PostgreSQL-backed provider.
 #[derive(Clone)]
@@ -23,7 +24,7 @@ pub struct PostgresProvider {
   pool: Pool,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
-  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
+  transaction_manager: Arc<tokio::sync::Mutex<Option<TransactionId>>>,
 }
 
 impl PostgresProvider {
@@ -47,7 +48,7 @@ impl PostgresProvider {
       pool,
       dialect: SqlDialect::PostgreSQL,
       query_builder: SqlQueryBuilder::new(SqlDialect::PostgreSQL),
-      transaction_manager: Arc::new(Mutex::new(None)),
+      transaction_manager: Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
@@ -133,7 +134,7 @@ impl DatabaseProvider for PostgresProvider {
     let _param_idx = 0;
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
     }
 
     if let Some(sort) = sort_by {
@@ -212,7 +213,7 @@ impl DatabaseProvider for PostgresProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
     }
 
     let client = map_err_connection(self.pool.get().await)?;
@@ -480,11 +481,36 @@ impl SchemaIntrospection for PostgresProvider {
   }
 }
 
+fn to_postgres_param(value: &Value) -> Box<dyn tokio_postgres::types::ToSql + Sync> {
+  match value {
+    Value::Null => Box::new(String::new()) as Box<dyn tokio_postgres::types::ToSql + Sync>,
+    Value::Bool(b) => Box::new(*b) as Box<dyn tokio_postgres::types::ToSql + Sync>,
+    Value::Number(n) => {
+      if let Some(i) = n.as_i64() {
+        Box::new(i) as Box<dyn tokio_postgres::types::ToSql + Sync>
+      } else if let Some(f) = n.as_f64() {
+        Box::new(f) as Box<dyn tokio_postgres::types::ToSql + Sync>
+      } else {
+        Box::new(n.to_string()) as Box<dyn tokio_postgres::types::ToSql + Sync>
+      }
+    }
+    Value::String(s) => Box::new(s.clone()) as Box<dyn tokio_postgres::types::ToSql + Sync>,
+    Value::Array(arr) => Box::new(serde_json::to_string(arr).unwrap_or_default())
+      as Box<dyn tokio_postgres::types::ToSql + Sync>,
+    Value::Object(obj) => Box::new(serde_json::to_string(obj).unwrap_or_default())
+      as Box<dyn tokio_postgres::types::ToSql + Sync>,
+  }
+}
+
 #[async_trait]
 impl AdminCommands for PostgresProvider {
-  async fn execute_raw(&self, query: &str, _params: Vec<Value>) -> OrmResult<RawResult> {
+  async fn execute_raw(&self, query: &str, params: Vec<Value>) -> OrmResult<RawResult> {
     let client = map_err_connection(self.pool.get().await)?;
-    let rows = map_err_query(client.query(query, &[]).await)?;
+
+    let params_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+      params.iter().map(|v| Self::to_postgres_param(v)).collect();
+
+    let rows = map_err_query(client.query(query, &params_refs).await)?;
 
     if rows.is_empty() {
       return Ok(RawResult {
@@ -569,11 +595,8 @@ impl AdminCommands for PostgresProvider {
   }
 
   async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
-    let healthy = self.health_check().await.unwrap_or(false);
-    let server_version = self
-      .get_server_version()
-      .await
-      .unwrap_or_else(|_| "unknown".to_string());
+    let healthy = self.health_check().await?;
+    let server_version = self.get_server_version().await?;
     Ok(ConnectionHealth {
       healthy,
       latency_ms: None,
@@ -588,7 +611,7 @@ impl AdminCommands for PostgresProvider {
 impl TransactionControl for PostgresProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
     let id = {
-      let mut guard = self.transaction_manager.lock().unwrap();
+      let mut guard = self.transaction_manager.lock().await;
       if guard.is_some() {
         return Err(OrmError::Transaction(
           "Transaction already active".to_string(),
@@ -606,7 +629,7 @@ impl TransactionControl for PostgresProvider {
 
   async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
     {
-      let mut guard = self.transaction_manager.lock().unwrap();
+      let mut guard = self.transaction_manager.lock().await;
       match guard.as_ref() {
         Some(active_id) if active_id == &id => {
           *guard = None;
@@ -623,7 +646,7 @@ impl TransactionControl for PostgresProvider {
 
   async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
     {
-      let mut guard = self.transaction_manager.lock().unwrap();
+      let mut guard = self.transaction_manager.lock().await;
       match guard.as_ref() {
         Some(active_id) if active_id == &id => {
           *guard = None;
@@ -639,6 +662,6 @@ impl TransactionControl for PostgresProvider {
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(self.transaction_manager.lock().unwrap().is_some())
+    Ok(self.transaction_manager.lock().await.is_some())
   }
 }

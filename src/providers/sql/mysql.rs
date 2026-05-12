@@ -16,14 +16,15 @@ use mysql_async::prelude::*;
 use mysql_async::{Opts, Pool, Row};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct MySqlProvider {
   pool: Pool,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
-  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
+  transaction_manager: Arc<tokio::sync::Mutex<Option<TransactionId>>>,
 }
 
 impl MySqlProvider {
@@ -39,7 +40,7 @@ impl MySqlProvider {
       pool,
       dialect: SqlDialect::MySQL,
       query_builder: SqlQueryBuilder::new(SqlDialect::MySQL),
-      transaction_manager: Arc::new(Mutex::new(None)),
+      transaction_manager: Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
@@ -136,7 +137,7 @@ impl DatabaseProvider for MySqlProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
     }
 
     if let Some(sort) = sort_by {
@@ -230,7 +231,7 @@ impl DatabaseProvider for MySqlProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
     }
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
@@ -451,17 +452,27 @@ impl SchemaIntrospection for MySqlProvider {
 
 #[async_trait]
 impl AdminCommands for MySqlProvider {
-  async fn execute_raw(&self, query: &str, _params: Vec<JsonValue>) -> OrmResult<RawResult> {
+  async fn execute_raw(&self, query: &str, params: Vec<JsonValue>) -> OrmResult<RawResult> {
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
     let is_select = query.trim().to_uppercase().starts_with("SELECT");
 
+    let params_tuple = Self::convert_params(params);
+
     if is_select {
-      let rows: Vec<Row> = map_err_query(
-        map_err_query(conn.exec_iter(query, ()).await)?
-          .collect()
-          .await,
-      )?;
+      let rows: Vec<Row> = if params_tuple.is_empty() {
+        map_err_query(
+          map_err_query(conn.exec_iter(query, ()).await)?
+            .collect()
+            .await,
+        )?
+      } else {
+        map_err_query(
+          map_err_query(conn.exec_iter(query, &params_tuple).await)?
+            .collect()
+            .await,
+        )?
+      };
 
       if rows.is_empty() {
         return Ok(RawResult {
@@ -501,7 +512,11 @@ impl AdminCommands for MySqlProvider {
         last_insert_id: None,
       })
     } else {
-      map_err_query(conn.exec_drop(query, ()).await)?;
+      if params_tuple.is_empty() {
+        map_err_query(conn.exec_drop(query, ()).await)?;
+      } else {
+        map_err_query(conn.exec_drop(query, &params_tuple).await)?;
+      }
       Ok(RawResult {
         columns: vec![],
         rows: vec![],
@@ -509,6 +524,32 @@ impl AdminCommands for MySqlProvider {
         last_insert_id: None,
       })
     }
+  }
+
+  fn convert_params(params: Vec<JsonValue>) -> Vec<mysql_async::Value> {
+    params
+      .into_iter()
+      .map(|v| match v {
+        JsonValue::Null => mysql_async::Value::NULL,
+        JsonValue::Bool(b) => mysql_async::Value::Int(if b { 1 } else { 0 }),
+        JsonValue::Number(n) => {
+          if let Some(i) = n.as_i64() {
+            mysql_async::Value::Int(i)
+          } else if let Some(f) = n.as_f64() {
+            mysql_async::Value::Float(f)
+          } else {
+            mysql_async::Value::NULL
+          }
+        }
+        JsonValue::String(s) => mysql_async::Value::Bytes(s.into_bytes()),
+        JsonValue::Array(arr) => {
+          mysql_async::Value::Bytes(serde_json::to_string(&arr).unwrap_or_default().into_bytes())
+        }
+        JsonValue::Object(obj) => {
+          mysql_async::Value::Bytes(serde_json::to_string(&obj).unwrap_or_default().into_bytes())
+        }
+      })
+      .collect()
   }
 
   async fn create_collection(
@@ -555,11 +596,8 @@ impl AdminCommands for MySqlProvider {
   }
 
   async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
-    let healthy = self.health_check().await.unwrap_or(false);
-    let server_version = self
-      .get_server_version()
-      .await
-      .unwrap_or_else(|_| "unknown".to_string());
+    let healthy = self.health_check().await?;
+    let server_version = self.get_server_version().await?;
     Ok(ConnectionHealth {
       healthy,
       latency_ms: None,
@@ -574,7 +612,7 @@ impl AdminCommands for MySqlProvider {
 impl TransactionControl for MySqlProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
     let id = {
-      let mut guard = self.transaction_manager.lock().unwrap();
+      let mut guard = self.transaction_manager.lock().await;
       if guard.is_some() {
         return Err(OrmError::Transaction(
           "Transaction already active".to_string(),
@@ -592,7 +630,7 @@ impl TransactionControl for MySqlProvider {
 
   async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
     {
-      let mut guard = self.transaction_manager.lock().unwrap();
+      let mut guard = self.transaction_manager.lock().await;
       match guard.as_ref() {
         Some(active_id) if active_id == &id => {
           *guard = None;
@@ -609,7 +647,7 @@ impl TransactionControl for MySqlProvider {
 
   async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
     {
-      let mut guard = self.transaction_manager.lock().unwrap();
+      let mut guard = self.transaction_manager.lock().await;
       match guard.as_ref() {
         Some(active_id) if active_id == &id => {
           *guard = None;
@@ -625,6 +663,6 @@ impl TransactionControl for MySqlProvider {
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(self.transaction_manager.lock().unwrap().is_some())
+    Ok(self.transaction_manager.lock().await.is_some())
   }
 }

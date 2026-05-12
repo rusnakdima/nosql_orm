@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::error::{OrmError, OrmResult};
@@ -17,6 +17,70 @@ use crate::utils::{compare_values, generate_id, get_document_id_string};
 
 type Store = Arc<RwLock<HashMap<String, Vec<Value>>>>;
 
+#[derive(Clone)]
+pub struct CacheConfig {
+  pub max_entries_per_collection: usize,
+  pub ttl_seconds: Option<u64>,
+}
+
+impl Default for CacheConfig {
+  fn default() -> Self {
+    Self {
+      max_entries_per_collection: 10000,
+      ttl_seconds: Some(3600),
+    }
+  }
+}
+
+#[derive(Clone)]
+pub struct JsonProviderConfig {
+  pub base_dir: PathBuf,
+  pub cache_config: CacheConfig,
+}
+
+impl JsonProviderConfig {
+  pub fn new(base_dir: impl AsRef<Path>) -> Self {
+    Self {
+      base_dir: base_dir.as_ref().to_path_buf(),
+      cache_config: CacheConfig::default(),
+    }
+  }
+
+  pub fn with_cache_config(mut self, config: CacheConfig) -> Self {
+    self.cache_config = config;
+    self
+  }
+}
+
+fn validate_collection_name(name: &str) -> OrmResult<()> {
+  if name.is_empty() {
+    return Err(OrmError::InvalidInput(
+      "Collection name cannot be empty".to_string(),
+    ));
+  }
+  if name.len() > 255 {
+    return Err(OrmError::InvalidInput(
+      "Collection name exceeds maximum length of 255".to_string(),
+    ));
+  }
+  if name.contains("..") || name.contains('/') || name.contains('\\') {
+    return Err(OrmError::InvalidInput(
+      "Collection name contains invalid characters (path traversal)".to_string(),
+    ));
+  }
+  if name.starts_with('.') {
+    return Err(OrmError::InvalidInput(
+      "Collection name cannot start with a dot".to_string(),
+    ));
+  }
+  Ok(())
+}
+
+fn make_path(base_dir: &Path, collection: &str) -> OrmResult<PathBuf> {
+  validate_collection_name(collection)?;
+  Ok(base_dir.join(format!("{}.json", collection)))
+}
+
 /// JSON file-backed provider.
 ///
 /// Each collection is stored as a JSON array in `<base_dir>/<collection>.json`.
@@ -26,29 +90,54 @@ type Store = Arc<RwLock<HashMap<String, Vec<Value>>>>;
 pub struct JsonProvider {
   base_dir: PathBuf,
   cache: Store,
-  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
+  cache_config: CacheConfig,
+  access_order: Arc<RwLock<HashMap<String, VecDeque<String>>>>,
+  transaction_manager: Arc<tokio::sync::Mutex<Option<TransactionId>>>,
 }
 
 impl JsonProvider {
-  /// Create (or open) a JSON database at `base_dir`.
   pub async fn new(base_dir: impl AsRef<Path>) -> OrmResult<Self> {
-    let base_dir = base_dir.as_ref().to_path_buf();
-    tokio::fs::create_dir_all(&base_dir).await?;
+    Self::with_config(JsonProviderConfig::new(base_dir)).await
+  }
+
+  pub async fn with_config(config: JsonProviderConfig) -> OrmResult<Self> {
+    tokio::fs::create_dir_all(&config.base_dir).await?;
 
     Ok(Self {
-      base_dir,
+      base_dir: config.base_dir,
       cache: Arc::new(RwLock::new(HashMap::new())),
-      transaction_manager: Arc::new(Mutex::new(None)),
+      cache_config: config.cache_config,
+      access_order: Arc::new(RwLock::new(HashMap::new())),
+      transaction_manager: Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
-  // ── Private helpers ────────────────────────────────────────────────────
+  async fn evict_if_needed(&self, collection: &str) {
+    let mut cache = self.cache.write().await;
+    let mut access = self.access_order.write().await;
+
+    if let Some(records) = cache.get(collection) {
+      if records.len() >= self.cache_config.max_entries_per_collection {
+        if let Some(ids) = access.get_mut(collection) {
+          if let Some(oldest_id) = ids.pop_front() {
+            cache
+              .get_mut(collection)
+              .map(|r| r.retain(|doc| Self::id_of(doc) != Some(&oldest_id)));
+          }
+        }
+      }
+    }
+  }
 
   pub(crate) fn collection_path(&self, collection: &str) -> PathBuf {
     self.base_dir.join(format!("{}.json", collection))
   }
 
-  /// Load a collection from disk into the cache (if not already cached).
+  async fn validated_collection_path(&self, collection: &str) -> OrmResult<PathBuf> {
+    validate_collection_name(collection)?;
+    Ok(self.collection_path(collection))
+  }
+
   pub(crate) async fn ensure_loaded(&self, collection: &str) -> OrmResult<()> {
     {
       let r = self.cache.read().await;
@@ -57,7 +146,7 @@ impl JsonProvider {
       }
     }
 
-    let path = self.collection_path(collection);
+    let path = self.validated_collection_path(collection).await?;
     let records: Vec<Value> = if path.exists() {
       let raw = tokio::fs::read_to_string(&path).await?;
       serde_json::from_str(&raw)?
@@ -66,15 +155,28 @@ impl JsonProvider {
     };
 
     let mut w = self.cache.write().await;
+    let mut access = self.access_order.write().await;
     w.entry(collection.to_string()).or_insert(records);
+    access
+      .entry(collection.to_string())
+      .or_insert(VecDeque::new());
     Ok(())
   }
 
-  /// Persist the in-memory collection to its JSON file.
+  async fn track_access(&self, collection: &str, id: &str) {
+    let mut access = self.access_order.write().await;
+    if let Some(ids) = access.get_mut(collection) {
+      if let Some(pos) = ids.iter().position(|i| i == id) {
+        ids.remove(pos);
+      }
+      ids.push_back(id.to_string());
+    }
+  }
+
   pub(crate) async fn flush(&self, collection: &str) -> OrmResult<()> {
     let r = self.cache.read().await;
     if let Some(records) = r.get(collection) {
-      let path = self.collection_path(collection);
+      let path = self.validated_collection_path(collection).await?;
       let json_str = serde_json::to_string_pretty(records)?;
       tokio::fs::write(&path, json_str).await?;
     }
@@ -84,12 +186,21 @@ impl JsonProvider {
   fn id_of(doc: &Value) -> Option<&str> {
     crate::utils::get_document_id(doc)
   }
+
+  pub async fn clear_cache(&self) -> OrmResult<()> {
+    let mut cache = self.cache.write().await;
+    let mut access = self.access_order.write().await;
+    cache.clear();
+    access.clear();
+    Ok(())
+  }
 }
 
 #[async_trait]
 impl DatabaseProvider for JsonProvider {
   async fn insert(&self, collection: &str, mut doc: Value) -> OrmResult<Value> {
     self.ensure_loaded(collection).await?;
+    self.evict_if_needed(collection).await;
 
     if doc
       .get("id")
@@ -109,6 +220,7 @@ impl DatabaseProvider for JsonProvider {
     records.push(doc.clone());
     drop(w);
 
+    self.track_access(collection, &id).await;
     self.flush(collection).await?;
     Ok(doc)
   }
@@ -145,7 +257,6 @@ impl DatabaseProvider for JsonProvider {
       .cloned()
       .collect();
 
-    // Sort
     if let Some(field) = sort_by {
       results.sort_by(|a, b| {
         let av = a.get(field);
@@ -159,7 +270,6 @@ impl DatabaseProvider for JsonProvider {
       });
     }
 
-    // Pagination
     let skip = skip.unwrap_or(0) as usize;
     let results: Vec<Value> = results.into_iter().skip(skip).collect();
     let results = match limit {
@@ -295,22 +405,14 @@ impl DatabaseProvider for JsonProvider {
     Ok(deleted)
   }
 
-  // ── Index Management (No-op for JSON provider) ──────────────────────────────────
-
-  /// JSON provider does not support indexes natively.
-  /// This is a no-op that logs a warning.
   async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
     Ok(())
   }
 
-  /// JSON provider does not support indexes natively.
-  /// This is a no-op that logs a warning.
   async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
     Ok(())
   }
 
-  /// JSON provider does not support indexes natively.
-  /// Returns empty list.
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
     Ok(vec![])
   }
@@ -459,7 +561,7 @@ impl AdminCommands for JsonProvider {
   }
 
   async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
-    let path = self.collection_path(collection);
+    let path = self.validated_collection_path(collection).await?;
     let mut cache = self.cache.write().await;
     cache.remove(collection);
     drop(cache);
@@ -481,8 +583,8 @@ impl AdminCommands for JsonProvider {
     }
     drop(cache);
 
-    let from_path = self.collection_path(from);
-    let to_path = self.collection_path(to);
+    let from_path = self.validated_collection_path(from).await?;
+    let to_path = self.validated_collection_path(to).await?;
 
     if from_path.exists() {
       tokio::fs::rename(&from_path, &to_path).await?;
@@ -508,7 +610,7 @@ impl AdminCommands for JsonProvider {
 #[async_trait]
 impl TransactionControl for JsonProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let mut guard = self.transaction_manager.lock().unwrap();
+    let mut guard = self.transaction_manager.lock().await;
     if guard.is_some() {
       return Err(OrmError::Transaction(
         "Transaction already active".to_string(),
@@ -520,7 +622,7 @@ impl TransactionControl for JsonProvider {
   }
 
   async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().unwrap();
+    let mut guard = self.transaction_manager.lock().await;
     match guard.as_ref() {
       Some(active_id) if active_id == &id => {
         *guard = None;
@@ -532,7 +634,7 @@ impl TransactionControl for JsonProvider {
   }
 
   async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().unwrap();
+    let mut guard = self.transaction_manager.lock().await;
     match guard.as_ref() {
       Some(active_id) if active_id == &id => {
         *guard = None;
@@ -544,6 +646,7 @@ impl TransactionControl for JsonProvider {
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(self.transaction_manager.lock().unwrap().is_some())
+    let guard = self.transaction_manager.lock().await;
+    Ok(guard.is_some())
   }
 }

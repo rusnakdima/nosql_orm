@@ -10,13 +10,14 @@ use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct RedisProvider {
   conn: ConnectionManager,
   prefix: String,
-  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
+  transaction_manager: Arc<tokio::sync::Mutex<Option<TransactionId>>>,
 }
 
 impl RedisProvider {
@@ -26,7 +27,7 @@ impl RedisProvider {
     Ok(Self {
       conn,
       prefix: "nosql_orm:".to_string(),
-      transaction_manager: Arc::new(Mutex::new(None)),
+      transaction_manager: Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
@@ -268,9 +269,10 @@ impl RedisProvider {
     Ok(())
   }
 
+  #[doc(hidden)]
   pub async fn subscribe(&self, _channel: &str) -> OrmResult<()> {
-    Err(OrmError::Connection(
-      "subscribe not yet implemented".to_string(),
+    Err(OrmError::NotSupported(
+      "subscribe not yet implemented for Redis provider".to_string(),
     ))
   }
 
@@ -422,7 +424,7 @@ impl AdminCommands for RedisProvider {
 #[async_trait]
 impl TransactionControl for RedisProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let mut guard = self.transaction_manager.lock().unwrap();
+    let mut guard = self.transaction_manager.lock().await;
     if guard.is_some() {
       return Err(OrmError::Transaction(
         "Transaction already active".to_string(),
@@ -434,7 +436,7 @@ impl TransactionControl for RedisProvider {
   }
 
   async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().unwrap();
+    let mut guard = self.transaction_manager.lock().await;
     match guard.as_ref() {
       Some(active_id) if active_id == &id => {
         *guard = None;
@@ -446,7 +448,7 @@ impl TransactionControl for RedisProvider {
   }
 
   async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().unwrap();
+    let mut guard = self.transaction_manager.lock().await;
     match guard.as_ref() {
       Some(active_id) if active_id == &id => {
         *guard = None;
@@ -458,6 +460,6 @@ impl TransactionControl for RedisProvider {
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(self.transaction_manager.lock().unwrap().is_some())
+    Ok(self.transaction_manager.lock().await.is_some())
   }
 }
