@@ -106,15 +106,22 @@ pub trait DatabaseProvider: Send + Sync + Clone + 'static {
   }
 
   async fn aggregate(&self, _collection: &str, _pipeline: Vec<Value>) -> OrmResult<Vec<Value>> {
-    Err(OrmError::Provider("Not implemented".to_string()))
+    Err(OrmError::NotSupported(
+      "aggregate not implemented".to_string(),
+    ))
   }
 
   async fn health_check(&self) -> OrmResult<bool> {
-    Err(OrmError::Provider("Not implemented".to_string()))
+    Ok(true)
   }
 
-  async fn insert_many(&self, _collection: &str, _docs: Vec<Value>) -> OrmResult<usize> {
-    Err(OrmError::Provider("Not implemented".to_string()))
+  async fn insert_many(&self, collection: &str, docs: Vec<Value>) -> OrmResult<usize> {
+    let mut count = 0;
+    for doc in docs {
+      self.insert(collection, doc).await?;
+      count += 1;
+    }
+    Ok(count)
   }
 }
 

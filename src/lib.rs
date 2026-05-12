@@ -51,6 +51,7 @@ pub mod lazy;
 pub mod macros;
 pub mod migrations;
 pub mod nosql_index;
+pub mod observability;
 pub mod pool;
 pub mod provider;
 pub mod query;
@@ -69,6 +70,10 @@ pub mod validators;
 pub use entity::Entity;
 pub use entity::EntityMeta;
 pub use entity::FrontendProjection;
+pub use entity::{
+  Accessors, CastType, ComputedField, EntityAccessors, EntityMutators, MutatorDef, Mutators,
+  MutatorsExecutor,
+};
 pub use timestamps::Timestamps;
 
 pub mod logging;
@@ -76,6 +81,12 @@ pub mod providers;
 
 #[cfg(feature = "query_cache")]
 pub mod cache;
+
+pub use observability::{
+  export_prometheus, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
+  MetricsExporter, PoolMetricsExporter, QueryMetrics, QueryMetricsExporter, RateLimiter,
+  RateLimiterConfig, RateLimiterMetrics, Telemetry, TelemetryConfig,
+};
 
 pub use nosql_orm_derive::Model;
 pub use nosql_orm_derive::OrmEntity;

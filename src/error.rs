@@ -58,6 +58,18 @@ pub enum OrmError {
 
   #[error("Query timeout: {0}")]
   Timeout(String),
+
+  #[error("Connection pool exhausted")]
+  PoolExhausted,
+
+  #[error("Query cancelled")]
+  QueryCancelled,
+
+  #[error("Constraint violation: {0}")]
+  ConstraintViolation(String),
+
+  #[error("Deadlock detected")]
+  Deadlock,
 }
 
 impl OrmError {
