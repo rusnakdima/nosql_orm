@@ -280,8 +280,52 @@ impl DatabaseProvider for JsonProvider {
     Ok(results)
   }
 
-  async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
+  async fn update(&self, collection: &str, id: &str, mut doc: Value) -> OrmResult<Value> {
     self.ensure_loaded(collection).await?;
+
+    let inc_result: Option<Value> = {
+      let r = self.cache.read().await;
+      if let Some(records) = r.get(collection) {
+        if let Some(existing) = records.iter().find(|rec| Self::id_of(rec) == Some(id)) {
+          if let (Value::Object(doc_obj), Value::Object(existing_obj)) = (&doc, existing) {
+            if let Some(inc_ops) = doc_obj.get("$inc").and_then(|v| v.as_object()) {
+              let mut new_doc = doc_obj.clone();
+              for (field, delta) in inc_ops {
+                if let (Some(current), Some(delta_num)) = (existing_obj.get(field), delta.as_i64())
+                {
+                  let new_val = if let Some(c) = current.as_i64() {
+                    serde_json::json!(c + delta_num)
+                  } else if let Some(c) = current.as_f64() {
+                    serde_json::json!(c + delta_num as f64)
+                  } else {
+                    continue;
+                  };
+                  new_doc.insert(field.clone(), new_val);
+                }
+              }
+              Some(Value::Object(new_doc))
+            } else {
+              None
+            }
+          } else {
+            None
+          }
+        } else {
+          None
+        }
+      } else {
+        None
+      }
+    };
+
+    if let Value::Object(ref mut obj) = doc {
+      obj.remove("$inc");
+    }
+
+    if let Some(new_doc) = inc_result {
+      doc = new_doc;
+    }
+
     let mut w = self.cache.write().await;
     let records = w
       .get_mut(collection)
@@ -311,8 +355,21 @@ impl DatabaseProvider for JsonProvider {
       .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
 
     if let (Value::Object(base), Value::Object(updates)) = (&mut records[pos], patch) {
+      if let Some(inc_ops) = updates.get("$inc").and_then(|v| v.as_object()) {
+        for (field, delta) in inc_ops {
+          if let (Some(current), Some(delta_num)) = (base.get(field), delta.as_i64()) {
+            if let Some(new_val) = current.as_i64().map(|c| c + delta_num) {
+              base.insert(field.clone(), serde_json::json!(new_val));
+            } else if let Some(new_val) = current.as_f64().map(|c| c + delta_num as f64) {
+              base.insert(field.clone(), serde_json::json!(new_val));
+            }
+          }
+        }
+      }
       for (k, v) in updates {
-        base.insert(k, v);
+        if k != "$inc" {
+          base.insert(k, v);
+        }
       }
     }
     let updated = records[pos].clone();
