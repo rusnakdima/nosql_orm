@@ -71,10 +71,13 @@ impl SqliteProvider {
     R: Send + 'static,
   {
     let conn = self.conn.clone();
-    let guard = conn.lock().await;
-    tokio::task::spawn_blocking(move || f(&guard))
-      .await
-      .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?
+    let result = tokio::task::spawn_blocking(move || {
+      let guard = conn.blocking_lock();
+      f(&guard)
+    })
+    .await
+    .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?;
+    result.map_err(|e| OrmError::Connection(format!("SQLite error: {}", e)))
   }
 }
 
@@ -175,7 +178,7 @@ impl DatabaseProvider for SqliteProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
     }
 
     if let Some(sort) = sort_by {
@@ -283,7 +286,7 @@ impl DatabaseProvider for SqliteProvider {
     let id_owned = id.to_string();
     self
       .with_connection(move |conn_guard| {
-        let rows = conn_guard.execute(&sql, [id_owned.as_str()])?;
+        let rows = conn_guard.execute(&sql, [])?;
         Ok(rows > 0)
       })
       .await
@@ -296,7 +299,7 @@ impl DatabaseProvider for SqliteProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
     }
 
     self
@@ -322,7 +325,7 @@ impl DatabaseProvider for SqliteProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
     }
 
     self
@@ -337,7 +340,7 @@ impl DatabaseProvider for SqliteProvider {
     let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
     }
 
     self

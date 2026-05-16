@@ -30,7 +30,6 @@ pub struct MySqlProvider {
 impl MySqlProvider {
   pub async fn connect(uri: impl AsRef<str>) -> OrmResult<Self> {
     let uri_str = uri.as_ref();
-
     let opts = Opts::from_url(uri_str)
       .map_err(|e| OrmError::Connection(format!("Invalid MySQL connection string: {}", e)))?;
 
@@ -48,9 +47,45 @@ impl MySqlProvider {
     Self::connect(&config.connection).await
   }
 
-  pub fn dialect(&self) -> SqlDialect {
-    self.dialect
+  pub async fn health_check(&self) -> OrmResult<bool> {
+    let mut conn = self.pool.get_conn().await.map_err(OrmError::connection)?;
+    conn.query_iter("SELECT 1").await.map_err(OrmError::query)?;
+    Ok(true)
   }
+
+  pub fn query_builder(&self) -> &SqlQueryBuilder {
+    &self.query_builder
+  }
+
+  pub fn dialect(&self) -> SqlDialect {
+    self.dialect.clone()
+  }
+}
+
+fn convert_params(params: Vec<JsonValue>) -> Vec<mysql_async::Value> {
+  params
+    .into_iter()
+    .map(|v| match v {
+      JsonValue::Null => mysql_async::Value::NULL,
+      JsonValue::Bool(b) => mysql_async::Value::Int(if b { 1 } else { 0 }),
+      JsonValue::Number(n) => {
+        if let Some(i) = n.as_i64() {
+          mysql_async::Value::Int(i)
+        } else if let Some(f) = n.as_f64() {
+          mysql_async::Value::Float(f as f32)
+        } else {
+          mysql_async::Value::NULL
+        }
+      }
+      JsonValue::String(s) => mysql_async::Value::Bytes(s.into_bytes()),
+      JsonValue::Array(arr) => {
+        mysql_async::Value::Bytes(serde_json::to_string(&arr).unwrap_or_default().into_bytes())
+      }
+      JsonValue::Object(obj) => {
+        mysql_async::Value::Bytes(serde_json::to_string(&obj).unwrap_or_default().into_bytes())
+      }
+    })
+    .collect()
 }
 
 #[async_trait]
@@ -257,7 +292,7 @@ impl DatabaseProvider for MySqlProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
     }
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
@@ -271,7 +306,7 @@ impl DatabaseProvider for MySqlProvider {
     let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
     }
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
@@ -480,7 +515,7 @@ impl AdminCommands for MySqlProvider {
 
     let is_select = query.trim().to_uppercase().starts_with("SELECT");
 
-    let params_tuple = Self::convert_params(params);
+    let params_tuple = convert_params(params);
 
     if is_select {
       let rows: Vec<Row> = if params_tuple.is_empty() {
@@ -514,7 +549,7 @@ impl AdminCommands for MySqlProvider {
 
       let rows_data: Vec<Vec<JsonValue>> = rows
         .iter()
-        .map(|row| {
+        .map(|row: &Row| {
           columns
             .iter()
             .enumerate()
@@ -547,32 +582,6 @@ impl AdminCommands for MySqlProvider {
         last_insert_id: None,
       })
     }
-  }
-
-  fn convert_params(params: Vec<JsonValue>) -> Vec<mysql_async::Value> {
-    params
-      .into_iter()
-      .map(|v| match v {
-        JsonValue::Null => mysql_async::Value::NULL,
-        JsonValue::Bool(b) => mysql_async::Value::Int(if b { 1 } else { 0 }),
-        JsonValue::Number(n) => {
-          if let Some(i) = n.as_i64() {
-            mysql_async::Value::Int(i)
-          } else if let Some(f) = n.as_f64() {
-            mysql_async::Value::Float(f)
-          } else {
-            mysql_async::Value::NULL
-          }
-        }
-        JsonValue::String(s) => mysql_async::Value::Bytes(s.into_bytes()),
-        JsonValue::Array(arr) => {
-          mysql_async::Value::Bytes(serde_json::to_string(&arr).unwrap_or_default().into_bytes())
-        }
-        JsonValue::Object(obj) => {
-          mysql_async::Value::Bytes(serde_json::to_string(&obj).unwrap_or_default().into_bytes())
-        }
-      })
-      .collect()
   }
 
   async fn create_collection(

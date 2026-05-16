@@ -22,7 +22,7 @@ pub trait SqlProviderHelpers {
   }
 
   fn map_sql_error(&self, e: rusqlite::Error) -> OrmError {
-    OrmError::Database(format!("SQLite error: {}", e))
+    OrmError::Query(format!("SQLite error: {}", e))
   }
 
   fn value_to_json(&self, value: &Value) -> Value {

@@ -213,7 +213,7 @@ impl DatabaseProvider for PostgresProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
     }
 
     let client = map_err_connection(self.pool.get().await)?;
@@ -239,7 +239,7 @@ impl DatabaseProvider for PostgresProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
     }
 
     let client = map_err_connection(self.pool.get().await)?;
@@ -253,7 +253,7 @@ impl DatabaseProvider for PostgresProvider {
     let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)));
+      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
     }
 
     let client = map_err_connection(self.pool.get().await)?;
@@ -515,8 +515,14 @@ impl AdminCommands for PostgresProvider {
   async fn execute_raw(&self, query: &str, params: Vec<Value>) -> OrmResult<RawResult> {
     let client = map_err_connection(self.pool.get().await)?;
 
-    let params_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-      params.iter().map(|v| Self::to_postgres_param(v)).collect();
+    let params_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+      .iter()
+      .map(|v| {
+        let b = to_postgres_param(v);
+        let leaked: &mut (dyn tokio_postgres::types::ToSql + Sync) = Box::leak(b);
+        leaked as &(dyn tokio_postgres::types::ToSql + Sync)
+      })
+      .collect();
 
     let rows = map_err_query(client.query(query, &params_refs).await)?;
 
