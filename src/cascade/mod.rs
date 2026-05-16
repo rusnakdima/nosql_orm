@@ -114,14 +114,17 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     relation.should_restrict()
   }
 
-  async fn soft_delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
+  pub async fn soft_delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
     let patch = serde_json::json!({ "deleted_at": chrono::Utc::now() });
     self.provider.patch(collection, id, patch).await?;
     Ok(true)
   }
 
-  async fn restore(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    let patch = serde_json::json!({ "deleted_at": serde_json::Value::Null });
+  pub async fn restore(&self, collection: &str, id: &str) -> OrmResult<bool> {
+    let patch = serde_json::json!({
+      "deleted_at": serde_json::Value::Null,
+      "restored_at": crate::timestamps::timestamp_now_rfc3339()
+    });
     self.provider.patch(collection, id, patch).await?;
     Ok(true)
   }
@@ -183,5 +186,66 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     }
 
     Ok(())
+  }
+
+  async fn cascade_remove_many_to_many_join_by_collection(
+    &self,
+    entity_id: &str,
+    collection: &str,
+    relation: &RelationDef,
+  ) -> OrmResult<()> {
+    let join_field = match &relation.join_field {
+      Some(jf) => jf,
+      None => return Ok(()),
+    };
+
+    let entity = self.provider.find_by_id(collection, entity_id).await?;
+
+    let entity = match entity {
+      Some(e) => e,
+      None => return Ok(()),
+    };
+
+    let target_ids: Vec<String> =
+      if let Some(arr) = entity.get(join_field).and_then(|v| v.as_array()) {
+        arr
+          .iter()
+          .filter_map(|v| v.as_str().map(String::from))
+          .collect()
+      } else {
+        return Ok(());
+      };
+
+    if target_ids.is_empty() {
+      return Ok(());
+    }
+
+    let source_field = &relation.local_key;
+
+    for target_id in target_ids {
+      let target_doc = self
+        .provider
+        .find_by_id(&relation.target_collection, &target_id)
+        .await?;
+
+      if let Some(mut doc) = target_doc {
+        if let Some(obj) = doc.as_object_mut() {
+          if let Some(arr) = obj.get_mut(source_field).and_then(|v| v.as_array_mut()) {
+            arr.retain(|v| v.as_str() != Some(entity_id));
+            let patch = serde_json::json!({ source_field: arr });
+            self
+              .provider
+              .patch(&relation.target_collection, &target_id, patch)
+              .await?;
+          }
+        }
+      }
+    }
+
+    Ok(())
+  }
+
+  fn get_relations_for_collection(&self, collection: &str) -> Option<Vec<RelationDef>> {
+    crate::relations::get_collection_relations(collection)
   }
 }

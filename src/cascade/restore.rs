@@ -7,7 +7,7 @@ use crate::query::Filter;
 use crate::relations::{RelationDef, RelationType, WithRelations};
 use crate::soft_delete::SoftDeletable;
 
-use crate::cascade::helpers::{cascade_value, insert_cascade_id};
+use crate::cascade::helpers::{cascade_value, insert_cascade_id, CascadeEntityRef};
 
 impl<P: DatabaseProvider> crate::CascadeManager<P> {
   pub async fn restore_cascade<E: Entity + WithRelations + SoftDeletable>(
@@ -27,24 +27,37 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
 
     self.restore(&E::table_name(), entity_id).await?;
 
-    let mut to_process = vec![entity_id.to_string()];
-    insert_cascade_id(restored_ids, &mut to_process, entity_id);
+    let mut to_process = vec![CascadeEntityRef::new(entity_id, &E::table_name())];
+    insert_cascade_id(restored_ids, &mut to_process, entity_id, &E::table_name());
 
-    while let Some(current_id) = to_process.pop() {
-      self
-        .process_restore_cascade::<E>(&current_id, relations, restored_ids, &mut to_process)
-        .await?;
+    while let Some(CascadeEntityRef {
+      id: current_id,
+      collection,
+    }) = to_process.pop()
+    {
+      if let Some(entity_relations) = self.get_relations_for_collection(&collection) {
+        self
+          .process_restore_cascade(
+            &current_id,
+            &collection,
+            &entity_relations,
+            restored_ids,
+            &mut to_process,
+          )
+          .await?;
+      }
     }
 
     Ok(true)
   }
 
-  async fn process_restore_cascade<E: Entity + WithRelations + SoftDeletable>(
+  async fn process_restore_cascade(
     &self,
     entity_id: &str,
+    collection: &str,
     relations: &[RelationDef],
     restored_ids: &mut HashSet<String>,
-    to_process: &mut Vec<String>,
+    to_process: &mut Vec<CascadeEntityRef>,
   ) -> OrmResult<()> {
     for rel in relations {
       if !self.should_cascade_soft_delete(rel) {
@@ -59,8 +72,9 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
         }
         RelationType::ManyToOne | RelationType::OneToOne => {
           self
-            .collect_cascade_single_side::<E>(
+            .collect_cascade_single_side(
               entity_id,
+              collection,
               rel,
               crate::cascade::helpers::CascadeAction::Restore,
               restored_ids,
@@ -79,7 +93,7 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
     entity_id: &str,
     relation: &RelationDef,
     restored_ids: &mut HashSet<String>,
-    to_process: &mut Vec<String>,
+    to_process: &mut Vec<CascadeEntityRef>,
   ) -> OrmResult<()> {
     let filter = Filter::Eq(relation.foreign_key.clone(), cascade_value(entity_id));
 
@@ -98,7 +112,7 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
     for doc in related {
       if let Some(id) = doc.get("id").and_then(|v| v.as_str()) {
         self.restore(&relation.target_collection, id).await?;
-        insert_cascade_id(restored_ids, to_process, id);
+        insert_cascade_id(restored_ids, to_process, id, &relation.target_collection);
       }
     }
 

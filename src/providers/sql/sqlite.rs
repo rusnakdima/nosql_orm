@@ -494,6 +494,10 @@ impl SchemaIntrospection for SqliteProvider {
   async fn get_database_name(&self) -> OrmResult<String> {
     Ok("sqlite".to_string())
   }
+
+  async fn list_databases(&self) -> OrmResult<Vec<String>> {
+    Ok(vec!["sqlite".to_string()])
+  }
 }
 
 #[async_trait]

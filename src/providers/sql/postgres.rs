@@ -479,6 +479,14 @@ impl SchemaIntrospection for PostgresProvider {
     let name: String = row.get(0);
     Ok(name)
   }
+
+  async fn list_databases(&self) -> OrmResult<Vec<String>> {
+    let sql = "SELECT datname FROM pg_database WHERE datistemplate = false";
+    let client = map_err_connection(self.pool.get().await)?;
+    let rows = map_err_query(client.query(sql, &[]).await)?;
+    let names: Vec<String> = rows.iter().map(|row| row.get("datname")).collect();
+    Ok(names)
+  }
 }
 
 fn to_postgres_param(value: &Value) -> Box<dyn tokio_postgres::types::ToSql + Sync> {
