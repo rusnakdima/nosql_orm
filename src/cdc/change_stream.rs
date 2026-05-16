@@ -12,10 +12,12 @@ impl ChangeStream {
   }
 
   #[cfg(feature = "mongo")]
-  pub async fn from_mongo_stream<T: serde::de::DeserializeOwned + serde::Serialize + Unpin + Send + Sync>(
+  pub async fn from_mongo_stream<
+    T: serde::de::DeserializeOwned + serde::Serialize + Unpin + Send + Sync,
+  >(
     stream: impl futures::Stream<
-      Item = Result<mongodb::change_stream::event::ChangeStreamEvent<T>, mongodb::error::Error>,
-    > + Unpin,
+        Item = Result<mongodb::change_stream::event::ChangeStreamEvent<T>, mongodb::error::Error>,
+      > + Unpin,
   ) -> OrmResult<Self> {
     use futures::StreamExt;
     let mut changes = Vec::new();
@@ -63,8 +65,16 @@ impl ChangeStream {
       .and_then(|dk| dk.get("_id").and_then(|id| id.as_str().map(String::from)))
       .unwrap_or_default();
 
-    let before = event.full_document_before_change.as_ref().map(|d| serde_json::to_value(d).ok()).flatten();
-    let after = event.full_document.as_ref().map(|d| serde_json::to_value(d).ok()).flatten();
+    let before = event
+      .full_document_before_change
+      .as_ref()
+      .map(|d| serde_json::to_value(d).ok())
+      .flatten();
+    let after = event
+      .full_document
+      .as_ref()
+      .map(|d| serde_json::to_value(d).ok())
+      .flatten();
 
     let timestamp = event
       .cluster_time
