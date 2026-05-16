@@ -353,6 +353,10 @@ impl SchemaIntrospection for RedisProvider {
   async fn get_database_name(&self) -> OrmResult<String> {
     Ok("redis".to_string())
   }
+
+  async fn list_databases(&self) -> OrmResult<Vec<String>> {
+    Ok(vec!["redis".to_string()])
+  }
 }
 
 #[async_trait]

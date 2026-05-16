@@ -23,7 +23,8 @@ use validate::generate_validate;
     sql_column,
     frontend_exclude,
     Relations,
-    relations
+    relations,
+    counter
   )
 )]
 pub fn derive_entity(input: TokenStream) -> TokenStream {
@@ -46,7 +47,8 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
     sql_column,
     frontend_exclude,
     Relations,
-    relations
+    relations,
+    counter
   )
 )]
 pub fn derive_model(input: TokenStream) -> TokenStream {
@@ -69,7 +71,8 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
     sql_column,
     frontend_exclude,
     Relations,
-    relations
+    relations,
+    counter
   )
 )]
 pub fn derive_orm_entity(input: TokenStream) -> TokenStream {

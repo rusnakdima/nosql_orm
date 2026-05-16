@@ -447,6 +447,29 @@ impl SchemaIntrospection for MySqlProvider {
       map_err_query(conn.exec_first(sql, ()).await)?.unwrap_or(("unknown".to_string(),));
     Ok(name)
   }
+
+  async fn list_databases(&self) -> OrmResult<Vec<String>> {
+    let sql = "SHOW DATABASES";
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let rows: Vec<Row> = map_err_query(
+      map_err_query(conn.exec_iter(sql, ()).await)?
+        .collect()
+        .await,
+    )?;
+    let names: Vec<String> = rows
+      .iter()
+      .map(|row| {
+        let json = row::row_to_json_mysql(row.clone());
+        json
+          .get("Database")
+          .or_else(|| json.get(0))
+          .and_then(|v| v.as_str())
+          .unwrap_or("")
+          .to_string()
+      })
+      .collect();
+    Ok(names)
+  }
 }
 
 #[async_trait]

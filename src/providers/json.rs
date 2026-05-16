@@ -434,6 +434,10 @@ impl SchemaIntrospection for JsonProvider {
   async fn get_database_name(&self) -> OrmResult<String> {
     Ok("json_file".to_string())
   }
+
+  async fn list_databases(&self) -> OrmResult<Vec<String>> {
+    Ok(vec!["json_file".to_string()])
+  }
 }
 
 #[async_trait]
