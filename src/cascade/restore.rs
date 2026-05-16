@@ -13,7 +13,7 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
   pub async fn restore_cascade<E: Entity + WithRelations + SoftDeletable>(
     &self,
     entity_id: &str,
-    relations: &[RelationDef],
+    _relations: &[RelationDef],
     restored_ids: &mut HashSet<String>,
   ) -> OrmResult<bool> {
     if restored_ids.contains(entity_id) {

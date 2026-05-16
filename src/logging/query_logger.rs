@@ -32,12 +32,15 @@ impl<P> QueryLogger<P> {
   }
 
   fn log_query(&self, operation: &str, collection: &str, filter: Option<&Filter>) {
-    let filter_str = filter
+    let _filter_str = filter
       .map(|f| format!(" filter={:?}", f))
       .unwrap_or_default();
+    let _ = (operation, collection);
   }
 
-  fn log_result(&self, operation: &str, collection: &str, count: usize) {}
+  fn log_result(&self, operation: &str, collection: &str, count: usize) {
+    let _ = (operation, collection, count);
+  }
 }
 
 #[async_trait::async_trait]

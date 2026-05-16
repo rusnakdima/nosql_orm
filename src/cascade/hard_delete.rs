@@ -12,7 +12,7 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
   pub async fn hard_delete_cascade<E: Entity + WithRelations>(
     &self,
     entity_id: &str,
-    relations: &[RelationDef],
+    _relations: &[RelationDef],
     deleted_ids: &mut HashSet<String>,
   ) -> OrmResult<bool> {
     if deleted_ids.contains(entity_id) {
