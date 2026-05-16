@@ -158,36 +158,36 @@ impl SpanBuilder {
   }
 
   #[cfg(not(feature = "opentelemetry"))]
-  pub fn with_attribute(mut self, _key: &str, _value: &str) -> Self {
+  pub fn with_attribute(self, _key: &str, _value: &str) -> Self {
     self
   }
 
   #[cfg(feature = "opentelemetry")]
-  pub fn add_event(mut self, name: &str) -> Self {
+  pub fn add_event(self, name: &str) -> Self {
     let _ = name;
     self
   }
 
   #[cfg(not(feature = "opentelemetry"))]
-  pub fn add_event(mut self, _name: &str) -> Self {
+  pub fn add_event(self, _name: &str) -> Self {
     self
   }
 
   #[cfg(feature = "opentelemetry")]
-  pub fn set_status(mut self, status: &str) -> Self {
+  pub fn set_status(self, status: &str) -> Self {
     let _ = status;
     self
   }
 
   #[cfg(not(feature = "opentelemetry"))]
-  pub fn set_status(mut self, _status: &str) -> Self {
+  pub fn set_status(self, _status: &str) -> Self {
     self
   }
 
   pub fn end(self) {}
 }
 
-pub fn telemetry_closure<F, T>(telemetry: &Telemetry, name: &str, f: F) -> OrmResult<T>
+pub fn telemetry_closure<F, T>(_telemetry: &Telemetry, name: &str, f: F) -> OrmResult<T>
 where
   F: FnOnce() -> OrmResult<T>,
 {
