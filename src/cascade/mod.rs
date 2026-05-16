@@ -129,6 +129,24 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     Ok(true)
   }
 
+  pub async fn toggle_delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
+    let doc = self.provider.find_by_id(collection, id).await?;
+    match doc {
+      Some(d) => {
+        let is_deleted = d.get("deleted_at").map(|v| !v.is_null()).unwrap_or(false);
+        if is_deleted {
+          self.restore(collection, id).await
+        } else {
+          self.soft_delete(collection, id).await
+        }
+      }
+      None => Err(crate::error::OrmError::NotFound(format!(
+        "Entity {} not found in {}",
+        id, collection
+      ))),
+    }
+  }
+
   async fn cascade_remove_many_to_many_join<E: Entity>(
     &self,
     entity_id: &str,
