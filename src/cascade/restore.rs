@@ -30,10 +30,20 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
     let mut to_process = vec![CascadeEntityRef::new(entity_id, &E::table_name())];
     insert_cascade_id(restored_ids, &mut to_process, entity_id, &E::table_name());
 
-    while let Some(CascadeEntityRef { id: current_id, collection }) = to_process.pop() {
+    while let Some(CascadeEntityRef {
+      id: current_id,
+      collection,
+    }) = to_process.pop()
+    {
       if let Some(entity_relations) = self.get_relations_for_collection(&collection) {
         self
-          .process_restore_cascade(&current_id, &collection, &entity_relations, restored_ids, &mut to_process)
+          .process_restore_cascade(
+            &current_id,
+            &collection,
+            &entity_relations,
+            restored_ids,
+            &mut to_process,
+          )
           .await?;
       }
     }

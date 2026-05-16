@@ -30,10 +30,20 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
     let mut to_process = vec![CascadeEntityRef::new(entity_id, &E::table_name())];
     insert_cascade_id(deleted_ids, &mut to_process, entity_id, &E::table_name());
 
-    while let Some(CascadeEntityRef { id: current_id, collection }) = to_process.pop() {
+    while let Some(CascadeEntityRef {
+      id: current_id,
+      collection,
+    }) = to_process.pop()
+    {
       if let Some(entity_relations) = self.get_relations_for_collection(&collection) {
         self
-          .process_soft_delete_cascade(&current_id, &collection, &entity_relations, deleted_ids, &mut to_process)
+          .process_soft_delete_cascade(
+            &current_id,
+            &collection,
+            &entity_relations,
+            deleted_ids,
+            &mut to_process,
+          )
           .await?;
       }
     }
@@ -122,10 +132,7 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
     cascade_ids: &mut HashSet<String>,
     to_process: &mut Vec<CascadeEntityRef>,
   ) -> OrmResult<()> {
-    let parent = self
-      .provider
-      .find_by_id(collection, entity_id)
-      .await?;
+    let parent = self.provider.find_by_id(collection, entity_id).await?;
 
     let parent = match parent {
       Some(p) => p,
@@ -145,7 +152,12 @@ impl<P: DatabaseProvider> crate::CascadeManager<P> {
             .await?;
         }
       }
-      insert_cascade_id(cascade_ids, to_process, foreign_id, &relation.target_collection);
+      insert_cascade_id(
+        cascade_ids,
+        to_process,
+        foreign_id,
+        &relation.target_collection,
+      );
     }
 
     Ok(())
