@@ -54,6 +54,38 @@ where
     Ok(result)
   }
 
+  pub async fn update_with_immutable(&self, entity: E, immutable_fields: &[&str]) -> OrmResult<E>
+  where
+    E: Validate,
+  {
+    entity.validate()?;
+    let id = entity
+      .get_id()
+      .ok_or_else(|| OrmError::InvalidQuery("Cannot update entity without an id".to_string()))?;
+    let before_doc = self.provider.find_by_id(&Self::collection(), &id).await?;
+    let before_doc_clone = before_doc.clone();
+    let mut doc = entity.to_value()?;
+    apply_timestamps(&mut doc, false);
+
+    if let (Some(existing), Some(new_doc)) = (before_doc, doc.as_object_mut()) {
+      for field in immutable_fields {
+        if let Some(value) = existing.get(*field) {
+          new_doc.insert(field.to_string(), value.clone());
+        }
+      }
+    }
+
+    let stored = self.provider.update(&Self::collection(), &id, doc).await?;
+    let result = E::from_value(stored)?;
+    if let Some(ref events) = self.events {
+      let before_value = before_doc_clone.unwrap_or_else(|| serde_json::json!({}));
+      events
+        .dispatch_update(&before_value, &result.to_value()?)
+        .await?;
+    }
+    Ok(result)
+  }
+
   pub async fn save(&self, entity: E) -> OrmResult<E>
   where
     E: Validate,
