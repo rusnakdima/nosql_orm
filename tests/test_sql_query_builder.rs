@@ -331,7 +331,9 @@ fn test_filter_like() {
   use nosql_orm::query::Filter;
 
   let filter = Filter::Like("name".to_string(), "%test%".to_string());
-  let sql = SqlQueryBuilder::new(SqlDialect::SQLite).filter_to_sql(&filter);
+  let sql = SqlQueryBuilder::new(SqlDialect::SQLite)
+    .filter_to_sql(&filter)
+    .expect("filter_to_sql failed");
   assert!(sql.contains("LIKE"));
   assert!(sql.contains("%test%"));
 }
@@ -341,7 +343,9 @@ fn test_filter_is_not_null() {
   use nosql_orm::query::Filter;
 
   let filter = Filter::IsNotNull("email".to_string());
-  let sql = SqlQueryBuilder::new(SqlDialect::SQLite).filter_to_sql(&filter);
+  let sql = SqlQueryBuilder::new(SqlDialect::SQLite)
+    .filter_to_sql(&filter)
+    .expect("filter_to_sql failed");
   assert_eq!(sql, "\"email\" IS NOT NULL");
 }
 
@@ -354,7 +358,9 @@ fn test_filter_between() {
     serde_json::json!(18),
     serde_json::json!(65),
   );
-  let sql = SqlQueryBuilder::new(SqlDialect::SQLite).filter_to_sql(&filter);
+  let sql = SqlQueryBuilder::new(SqlDialect::SQLite)
+    .filter_to_sql(&filter)
+    .expect("filter_to_sql failed");
   assert!(sql.contains("BETWEEN"));
   assert!(sql.contains("18"));
   assert!(sql.contains("65"));
@@ -365,7 +371,9 @@ fn test_filter_ends_with() {
   use nosql_orm::query::Filter;
 
   let filter = Filter::EndsWith("email".to_string(), "@example.com".to_string());
-  let sql = SqlQueryBuilder::new(SqlDialect::SQLite).filter_to_sql(&filter);
+  let sql = SqlQueryBuilder::new(SqlDialect::SQLite)
+    .filter_to_sql(&filter)
+    .expect("filter_to_sql failed");
   assert!(sql.contains("LIKE"));
   assert!(sql.contains("%@example.com"));
 }
@@ -380,7 +388,9 @@ fn test_query_builder_like() {
     .limit(10);
 
   let filter = qb.build_filter().unwrap();
-  let sql = SqlQueryBuilder::new(SqlDialect::SQLite).filter_to_sql(&filter);
+  let sql = SqlQueryBuilder::new(SqlDialect::SQLite)
+    .filter_to_sql(&filter)
+    .expect("filter_to_sql failed");
   assert!(sql.contains("LIKE"));
   assert!(sql.contains("%admin%"));
   assert!(sql.contains(">="));
@@ -393,7 +403,9 @@ fn test_query_builder_between() {
   let qb = QueryBuilder::new().where_between("age", serde_json::json!(18), serde_json::json!(65));
 
   let filter = qb.build_filter().unwrap();
-  let sql = SqlQueryBuilder::new(SqlDialect::SQLite).filter_to_sql(&filter);
+  let sql = SqlQueryBuilder::new(SqlDialect::SQLite)
+    .filter_to_sql(&filter)
+    .expect("filter_to_sql failed");
   assert!(sql.contains("BETWEEN"));
 }
 
@@ -407,7 +419,9 @@ fn test_query_builder_not_in() {
   );
 
   let filter = qb.build_filter().unwrap();
-  let sql = SqlQueryBuilder::new(SqlDialect::SQLite).filter_to_sql(&filter);
+  let sql = SqlQueryBuilder::new(SqlDialect::SQLite)
+    .filter_to_sql(&filter)
+    .expect("filter_to_sql failed");
   assert!(sql.contains("NOT IN"));
 }
 
