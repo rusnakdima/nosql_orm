@@ -1,6 +1,6 @@
 use nosql_orm::relations::{
-  clear_relation_registry, get_relation_def, register_collection_relations, RelationDef,
-  RelationType,
+  clear_registered_collections, clear_relation_registry, get_relation_def,
+  register_collection_relations, RelationDef, RelationType,
 };
 
 /// Test that three-level nested path resolution works correctly
@@ -87,9 +87,11 @@ fn test_get_relation_def_for_path_empty_docs() {
     )],
   );
 
-  // This should return an error, not panic
-  // Note: Testing via RelationLoader would require provider setup
-  // This test validates the fix compiles and handles edge case
+  let result = get_relation_def("todos", "nonexistent");
+  assert!(
+    result.is_none(),
+    "Should return None for nonexistent relation"
+  );
 }
 
 /// Test that get_relation_def_for_path warns on mixed collections
@@ -97,12 +99,24 @@ fn test_get_relation_def_for_path_empty_docs() {
 fn test_get_relation_def_for_path_mixed_collections() {
   register_collection_relations("todos", vec![]);
   register_collection_relations("tasks", vec![]);
+
+  let todos_result = get_relation_def("todos", "any");
+  let tasks_result = get_relation_def("tasks", "any");
+  assert!(
+    todos_result.is_none(),
+    "Should return None for empty relation registry"
+  );
+  assert!(
+    tasks_result.is_none(),
+    "Should return None for empty relation registry"
+  );
 }
 
 /// Test RelationDef builder methods for all relation types
 #[test]
 fn test_relation_def_all_types() {
-  clear_relation_registry();
+  let _ = clear_relation_registry();
+  let _ = clear_registered_collections();
 
   let many_to_one = RelationDef::many_to_one("author", "users", "author_id");
   assert_eq!(many_to_one.relation_type, RelationType::ManyToOne);

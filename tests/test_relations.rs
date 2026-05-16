@@ -1,6 +1,6 @@
 use nosql_orm::relations::{
-  clear_relation_registry, get_collection_relations, register_collection_relations, RelationDef,
-  RelationType,
+  clear_registered_collections, clear_relation_registry, get_collection_relations,
+  register_collection_relations, RelationDef, RelationType,
 };
 use nosql_orm::sql::types::SqlOnDelete;
 
@@ -106,7 +106,8 @@ fn test_relation_def_on_delete_set_null() {
 
 #[test]
 fn test_relation_registry_register_and_get() {
-  clear_relation_registry();
+  let _ = clear_relation_registry();
+  let _ = clear_registered_collections();
 
   let relations = vec![
     RelationDef::one_to_many("posts", "posts", "author_id"),
@@ -121,7 +122,8 @@ fn test_relation_registry_register_and_get() {
 
 #[test]
 fn test_relation_registry_get_unknown_collection() {
-  clear_relation_registry();
+  let _ = clear_relation_registry();
+  let _ = clear_registered_collections();
 
   let result = get_collection_relations("nonexistent");
   assert!(result.is_none());
@@ -129,12 +131,14 @@ fn test_relation_registry_get_unknown_collection() {
 
 #[test]
 fn test_relation_registry_clear() {
-  clear_relation_registry();
+  let _ = clear_relation_registry();
+  let _ = clear_registered_collections();
 
   let relations = vec![RelationDef::one_to_many("posts", "posts", "author_id")];
   register_collection_relations("articles", relations);
 
-  clear_relation_registry();
+  let _ = clear_relation_registry();
+  let _ = clear_registered_collections();
 
   let result = get_collection_relations("articles");
   assert!(result.is_none());
