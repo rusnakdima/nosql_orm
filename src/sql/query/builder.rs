@@ -95,7 +95,9 @@ mod tests {
   fn test_simple_filter() {
     let builder = SqlQueryBuilder::new(SqlDialect::PostgreSQL);
     let filter = crate::query::Filter::Eq("name".to_string(), serde_json::json!("Alice"));
-    let sql = builder.filter_to_sql(&filter);
+    let sql = builder
+      .filter_to_sql(&filter)
+      .expect("filter_to_sql failed");
     assert_eq!(sql, "\"name\" = 'Alice'");
   }
 
@@ -106,7 +108,9 @@ mod tests {
       crate::query::Filter::Eq("age".to_string(), serde_json::json!(25)),
       crate::query::Filter::Gt("balance".to_string(), serde_json::json!(100)),
     ]);
-    let sql = builder.filter_to_sql(&filter);
+    let sql = builder
+      .filter_to_sql(&filter)
+      .expect("filter_to_sql failed");
     assert!(sql.contains("\"age\" = 25"));
     assert!(sql.contains("\"balance\" > 100"));
   }
@@ -128,7 +132,9 @@ mod tests {
       select: Some(vec!["id".to_string(), "name".to_string()]),
       exclude: None,
     };
-    let sql = builder.build_select("users", None, Some(&projection), None, None, None);
+    let sql = builder
+      .build_select("users", None, Some(&projection), None, None, None)
+      .expect("build_select failed");
     assert_eq!(sql, "SELECT `id`, `name` FROM `users`");
   }
 
