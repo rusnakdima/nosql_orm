@@ -114,7 +114,7 @@ impl PrefixHolder {
   pub fn get_config(&self) -> PrefixConfig {
     let guard = match self.prefixes.read() {
       Ok(g) => g,
-      Err(e) => {
+      Err(_) => {
         return PrefixConfig::default();
       }
     };

@@ -12,7 +12,7 @@ static REGISTERED_COLLECTIONS: RwLock<Option<std::collections::HashMap<String, b
 pub fn register_collection_relations(collection: &str, relations: Vec<RelationDef>) {
   let mut registered = match REGISTERED_COLLECTIONS.write() {
     Ok(g) => g,
-    Err(e) => {
+    Err(_) => {
       return;
     }
   };
@@ -25,7 +25,7 @@ pub fn register_collection_relations(collection: &str, relations: Vec<RelationDe
 
   let mut guard = match RELATION_REGISTRY.write() {
     Ok(g) => g,
-    Err(e) => {
+    Err(_) => {
       return;
     }
   };

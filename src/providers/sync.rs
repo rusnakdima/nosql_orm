@@ -92,7 +92,7 @@ impl ProviderSync {
   }
 }
 
-fn sanitize_for_target(mut doc: Value) -> Value {
+fn sanitize_for_target(doc: Value) -> Value {
   if let serde_json::Value::Object(ref obj) = doc {
     let mut filtered = serde_json::Map::new();
     for (k, v) in obj.iter() {
