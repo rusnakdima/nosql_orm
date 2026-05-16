@@ -79,6 +79,8 @@ pub use timestamps::Timestamps;
 pub mod logging;
 pub mod providers;
 
+pub use providers::FallbackProvider;
+
 #[cfg(feature = "query_cache")]
 pub mod cache;
 
