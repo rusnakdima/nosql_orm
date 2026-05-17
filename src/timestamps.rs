@@ -49,13 +49,17 @@ impl Timestamps for Value {
   fn apply_timestamps_for_insert(&mut self) {
     let now = Utc::now();
     if let Some(obj) = self.as_object_mut() {
-      if !obj.contains_key("created_at") {
+      if !obj.contains_key("created_at")
+        || obj.get("created_at").map(|v| v.is_null()).unwrap_or(false)
+      {
         obj.insert(
           "created_at".to_string(),
           serde_json::Value::String(now.to_rfc3339()),
         );
       }
-      if !obj.contains_key("updated_at") {
+      if !obj.contains_key("updated_at")
+        || obj.get("updated_at").map(|v| v.is_null()).unwrap_or(false)
+      {
         obj.insert(
           "updated_at".to_string(),
           serde_json::Value::String(now.to_rfc3339()),
