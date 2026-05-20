@@ -81,7 +81,7 @@ pub async fn load_recursive<P: DatabaseProvider>(
       .and_then(|v| v.as_str())
       .unwrap_or("")
       .to_string();
-    if rel_def.relation_type == RelationType::ManyToOne {
+    if rel_def.relation_type == RelationType::ManyToOne || rel_def.relation_type == RelationType::OneToOne {
       if let Some(rel_obj) = doc.get(first_segment) {
         if !rel_obj.is_null() {
           let mut child_with_meta = rel_obj.clone();

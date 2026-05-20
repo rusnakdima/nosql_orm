@@ -205,7 +205,7 @@ impl<P: DatabaseProvider> RelationLoader<P> {
         let mut child_parent_map: Vec<(Value, Value)> = Vec::new();
 
         for doc in &docs {
-          if rel_def.relation_type == RelationType::ManyToOne {
+          if rel_def.relation_type == RelationType::ManyToOne || rel_def.relation_type == RelationType::OneToOne {
             if let Some(rel_obj) = doc.get(segment) {
               if !rel_obj.is_null() {
                 let mut child_with_meta = rel_obj.clone();
