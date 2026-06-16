@@ -50,6 +50,7 @@ pub mod inheritance;
 pub mod lazy;
 pub mod macros;
 pub mod migrations;
+pub mod model_helper;
 pub mod nosql_index;
 pub mod observability;
 pub mod pool;
@@ -66,6 +67,8 @@ pub mod timestamps;
 pub mod transaction;
 pub mod utils;
 pub mod validators;
+
+pub use model_helper::{ModelHelper, WithValidation};
 
 pub use entity::Entity;
 pub use entity::EntityMeta;
@@ -91,6 +94,7 @@ pub use observability::{
 };
 
 pub use nosql_orm_derive::Model;
+pub use nosql_orm_derive::ModelHelper;
 pub use nosql_orm_derive::OrmEntity;
 pub use nosql_orm_derive::Validate;
 

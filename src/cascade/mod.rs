@@ -147,6 +147,7 @@ impl<P: DatabaseProvider> CascadeManager<P> {
     }
   }
 
+  #[allow(dead_code)]
   async fn cascade_remove_many_to_many_join<E: Entity>(
     &self,
     entity_id: &str,
