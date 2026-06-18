@@ -498,21 +498,59 @@ impl DatabaseProvider for JsonProvider {
 #[async_trait]
 impl SchemaIntrospection for JsonProvider {
   async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>> {
-    let cache = self.cache.read().await;
     let mut collections = Vec::new();
-    for (name, docs) in cache.iter() {
-      let size = docs
-        .iter()
-        .map(|d| serde_json::to_string(d).map(|s| s.len()).unwrap_or(0))
-        .sum::<usize>() as u64;
-      collections.push(CollectionMeta {
-        name: name.clone(),
-        document_count: docs.len() as u64,
-        size_bytes: size,
-        created_at: None,
-        updated_at: None,
-      });
+
+    let mut entries = tokio::fs::read_dir(&self.base_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+      let path = entry.path();
+      if path.is_file() {
+        if let Some(ext) = path.extension() {
+          if ext == "json" {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+              let name = stem.to_string();
+              let (document_count, size_bytes) = {
+                let cache = self.cache.read().await;
+                if let Some(docs) = cache.get(&name) {
+                  let size = docs
+                    .iter()
+                    .map(|d| serde_json::to_string(d).map(|s| s.len()).unwrap_or(0))
+                    .sum::<usize>() as u64;
+                  (docs.len() as u64, size)
+                } else if path.exists() {
+                  match tokio::fs::read_to_string(&path).await {
+                    Ok(content) => {
+                      match serde_json::from_str::<Vec<Value>>(&content) {
+                        Ok(docs) => {
+                          let size = docs
+                            .iter()
+                            .map(|d| serde_json::to_string(d).map(|s| s.len()).unwrap_or(0))
+                            .sum::<usize>() as u64;
+                          (docs.len() as u64, size)
+                        }
+                        Ok(_) => (0, 0),
+                        Err(_) => (0, content.len() as u64),
+                      }
+                    }
+                    Err(_) => (0, 0),
+                  }
+                } else {
+                  (0, 0)
+                }
+              };
+              collections.push(CollectionMeta {
+                name,
+                document_count,
+                size_bytes,
+                created_at: None,
+                updated_at: None,
+              });
+            }
+          }
+        }
+      }
     }
+
+    collections.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(collections)
   }
 
