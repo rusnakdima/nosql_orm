@@ -11,6 +11,7 @@ pub enum Filter {
   Lte(String, Value),
   In(String, Vec<Value>),
   NotIn(String, Vec<Value>),
+  ArrayContains(String, Value),
   Contains(String, String),
   StartsWith(String, String),
   EndsWith(String, String),
@@ -34,6 +35,10 @@ impl Filter {
       Filter::Lte(field, val) => compare(doc, field, val, |o| o.is_le()),
       Filter::In(field, vals) => get_field(doc, field).is_some_and(|v| vals.contains(v)),
       Filter::NotIn(field, vals) => get_field(doc, field).is_none_or(|v| !vals.contains(v)),
+      Filter::ArrayContains(field, val) => get_field(doc, field)
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.contains(val))
+        .unwrap_or(false),
       Filter::Contains(field, sub) => get_field(doc, field)
         .and_then(|v| v.as_str())
         .is_some_and(|s| s.to_lowercase().contains(&sub.to_lowercase())),
@@ -96,8 +101,36 @@ impl Filter {
           }
         }
         let mut filters = Vec::new();
+        let mut or_filters: Option<Vec<Filter>> = None;
+        let mut not_filter: Option<Filter> = None;
         for (key, val) in obj {
-          filters.push(parse_field_filter(key, val)?);
+          match key.as_str() {
+            "$and" => {
+              if let Value::Array(arr) = val {
+                for item in arr {
+                  filters.push(Filter::from_json(item)?);
+                }
+              }
+            }
+            "$or" => {
+              if let Value::Array(arr) = val {
+                let or_items: OrmResult<Vec<Filter>> = arr.iter().map(Filter::from_json).collect();
+                or_filters = Some(or_items?);
+              }
+            }
+            "$not" => {
+              not_filter = Some(Filter::from_json(val)?);
+            }
+            _ => {
+              filters.push(parse_field_filter(key, val)?);
+            }
+          }
+        }
+        if let Some(or_items) = or_filters {
+          filters.push(Filter::Or(or_items));
+        }
+        if let Some(not_item) = not_filter {
+          filters.push(Filter::Not(Box::new(not_item)));
         }
         if filters.len() == 1 {
           Ok(filters.remove(0))
@@ -128,6 +161,9 @@ pub fn parse_field_filter(field: &str, value: &Value) -> OrmResult<Filter> {
               if let Value::Array(arr) = val {
                 return Ok(Filter::In(field.to_string(), arr.clone()));
               }
+            }
+            "$arrayContains" => {
+              return Ok(Filter::ArrayContains(field.to_string(), val.clone()));
             }
             "$notIn" => {
               if let Value::Array(arr) = val {

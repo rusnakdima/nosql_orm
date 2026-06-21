@@ -153,6 +153,7 @@ fn extract_filter_fields(filter: &Filter) -> Vec<String> {
     Filter::Lte(field, _) => vec![field.clone()],
     Filter::In(field, _) => vec![field.clone()],
     Filter::NotIn(field, _) => vec![field.clone()],
+    Filter::ArrayContains(field, _) => vec![field.clone()],
     Filter::Contains(field, _) => vec![field.clone()],
     Filter::StartsWith(field, _) => vec![field.clone()],
     Filter::EndsWith(field, _) => vec![field.clone()],

@@ -108,15 +108,61 @@ impl DatabaseProvider for SqliteProvider {
       placeholders.join(", ")
     );
 
+    let columns_str = columns
+      .iter()
+      .map(|c| self.dialect.quote_identifier(c))
+      .collect::<Vec<_>>()
+      .join(", ");
+
+    let placeholders_str = placeholders.join(", ");
+
+    let sql = format!(
+      "INSERT INTO {} ({}) VALUES ({})",
+      self.dialect.quote_identifier(collection),
+      columns_str,
+      placeholders_str
+    );
+
+    let sql = format!(
+      "INSERT INTO {} ({}) VALUES ({})",
+      self.dialect.quote_identifier(collection),
+      columns.iter().map(|c| self.dialect.quote_identifier(c)).collect::<Vec<_>>().join(", "),
+      placeholders.join(", ")
+    );
+
+    fn json_to_sql_param(v: &Value) -> String {
+      match v {
+        Value::Null => "NULL".to_string(),
+        Value::Bool(b) => {
+          if *b { "TRUE".to_string() } else { "FALSE".to_string() }
+        }
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => format!("'{}'", s.replace('\'', "''")),
+        Value::Array(arr) => {
+          let items = arr.iter().map(json_to_sql_param).collect::<Vec<_>>().join(", ");
+          format!("({})", items)
+        }
+        Value::Object(obj) => {
+          let pairs = obj.iter().map(|(k, v)| format!("{}: {}", k, json_to_sql_param(v))).collect::<Vec<_>>().join(", ");
+          format!("'{{{}}}'", pairs)
+        }
+      }
+    }
+
     let values: Vec<String> = columns
       .iter()
       .map(|c| {
-        doc
-          .get(*c)
-          .map(|v| self.query_builder.value_to_sql(v))
+        doc.get(*c)
+          .map(|v| json_to_sql_param(v))
           .unwrap_or_else(|| "NULL".to_string())
       })
       .collect();
+
+    let sql_with_values = format!("{} ({}) VALUES ({})",
+      self.dialect.quote_identifier(collection),
+      columns.iter().map(|c| self.dialect.quote_identifier(c)).collect::<Vec<_>>().join(", "),
+      values.join(", ")
+    );
 
     let _conn = self.conn.clone();
     let collection = collection.to_string();
@@ -124,7 +170,7 @@ impl DatabaseProvider for SqliteProvider {
     let dialect = self.dialect;
     self
       .with_connection(move |conn_guard| {
-        conn_guard.execute(&sql, rusqlite::params_from_iter(values.iter()))?;
+        conn_guard.execute(&sql_with_values, [])?;
 
         let sql = format!(
           "SELECT * FROM {} WHERE id = ?",

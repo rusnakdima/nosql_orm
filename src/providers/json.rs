@@ -336,6 +336,9 @@ impl DatabaseProvider for JsonProvider {
       .position(|r| Self::id_of(r) == Some(id))
       .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
 
+    if let Value::Object(ref mut obj) = doc {
+      obj.insert("id".to_string(), json!(id));
+    }
     records[pos] = doc.clone();
     drop(w);
     self.flush(collection).await?;

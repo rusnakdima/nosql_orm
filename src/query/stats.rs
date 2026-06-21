@@ -98,6 +98,7 @@ impl Filter {
       Filter::Lte(field, val) => format!("{} <= {}", field, val),
       Filter::In(field, vals) => format!("{} IN {:?}", field, vals),
       Filter::NotIn(field, vals) => format!("{} NOT IN {:?}", field, vals),
+      Filter::ArrayContains(field, val) => format!("{} ARRAY_CONTAINS {:?}", field, val),
       Filter::Contains(field, sub) => format!("{} CONTAINS {:?}", field, sub),
       Filter::StartsWith(field, prefix) => format!("{} STARTS WITH {:?}", field, prefix),
       Filter::EndsWith(field, suffix) => format!("{} ENDS WITH {:?}", field, suffix),

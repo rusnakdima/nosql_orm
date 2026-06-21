@@ -121,6 +121,14 @@ impl SqlQueryBuilder {
           values_str
         ))
       }
+      Filter::ArrayContains(field, value) => {
+        validate_identifier(field)?;
+        Ok(format!(
+          "JSON_CONTAINS({}, {})",
+          self.dialect().quote_identifier(field),
+          self.value_to_sql(value)
+        ))
+      }
       Filter::Contains(field, value) => {
         validate_identifier(field)?;
         Ok(format!(

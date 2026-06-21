@@ -161,6 +161,9 @@ impl QueryCompiler {
                     .join(", ");
                 format!("{} NOT IN ({})", field, values_str)
             }
+            Filter::ArrayContains(field, value) => {
+                format!("JSON_CONTAINS({}, {})", field, self.value_to_sql(value))
+            }
             Filter::Contains(field, sub) => {
                 format!("{} LIKE '%{}%'", field, sub)
             }
