@@ -126,7 +126,11 @@ impl DatabaseProvider for SqliteProvider {
     let sql = format!(
       "INSERT INTO {} ({}) VALUES ({})",
       self.dialect.quote_identifier(collection),
-      columns.iter().map(|c| self.dialect.quote_identifier(c)).collect::<Vec<_>>().join(", "),
+      columns
+        .iter()
+        .map(|c| self.dialect.quote_identifier(c))
+        .collect::<Vec<_>>()
+        .join(", "),
       placeholders.join(", ")
     );
 
@@ -134,16 +138,28 @@ impl DatabaseProvider for SqliteProvider {
       match v {
         Value::Null => "NULL".to_string(),
         Value::Bool(b) => {
-          if *b { "TRUE".to_string() } else { "FALSE".to_string() }
+          if *b {
+            "TRUE".to_string()
+          } else {
+            "FALSE".to_string()
+          }
         }
         Value::Number(n) => n.to_string(),
         Value::String(s) => format!("'{}'", s.replace('\'', "''")),
         Value::Array(arr) => {
-          let items = arr.iter().map(json_to_sql_param).collect::<Vec<_>>().join(", ");
+          let items = arr
+            .iter()
+            .map(json_to_sql_param)
+            .collect::<Vec<_>>()
+            .join(", ");
           format!("({})", items)
         }
         Value::Object(obj) => {
-          let pairs = obj.iter().map(|(k, v)| format!("{}: {}", k, json_to_sql_param(v))).collect::<Vec<_>>().join(", ");
+          let pairs = obj
+            .iter()
+            .map(|(k, v)| format!("{}: {}", k, json_to_sql_param(v)))
+            .collect::<Vec<_>>()
+            .join(", ");
           format!("'{{{}}}'", pairs)
         }
       }
@@ -152,15 +168,21 @@ impl DatabaseProvider for SqliteProvider {
     let values: Vec<String> = columns
       .iter()
       .map(|c| {
-        doc.get(*c)
+        doc
+          .get(*c)
           .map(|v| json_to_sql_param(v))
           .unwrap_or_else(|| "NULL".to_string())
       })
       .collect();
 
-    let sql_with_values = format!("{} ({}) VALUES ({})",
+    let sql_with_values = format!(
+      "{} ({}) VALUES ({})",
       self.dialect.quote_identifier(collection),
-      columns.iter().map(|c| self.dialect.quote_identifier(c)).collect::<Vec<_>>().join(", "),
+      columns
+        .iter()
+        .map(|c| self.dialect.quote_identifier(c))
+        .collect::<Vec<_>>()
+        .join(", "),
       values.join(", ")
     );
 

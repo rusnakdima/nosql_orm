@@ -56,9 +56,9 @@ pub fn filter_to_doc(filter: &Filter) -> OrmResult<Document> {
         .collect();
       Ok(doc! { f: { "$nin": bson_vals } })
     }
-    Filter::ArrayContains(f, v) => Ok(
-      doc! { f: { "$elemMatch": { "$eq": to_bson(v).unwrap_or(Bson::Null) } } },
-    ),
+    Filter::ArrayContains(f, v) => {
+      Ok(doc! { f: { "$elemMatch": { "$eq": to_bson(v).unwrap_or(Bson::Null) } } })
+    }
     Filter::Contains(f, sub) => {
       validate_regex_pattern(sub)?;
       Ok(doc! { f: { "$regex": sub, "$options": "i" } })

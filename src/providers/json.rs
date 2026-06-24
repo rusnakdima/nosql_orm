@@ -521,19 +521,17 @@ impl SchemaIntrospection for JsonProvider {
                   (docs.len() as u64, size)
                 } else if path.exists() {
                   match tokio::fs::read_to_string(&path).await {
-                    Ok(content) => {
-                      match serde_json::from_str::<Vec<Value>>(&content) {
-                        Ok(docs) => {
-                          let size = docs
-                            .iter()
-                            .map(|d| serde_json::to_string(d).map(|s| s.len()).unwrap_or(0))
-                            .sum::<usize>() as u64;
-                          (docs.len() as u64, size)
-                        }
-                        Ok(_) => (0, 0),
-                        Err(_) => (0, content.len() as u64),
+                    Ok(content) => match serde_json::from_str::<Vec<Value>>(&content) {
+                      Ok(docs) => {
+                        let size = docs
+                          .iter()
+                          .map(|d| serde_json::to_string(d).map(|s| s.len()).unwrap_or(0))
+                          .sum::<usize>() as u64;
+                        (docs.len() as u64, size)
                       }
-                    }
+                      Ok(_) => (0, 0),
+                      Err(_) => (0, content.len() as u64),
+                    },
                     Err(_) => (0, 0),
                   }
                 } else {
