@@ -275,14 +275,15 @@ async fn main() -> OrmResult<()> {
 
   println!("=== Creating example schema ===");
   let schema = create_example_schema();
-  println!("Schema: {} (id: {})", schema.name, schema.id);
+  println!("Schema: {} (id: {:?})", schema.name, schema.id);
 
   println!("\n=== Saving schema to nosql_orm ===");
   let saved = schemas.save(schema).await?;
-  println!("Saved schema with id: {}", saved.id);
+  println!("Saved schema with id: {:?}", saved.id);
 
   println!("\n=== Loading schema from nosql_orm ===");
-  let loaded = schemas.find_by_id(&saved.id).await?;
+  let schema_id = saved.id.clone().unwrap_or_default();
+  let loaded = schemas.find_by_id(&schema_id).await?;
   match loaded {
     Some(s) => {
       println!("Loaded: {} (version: {})", s.name, s.schema_version);
@@ -300,7 +301,7 @@ async fn main() -> OrmResult<()> {
   let all = schemas.find_all().await?;
   println!("Total schemas: {}", all.len());
   for s in &all {
-    println!("  - {} ({})", s.name, s.id);
+    println!("  - {} ({})", s.name, s.id.as_deref().unwrap_or("(no id)"));
   }
 
   println!("\n✓ Schema example completed successfully.");
