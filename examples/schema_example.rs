@@ -167,7 +167,10 @@ fn create_example_schema() -> UiSchema {
   actions.insert("submit".to_string(), "Submit".to_string());
   actions.insert("cancel".to_string(), "Cancel".to_string());
   let mut messages = std::collections::HashMap::new();
-  messages.insert("welcome".to_string(), "Welcome to the Example SDUI App".to_string());
+  messages.insert(
+    "welcome".to_string(),
+    "Welcome to the Example SDUI App".to_string(),
+  );
   locales.insert(
     "en".to_string(),
     LocaleMap {
@@ -290,10 +293,14 @@ async fn main() -> OrmResult<()> {
       println!("Pages: {}", s.pages.len());
       println!("Layouts: {}", s.layouts.len());
       for page in &s.pages {
-        println!("  - Page '{}' at route '{}' with {} elements",
-          page.name, page.route, page.canvas_elements.len());
+        println!(
+          "  - Page '{}' at route '{}' with {} elements",
+          page.name,
+          page.route,
+          page.canvas_elements.len()
+        );
       }
-    },
+    }
     None => println!("Schema not found!"),
   }
 
