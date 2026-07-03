@@ -40,8 +40,16 @@ pub struct JsonProviderConfig {
 
 impl JsonProviderConfig {
   pub fn new(base_dir: impl AsRef<Path>) -> Self {
+    let base_dir = base_dir.as_ref();
+    // Check for NOSQL_ORM_DATA_DIR environment variable
+    // If set, prepend it to the base_dir to allow centralized path configuration
+    let final_path = if let Ok(data_dir) = std::env::var("NOSQL_ORM_DATA_DIR") {
+      PathBuf::from(data_dir).join(base_dir)
+    } else {
+      base_dir.to_path_buf()
+    };
     Self {
-      base_dir: base_dir.as_ref().to_path_buf(),
+      base_dir: final_path,
       cache_config: CacheConfig::default(),
     }
   }
