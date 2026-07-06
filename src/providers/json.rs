@@ -236,11 +236,15 @@ impl DatabaseProvider for JsonProvider {
   async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
     self.ensure_loaded(collection).await?;
     let r = self.cache.read().await;
-    Ok(
-      r.get(collection)
-        .and_then(|recs| recs.iter().find(|d| Self::id_of(d) == Some(id)))
-        .cloned(),
-    )
+    let result = r
+      .get(collection)
+      .and_then(|recs| recs.iter().find(|d| Self::id_of(d) == Some(id)))
+      .cloned();
+    drop(r);
+    if result.is_some() {
+      self.track_access(collection, id).await;
+    }
+    Ok(result)
   }
 
   async fn find_many(
