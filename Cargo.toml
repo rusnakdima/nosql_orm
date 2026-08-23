@@ -59,6 +59,7 @@ nosql_orm_derive = { path = "nosql_orm_derive" }
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
+proptest = "1"
 
 [[example]]
 name = "json_example"
