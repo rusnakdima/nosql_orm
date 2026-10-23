@@ -60,13 +60,12 @@ pub fn parse_validation_meta(meta: &Meta) -> Vec<ValidationType> {
               i += 1
             }
           }
-          "range" => {
-            if i + 1 < tokens.len() {
+          "range"
+            if i + 1 < tokens.len() => {
               let (mn, mx) = parse_range_args(&tokens[i + 1].to_string());
               validations.push(ValidationType::Range(mn, mx));
               i += 1
             }
-          }
           _ => {}
         }
         i += 1;
@@ -128,12 +127,12 @@ pub fn parse_length_args(args: &str) -> (Option<usize>, Option<usize>) {
   let mut max = None;
   for part in args.split(',') {
     let part = part.trim();
-    if part.starts_with("min = ") {
-      if let Ok(v) = part[6..].parse::<usize>() {
+    if let Some(stripped) = part.strip_prefix("min = ") {
+      if let Ok(v) = stripped.parse::<usize>() {
         min = Some(v);
       }
-    } else if part.starts_with("max = ") {
-      if let Ok(v) = part[6..].parse::<usize>() {
+    } else if let Some(stripped) = part.strip_prefix("max = ") {
+      if let Ok(v) = stripped.parse::<usize>() {
         max = Some(v);
       }
     }
@@ -147,12 +146,12 @@ pub fn parse_range_args(args: &str) -> (Option<f64>, Option<f64>) {
   let mut max = None;
   for part in args.split(',') {
     let part = part.trim();
-    if part.starts_with("min = ") {
-      if let Ok(v) = part[6..].parse::<f64>() {
+    if let Some(stripped) = part.strip_prefix("min = ") {
+      if let Ok(v) = stripped.parse::<f64>() {
         min = Some(v);
       }
-    } else if part.starts_with("max = ") {
-      if let Ok(v) = part[6..].parse::<f64>() {
+    } else if let Some(stripped) = part.strip_prefix("max = ") {
+      if let Ok(v) = stripped.parse::<f64>() {
         max = Some(v);
       }
     }
@@ -165,7 +164,8 @@ pub fn parse_pattern_arg(args: &str) -> Option<String> {
   if (trimmed.starts_with('"') && trimmed.ends_with('"'))
     || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
   {
-    Some(trimmed[1..trimmed.len() - 1].to_string())
+    let inner = &trimmed[1..trimmed.len() - 1];
+    Some(inner.to_string())
   } else {
     Some(trimmed.to_string())
   }

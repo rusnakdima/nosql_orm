@@ -1,7 +1,7 @@
 use crate::error::{OrmError, OrmResult};
 use serde_json::Value;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub enum Filter {
   Eq(String, Value),
   Ne(String, Value),

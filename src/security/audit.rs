@@ -58,7 +58,7 @@ impl<D: Clone> AuditLogger<D> {
     }
 }
 
-impl<D: crate::provider::DatabaseProvider + Clone> AuditLogger<D> {
+impl<D: crate::provider::Storage + Clone> AuditLogger<D> {
     pub async fn log(&self, entry: AuditEntry) -> OrmResult<()> {
         let doc = serde_json::to_value(entry)?;
         self.provider.insert(&self.collection, doc).await?;

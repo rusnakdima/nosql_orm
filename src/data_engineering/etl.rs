@@ -1,12 +1,12 @@
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use serde_json::Value;
 use std::time::Instant;
 
 pub struct EtlPipeline<S, T>
 where
-    S: DatabaseProvider,
-    T: DatabaseProvider,
+    S: Storage,
+    T: Storage,
 {
     source: S,
     transformers: Vec<Box<dyn Transformer>>,
@@ -15,8 +15,8 @@ where
 
 impl<S, T> EtlPipeline<S, T>
 where
-    S: DatabaseProvider,
-    T: DatabaseProvider,
+    S: Storage,
+    T: Storage,
 {
     pub fn new(source: S, destination: T) -> Self {
         Self {

@@ -1,5 +1,5 @@
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
@@ -90,7 +90,7 @@ impl HealthChecker {
 
   pub async fn start_checking<P>(&mut self, provider: Arc<P>) -> OrmResult<()>
   where
-    P: DatabaseProvider + HealthCheckable,
+    P: Storage + HealthCheckable,
   {
     let interval_secs = self.interval_secs;
     let threshold_ms = self.threshold_ms;

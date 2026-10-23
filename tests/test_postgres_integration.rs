@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod postgres_integration_tests {
-  use nosql_orm::error::OrmError;
   use nosql_orm::prelude::*;
   use nosql_orm::providers::sql::PostgresProvider;
+  use nosql_orm::soft_delete::SoftDeletable;
   use nosql_orm_derive::Entity;
   use serde::{Deserialize, Serialize};
 
@@ -63,15 +63,11 @@ mod postgres_integration_tests {
     }
   }
 
-  impl SoftDeletes for TestUser {
+  impl SoftDeletable for TestUser {
     fn deleted_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
       None
     }
     fn set_deleted_at(&mut self, _t: Option<chrono::DateTime<chrono::Utc>>) {}
-    fn restore(&mut self) {}
-    fn is_deleted(&self) -> bool {
-      false
-    }
   }
 
   fn create_user(name: &str, email: &str, age: Option<i32>) -> TestUser {
@@ -220,7 +216,7 @@ mod postgres_integration_tests {
     let repo: Repository<TestUser, _> = Repository::new(provider);
 
     let count = repo.count().await?;
-    assert!(count >= 0);
+    assert!((count as i64) >= 0);
 
     Ok(())
   }
@@ -231,7 +227,7 @@ mod postgres_integration_tests {
       Ok(p) => p,
       Err(_) => return Ok(()),
     };
-    let repo: Repository<TestUser, _> = Repository::new(provider);
+    let repo: Repository<TestUser, _> = Repository::new(provider.clone());
 
     cleanup_users(&repo).await?;
 
@@ -260,7 +256,7 @@ mod postgres_integration_tests {
       Ok(p) => p,
       Err(_) => return Ok(()),
     };
-    let repo: Repository<TestUser, _> = Repository::new(provider);
+    let repo: Repository<TestUser, _> = Repository::new(provider.clone());
 
     cleanup_users(&repo).await?;
 
@@ -332,10 +328,7 @@ mod postgres_integration_tests {
 
     let active_results = repo
       .query()
-      .filter(Filter::Equals(
-        "active".to_string(),
-        serde_json::json!(true),
-      ))
+      .filter(Filter::Eq("active".to_string(), serde_json::json!(true)))
       .find()
       .await?;
     assert_eq!(active_results.len(), 2);

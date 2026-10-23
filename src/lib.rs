@@ -1,6 +1,7 @@
 //! # nosql_orm
 //!
 //! A TypeORM-inspired ORM for NoSQL databases.
+#![allow(unexpected_cfgs)]
 //! Supports JSON file storage, MongoDB, and Redis with a unified, ergonomic API.
 //!
 //! ## Quick Start
@@ -60,8 +61,10 @@ pub mod relations;
 pub mod repository;
 pub mod schema;
 pub mod search;
+pub mod settings;
 pub mod soft_delete;
 pub mod sql;
+pub mod statistics;
 pub mod subscription;
 pub mod timestamps;
 pub mod transaction;
@@ -147,7 +150,7 @@ pub mod prelude {
     ValidateMeta, ValidatorType,
   };
   pub use crate::provider::{
-    AdminCommands, DatabaseProvider, ProviderConfig, SchemaIntrospection, TransactionControl,
+    AdminCommands, ProviderConfig, SchemaIntrospection, Storage, StorageBackend, TransactionControl,
   };
   pub use crate::query::{Filter, OrderBy, Projection, QueryBuilder, SortDirection};
   pub use crate::relations::{

@@ -1,6 +1,6 @@
 use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::repository::Repository;
 use std::marker::PhantomData;
 use std::sync::Mutex;
@@ -14,12 +14,12 @@ pub enum TransactionState {
 }
 
 /// Transaction wrapper that tracks state and wraps a provider.
-pub struct Transaction<P: DatabaseProvider> {
+pub struct Transaction<P: Storage> {
   state: Mutex<TransactionState>,
   _provider: PhantomData<P>,
 }
 
-impl<P: DatabaseProvider> Transaction<P> {
+impl<P: Storage> Transaction<P> {
   pub async fn begin() -> OrmResult<Self> {
     Ok(Self {
       state: Mutex::new(TransactionState::Pending),
@@ -77,10 +77,19 @@ impl<P: DatabaseProvider> Transaction<P> {
   }
 }
 
+impl<P: Storage> std::fmt::Debug for Transaction<P> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let state = self.state.lock().map_err(|_| std::fmt::Error)?;
+    f.debug_struct("Transaction")
+      .field("state", &*state)
+      .finish()
+  }
+}
+
 impl<E, P> Repository<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   /// Execute a closure within a transaction.
   pub async fn with_transaction<F, R>(&self, f: F) -> OrmResult<R>

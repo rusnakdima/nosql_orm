@@ -1,5 +1,6 @@
 use crate::query::Filter;
 use std::collections::HashMap;
+use std::fmt::{self, Display, Formatter};
 use std::sync::RwLock;
 
 pub struct QueryStatistics {
@@ -46,9 +47,7 @@ impl QueryStatistics {
 
   pub fn record(&self, collection: &str, duration_ms: f64, filter: &Filter) {
     let mut guard = self.by_collection.write().unwrap();
-    let stats = guard
-      .entry(collection.to_string())
-      .or_insert_with(CollectionStats::new);
+    let stats = guard.entry(collection.to_string()).or_default();
 
     stats.total_queries += 1;
     if duration_ms > 100.0 {
@@ -87,42 +86,42 @@ impl Default for QueryStatistics {
   }
 }
 
-impl Filter {
-  pub fn to_string(&self) -> String {
+impl Display for Filter {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
-      Filter::Eq(field, val) => format!("{} = {}", field, val),
-      Filter::Ne(field, val) => format!("{} != {}", field, val),
-      Filter::Gt(field, val) => format!("{} > {}", field, val),
-      Filter::Gte(field, val) => format!("{} >= {}", field, val),
-      Filter::Lt(field, val) => format!("{} < {}", field, val),
-      Filter::Lte(field, val) => format!("{} <= {}", field, val),
-      Filter::In(field, vals) => format!("{} IN {:?}", field, vals),
-      Filter::NotIn(field, vals) => format!("{} NOT IN {:?}", field, vals),
-      Filter::ArrayContains(field, val) => format!("{} ARRAY_CONTAINS {:?}", field, val),
-      Filter::Contains(field, sub) => format!("{} CONTAINS {:?}", field, sub),
-      Filter::StartsWith(field, prefix) => format!("{} STARTS WITH {:?}", field, prefix),
-      Filter::EndsWith(field, suffix) => format!("{} ENDS WITH {:?}", field, suffix),
-      Filter::Like(field, pattern) => format!("{} LIKE {:?}", field, pattern),
-      Filter::IsNull(field) => format!("{} IS NULL", field),
-      Filter::IsNotNull(field) => format!("{} IS NOT NULL", field),
-      Filter::Between(field, min, max) => format!("{} BETWEEN {:?} AND {:?}", field, min, max),
+      Filter::Eq(field, val) => write!(f, "{} = {}", field, val),
+      Filter::Ne(field, val) => write!(f, "{} != {}", field, val),
+      Filter::Gt(field, val) => write!(f, "{} > {}", field, val),
+      Filter::Gte(field, val) => write!(f, "{} >= {}", field, val),
+      Filter::Lt(field, val) => write!(f, "{} < {}", field, val),
+      Filter::Lte(field, val) => write!(f, "{} <= {}", field, val),
+      Filter::In(field, vals) => write!(f, "{} IN {:?}", field, vals),
+      Filter::NotIn(field, vals) => write!(f, "{} NOT IN {:?}", field, vals),
+      Filter::ArrayContains(field, val) => write!(f, "{} ARRAY_CONTAINS {:?}", field, val),
+      Filter::Contains(field, sub) => write!(f, "{} CONTAINS {:?}", field, sub),
+      Filter::StartsWith(field, prefix) => write!(f, "{} STARTS WITH {:?}", field, prefix),
+      Filter::EndsWith(field, suffix) => write!(f, "{} ENDS WITH {:?}", field, suffix),
+      Filter::Like(field, pattern) => write!(f, "{} LIKE {:?}", field, pattern),
+      Filter::IsNull(field) => write!(f, "{} IS NULL", field),
+      Filter::IsNotNull(field) => write!(f, "{} IS NOT NULL", field),
+      Filter::Between(field, min, max) => write!(f, "{} BETWEEN {:?} AND {:?}", field, min, max),
       Filter::And(filters) => {
         let inner = filters
           .iter()
-          .map(|f| f.to_string())
+          .map(|f| format!("{}", f))
           .collect::<Vec<_>>()
           .join(" AND ");
-        format!("({})", inner)
+        write!(f, "({})", inner)
       }
       Filter::Or(filters) => {
         let inner = filters
           .iter()
-          .map(|f| f.to_string())
+          .map(|f| format!("{}", f))
           .collect::<Vec<_>>()
           .join(" OR ");
-        format!("({})", inner)
+        write!(f, "({})", inner)
       }
-      Filter::Not(inner) => format!("NOT ({})", inner.to_string()),
+      Filter::Not(inner) => write!(f, "NOT ({})", inner),
     }
   }
 }

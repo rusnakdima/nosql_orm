@@ -1,9 +1,9 @@
 use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
-  TransactionControl, TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
+  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
+  TransactionId,
 };
 use crate::query::Filter;
 use crate::utils::generate_id;
@@ -133,7 +133,7 @@ impl MongoProvider {
 }
 
 #[async_trait]
-impl DatabaseProvider for MongoProvider {
+impl Storage for MongoProvider {
   async fn insert(&self, collection: &str, mut doc: Value) -> OrmResult<Value> {
     if doc
       .get("id")
@@ -168,8 +168,7 @@ impl DatabaseProvider for MongoProvider {
   ) -> OrmResult<Vec<Value>> {
     use futures_util::TryStreamExt;
     let query = filter
-      .as_ref()
-      .map(|f| Self::filter_to_doc(f))
+      .map(Self::filter_to_doc)
       .transpose()?
       .unwrap_or_else(Document::new);
     let mut opts = FindOptions::default();
@@ -216,8 +215,7 @@ impl DatabaseProvider for MongoProvider {
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
     let query = filter
-      .as_ref()
-      .map(|f| Self::filter_to_doc(f))
+      .map(Self::filter_to_doc)
       .transpose()?
       .unwrap_or_else(Document::new);
     let coll = self.db.collection::<Document>(collection);
@@ -233,7 +231,7 @@ impl DatabaseProvider for MongoProvider {
     let coll = self.db.collection::<Document>(collection);
     let query = filter
       .as_ref()
-      .map(|f| Self::filter_to_doc(f))
+      .map(Self::filter_to_doc)
       .transpose()?
       .unwrap_or_else(Document::new);
     let update_doc = Self::json_to_bson(updates)?;
@@ -247,7 +245,7 @@ impl DatabaseProvider for MongoProvider {
     let coll = self.db.collection::<Document>(collection);
     let query = filter
       .as_ref()
-      .map(|f| Self::filter_to_doc(f))
+      .map(Self::filter_to_doc)
       .transpose()?
       .unwrap_or_else(Document::new);
     let result = coll.delete_many(query, None).await?;
@@ -524,5 +522,20 @@ impl TransactionControl for MongoProvider {
   async fn is_transaction_active(&self) -> OrmResult<bool> {
     let guard = self.transaction_manager.lock().await;
     Ok(guard.is_some())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  #[ignore]
+  #[tokio::test]
+  async fn mongo_insert_requires_live_server() {
+    todo!()
+  }
+
+  #[ignore]
+  #[tokio::test]
+  async fn mongo_find_by_id_requires_live_server() {
+    todo!()
   }
 }

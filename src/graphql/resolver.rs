@@ -1,5 +1,5 @@
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::query::Filter;
 use serde_json::Value;
 
@@ -54,11 +54,11 @@ impl GraphQLResolver for SimpleResolver {
   }
 }
 
-pub struct ProviderResolver<P: DatabaseProvider> {
+pub struct ProviderResolver<P: Storage> {
   provider: P,
 }
 
-impl<P: DatabaseProvider> ProviderResolver<P> {
+impl<P: Storage> ProviderResolver<P> {
   pub fn new(provider: P) -> Self {
     Self { provider }
   }

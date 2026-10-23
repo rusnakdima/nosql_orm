@@ -2,12 +2,12 @@
 
 use crate::error::OrmResult;
 use crate::nosql_index::definition::NosqlIndex;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 
 /// Index manager for managing collection indexes.
 ///
 /// Provides a convenient API for creating and managing indexes
-/// on collections backed by a DatabaseProvider.
+/// on collections backed by a Storage.
 ///
 /// # Example
 ///
@@ -25,11 +25,11 @@ use crate::provider::DatabaseProvider;
 /// manager.sync_from_entity::<User>("users").await?;
 /// ```
 #[derive(Clone)]
-pub struct IndexManager<P: DatabaseProvider> {
+pub struct IndexManager<P: Storage> {
   provider: P,
 }
 
-impl<P: DatabaseProvider> IndexManager<P> {
+impl<P: Storage> IndexManager<P> {
   /// Create a new index manager with the given provider.
   pub fn new(provider: P) -> Self {
     Self { provider }

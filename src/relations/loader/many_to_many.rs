@@ -1,5 +1,5 @@
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::query::Filter;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use super::super::helpers::{apply_filter, filter_not_deleted, inject_collection};
 use super::super::types::RelationDef;
 
-pub async fn load<P: DatabaseProvider>(
+pub async fn load<P: Storage>(
   provider: P,
   docs: &mut [Value],
   relation: &RelationDef,

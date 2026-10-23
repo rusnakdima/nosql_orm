@@ -1,12 +1,13 @@
 use crate::error::OrmResult;
 use crate::logging::LoggingStrategy;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::providers::JsonProvider;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -71,34 +72,36 @@ impl DbQueryLogger {
 
   async fn insert_log(&self, log_entry: Value) -> OrmResult<()> {
     if !self.is_enabled().await {
-      eprintln!("[DbQueryLogger] insert_log skipped - logging disabled");
+      tracing::warn!("[DbQueryLogger] insert_log skipped - logging disabled");
       return Ok(());
     }
-    eprintln!(
+    tracing::warn!(
       "[DbQueryLogger] insert_log to collection '{}': {:?}",
-      self.collection_name, log_entry
+      self.collection_name,
+      log_entry
     );
     let result = self.inner.insert(&self.collection_name, log_entry).await;
     match &result {
-      Ok(_) => eprintln!("[DbQueryLogger] log inserted successfully"),
-      Err(e) => eprintln!("[DbQueryLogger] log insert failed: {}", e),
+      Ok(_) => tracing::warn!("[DbQueryLogger] log inserted successfully"),
+      Err(e) => tracing::error!("[DbQueryLogger] log insert failed: {}", e),
     }
     if let Err(e) = self.trim_logs_if_needed().await {
-      eprintln!("[DbQueryLogger] trim failed: {}", e);
+      tracing::error!("[DbQueryLogger] trim failed: {}", e);
     }
     Ok(())
   }
 
   async fn trim_logs_if_needed(&self) -> OrmResult<()> {
     let count = self.inner.count(&self.collection_name, None).await?;
-    eprintln!(
+    tracing::warn!(
       "[DbQueryLogger] trim_logs_if_needed: count={} max={}",
-      count, self.max_logs
+      count,
+      self.max_logs
     );
     if count as usize > self.max_logs {
-      eprintln!("[DbQueryLogger] TRIMMING logs - deleting all entries");
+      tracing::warn!("[DbQueryLogger] TRIMMING logs - deleting all entries");
       let _ = self.inner.delete_many(&self.collection_name, None).await;
-      eprintln!("[DbQueryLogger] trim complete");
+      tracing::warn!("[DbQueryLogger] trim complete");
     }
     Ok(())
   }
@@ -131,16 +134,20 @@ impl DbQueryLogger {
 #[async_trait]
 impl LoggingStrategy for DbQueryLogger {
   async fn log_start(&self, operation: &str, collection: &str) {
-    eprintln!(
+    tracing::warn!(
       "[DbQueryLogger] {} collection={} - starting",
-      operation, collection
+      operation,
+      collection
     );
   }
 
   async fn log_complete(&self, operation: &str, collection: &str, duration_ms: u64, success: bool) {
-    eprintln!(
+    tracing::warn!(
       "[DbQueryLogger] {} collection={} duration={}ms success={}",
-      operation, collection, duration_ms, success
+      operation,
+      collection,
+      duration_ms,
+      success
     );
 
     let level = if success { "INFO" } else { "ERROR" }.to_string();
@@ -159,9 +166,11 @@ impl LoggingStrategy for DbQueryLogger {
   }
 
   async fn log_error(&self, operation: &str, collection: &str, error: &str) {
-    eprintln!(
+    tracing::error!(
       "[DbQueryLogger] {} collection={} ERROR: {}",
-      operation, collection, error
+      operation,
+      collection,
+      error
     );
 
     let log_entry = self.build_log_entry(LogEntry {

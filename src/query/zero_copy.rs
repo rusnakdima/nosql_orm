@@ -49,7 +49,7 @@ impl DirectDeserializer {
     }
   }
 
-  pub fn deserialize_str<'a>(value: &'a Value) -> Option<&'a str> {
+  pub fn deserialize_str(value: &Value) -> Option<&str> {
     match value {
       Value::String(s) => Some(s.as_str()),
       _ => None,
@@ -113,28 +113,28 @@ impl TypedArrayDeserializer {
   pub fn deserialize_strings(values: &[Value]) -> Vec<String> {
     values
       .iter()
-      .filter_map(|v| DirectDeserializer::deserialize_string(v))
+      .filter_map(DirectDeserializer::deserialize_string)
       .collect()
   }
 
   pub fn deserialize_i64s(values: &[Value]) -> Vec<i64> {
     values
       .iter()
-      .filter_map(|v| DirectDeserializer::deserialize_i64(v))
+      .filter_map(DirectDeserializer::deserialize_i64)
       .collect()
   }
 
   pub fn deserialize_u64s(values: &[Value]) -> Vec<u64> {
     values
       .iter()
-      .filter_map(|v| DirectDeserializer::deserialize_u64(v))
+      .filter_map(DirectDeserializer::deserialize_u64)
       .collect()
   }
 
   pub fn deserialize_f64s(values: &[Value]) -> Vec<f64> {
     values
       .iter()
-      .filter_map(|v| DirectDeserializer::deserialize_f64(v))
+      .filter_map(DirectDeserializer::deserialize_f64)
       .collect()
   }
 }

@@ -131,7 +131,7 @@ impl SubscriptionManager {
         if self
           .subscriptions
           .get(&topic_id)
-          .map_or(true, |s| s.is_empty())
+          .is_none_or(|s| s.is_empty())
         {
           self.subscriptions.remove(&topic_id);
         }

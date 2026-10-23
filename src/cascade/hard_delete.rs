@@ -2,13 +2,13 @@ use std::collections::HashSet;
 
 use crate::entity::Entity;
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::query::Filter;
 use crate::relations::{RelationDef, RelationType, WithRelations};
 
 use crate::cascade::helpers::{cascade_value, insert_cascade_id, CascadeEntityRef};
 
-impl<P: DatabaseProvider> crate::CascadeManager<P> {
+impl<P: Storage> crate::CascadeManager<P> {
   pub async fn hard_delete_cascade<E: Entity + WithRelations>(
     &self,
     entity_id: &str,

@@ -1,5 +1,7 @@
+use nosql_orm::error::OrmResult;
 use nosql_orm::prelude::*;
 use nosql_orm::sql::{SqlColumnDef, SqlColumnType};
+use nosql_orm::validators::Validate as ValidateTrait;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +30,12 @@ impl Entity for User {
       SqlColumnDef::new("email", SqlColumnType::VarChar(255)).unique(),
       SqlColumnDef::new("age", SqlColumnType::Integer),
     ]
+  }
+}
+
+impl ValidateTrait for User {
+  fn validate(&self) -> OrmResult<()> {
+    Ok(())
   }
 }
 

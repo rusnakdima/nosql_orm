@@ -1,3 +1,5 @@
+use nosql_orm::error::OrmResult;
+use nosql_orm::provider::Storage;
 use nosql_orm::providers::redis::RedisProvider;
 
 async fn setup_redis_provider() -> OrmResult<RedisProvider> {
@@ -6,8 +8,12 @@ async fn setup_redis_provider() -> OrmResult<RedisProvider> {
   RedisProvider::new(&connection_string).await
 }
 
-fn setup_redis_provider_with_prefix(prefix: &str) -> OrmResult<RedisProvider> {
-  Ok(RedisProvider::new("redis://127.0.0.1:6379")?.with_prefix(prefix))
+async fn setup_redis_provider_with_prefix(prefix: &str) -> OrmResult<RedisProvider> {
+  Ok(
+    RedisProvider::new("redis://127.0.0.1:6379")
+      .await?
+      .with_prefix(prefix),
+  )
 }
 
 #[tokio::test]
@@ -21,11 +27,11 @@ async fn test_redis_provider_connection() {
 
 #[tokio::test]
 async fn test_redis_with_prefix() {
-  let provider_result = setup_redis_provider().await;
+  let provider_result = setup_redis_provider_with_prefix("test:").await;
   if provider_result.is_err() {
     return;
   }
-  let provider = provider_result.unwrap().with_prefix("test:");
+  let provider = provider_result.unwrap();
   let _ = provider;
 }
 
@@ -140,8 +146,8 @@ async fn test_redis_update() {
   let updated = provider
     .update(
       &collection,
-      serde_json::json!({"name": "Alice", "age": 26}),
       id,
+      serde_json::json!({"name": "Alice", "age": 26}),
     )
     .await
     .unwrap();
@@ -184,7 +190,7 @@ async fn test_redis_count() {
   let provider = provider_result.unwrap();
   let collection = format!("test_users_{}", uuid::Uuid::new_v4());
 
-  assert_eq!(provider.count(&collection).await.unwrap(), 0);
+  assert_eq!(provider.count(&collection, None).await.unwrap(), 0);
 
   provider
     .insert(&collection, serde_json::json!({"name": "Alice"}))
@@ -195,7 +201,7 @@ async fn test_redis_count() {
     .await
     .unwrap();
 
-  assert_eq!(provider.count(&collection).await.unwrap(), 2);
+  assert_eq!(provider.count(&collection, None).await.unwrap(), 2);
 
   let _ = provider.delete(&collection, "nonexistent").await;
 }
@@ -244,5 +250,3 @@ async fn test_redis_find_all() {
 
   let _ = provider.delete(&collection, "nonexistent").await;
 }
-
-use nosql_orm::error::OrmResult;

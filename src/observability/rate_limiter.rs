@@ -243,6 +243,7 @@ impl std::fmt::Debug for RateLimiter {
   }
 }
 
+#[allow(dead_code)]
 pub struct DistributedRateLimiter {
   name: String,
   local_limiter: RateLimiter,

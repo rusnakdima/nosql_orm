@@ -103,7 +103,7 @@ pub fn is_relation_registry_empty() -> bool {
     Ok(g) => g,
     Err(_) => return true,
   };
-  guard.as_ref().map_or(true, |r| r.is_empty())
+  guard.as_ref().is_none_or(|r| r.is_empty())
 }
 
 pub fn is_registered_collections_empty() -> bool {
@@ -111,7 +111,7 @@ pub fn is_registered_collections_empty() -> bool {
     Ok(g) => g,
     Err(_) => return true,
   };
-  guard.as_ref().map_or(true, |r| r.is_empty())
+  guard.as_ref().is_none_or(|r| r.is_empty())
 }
 
 pub fn is_all_empty() -> bool {

@@ -3,9 +3,9 @@
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
-  TransactionControl, TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
+  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
+  TransactionId,
 };
 use crate::providers::sql::row;
 use crate::query::Filter;
@@ -16,7 +16,6 @@ use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// PostgreSQL-backed provider.
 #[derive(Clone)]
@@ -62,7 +61,7 @@ impl PostgresProvider {
 }
 
 #[async_trait]
-impl DatabaseProvider for PostgresProvider {
+impl Storage for PostgresProvider {
   async fn insert(&self, collection: &str, mut doc: Value) -> OrmResult<Value> {
     let id = match doc["id"].as_str() {
       Some(s) => s.to_string(),
@@ -146,12 +145,14 @@ impl DatabaseProvider for PostgresProvider {
       ));
     }
 
-    if let Some(s) = skip {
-      sql.push_str(&format!(" OFFSET {}", s));
-    }
-
+    // SQL reads "LIMIT n OFFSET m" — the other order is a syntax error on
+    // SQLite and MySQL.
     if let Some(l) = limit {
       sql.push_str(&format!(" LIMIT {}", l));
+    }
+
+    if let Some(s) = skip {
+      sql.push_str(&format!(" OFFSET {}", s));
     }
 
     let client = map_err_connection(self.pool.get().await)?;
@@ -213,7 +214,9 @@ impl DatabaseProvider for PostgresProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
+      let clause = self.query_builder.filter_to_sql(f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(clause.as_str());
     }
 
     let client = map_err_connection(self.pool.get().await)?;
@@ -239,7 +242,9 @@ impl DatabaseProvider for PostgresProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
+      let clause = self.query_builder.filter_to_sql(&f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(clause.as_str());
     }
 
     let client = map_err_connection(self.pool.get().await)?;
@@ -253,7 +258,9 @@ impl DatabaseProvider for PostgresProvider {
     let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
+      let clause = self.query_builder.filter_to_sql(&f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(clause.as_str());
     }
 
     let client = map_err_connection(self.pool.get().await)?;

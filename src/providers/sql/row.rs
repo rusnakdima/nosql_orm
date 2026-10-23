@@ -4,13 +4,19 @@ use crate::providers::sql::utils::base64_encode;
 use serde_json::Value;
 
 /// Convert a SQLite row to JSON value.
+///
+/// The keys are the row's own column names: a record that comes back from a
+/// database must carry the fields the table has, or nothing that reads it —
+/// a filter, an update, a table in the app — can address a column.
 #[cfg(feature = "sql-sqlite")]
 pub fn row_to_json_sqlite(row: &rusqlite::Row) -> Result<Value, rusqlite::Error> {
   use rusqlite::types::ValueRef;
   let mut map = serde_json::Map::new();
 
-  for idx in 0..16 {
-    let col_name = format!("col_{}", idx);
+  let statement = row.as_ref();
+  let names = statement.column_names();
+  for (idx, name) in names.iter().enumerate() {
+    let col_name = name.to_string();
     let value = match row.get_ref(idx) {
       Ok(ValueRef::Null) => serde_json::Value::Null,
       Ok(ValueRef::Integer(i)) => serde_json::json!(i),
@@ -21,7 +27,7 @@ pub fn row_to_json_sqlite(row: &rusqlite::Row) -> Result<Value, rusqlite::Error>
       Ok(ValueRef::Blob(b)) => {
         serde_json::json!(base64_encode(b))
       }
-      Err(_) => break,
+      Err(e) => return Err(e),
     };
     map.insert(col_name, value);
   }

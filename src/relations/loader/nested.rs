@@ -1,12 +1,12 @@
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use serde_json::Value;
 
 use super::super::registry::{get_registered_collection_relations, get_relation_def};
 use super::super::types::RelationType;
 use super::RelationLoader;
 
-pub async fn load_recursive<P: DatabaseProvider>(
+pub async fn load_recursive<P: Storage>(
   provider: P,
   mut docs: Vec<Value>,
   path_segments: &[&str],

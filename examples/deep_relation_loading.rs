@@ -312,9 +312,7 @@ impl DeepLoader {
       let provider = self.get_provider(table);
 
       if is_first {
-        let all = provider
-          .find_many(table, None, None, None, None, true)
-          .await?;
+        let all = Storage::find_many(provider, table, None, None, None, None, true).await?;
         if let Some(first) = all.first() {
           let _next_id = first
             .get("id")

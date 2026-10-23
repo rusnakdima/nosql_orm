@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 
 /// Migration metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ pub struct MigrationMeta {
 
 /// A single migration (up and down)
 #[async_trait]
-pub trait Migration<P: DatabaseProvider>: Send + Sync {
+pub trait Migration<P: Storage>: Send + Sync {
   /// Migration version (e.g., 1, 2, 20240101000000)
   fn version(&self) -> i64;
 
@@ -49,7 +49,7 @@ impl SqlMigration {
 }
 
 #[async_trait]
-impl<P: DatabaseProvider> Migration<P> for SqlMigration {
+impl<P: Storage> Migration<P> for SqlMigration {
   fn version(&self) -> i64 {
     self.version
   }
@@ -92,7 +92,7 @@ impl JsonMigration {
 }
 
 #[async_trait]
-impl<P: DatabaseProvider> Migration<P> for JsonMigration {
+impl<P: Storage> Migration<P> for JsonMigration {
   fn version(&self) -> i64 {
     self.version
   }

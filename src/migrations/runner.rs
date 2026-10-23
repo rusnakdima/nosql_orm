@@ -1,19 +1,19 @@
 use chrono::Utc;
 
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 
 use super::migration::{Migration, MigrationMeta};
 
 const MIGRATIONS_COLLECTION: &str = "_migrations";
 
 /// Runs migrations against a provider
-pub struct MigrationRunner<P: DatabaseProvider> {
+pub struct MigrationRunner<P: Storage> {
   provider: P,
   migrations: Vec<Box<dyn Migration<P>>>,
 }
 
-impl<P: DatabaseProvider> MigrationRunner<P> {
+impl<P: Storage> MigrationRunner<P> {
   pub fn new(provider: P) -> Self {
     Self {
       provider,
@@ -33,7 +33,7 @@ impl<P: DatabaseProvider> MigrationRunner<P> {
         metas.push(meta);
       }
     }
-    metas.sort_by(|a, b| a.version.cmp(&b.version));
+    metas.sort_by_key(|a| a.version);
     Ok(metas)
   }
 

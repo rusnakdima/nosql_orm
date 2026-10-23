@@ -28,6 +28,7 @@ clickhouse = []
 cockroach = []
 dynamodb = []
 
+
 validators = []
 opentelemetry = ["dep:opentelemetry"]
 
@@ -60,6 +61,28 @@ nosql_orm_derive = { path = "nosql_orm_derive" }
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 proptest = "1"
+tracing-test = "0.2"
+parking_lot = "0.12"
+
+[[test]]
+name = "test_sqlite_integration"
+path = "tests/test_sqlite_integration.rs"
+required-features = ["sql-sqlite"]
+
+[[test]]
+name = "test_postgres_integration"
+path = "tests/test_postgres_integration.rs"
+required-features = ["sql-postgres"]
+
+[[test]]
+name = "test_mysql_integration"
+path = "tests/test_mysql_integration.rs"
+required-features = ["sql-mysql"]
+
+[[test]]
+name = "test_redis_provider"
+path = "tests/test_redis_provider.rs"
+required-features = ["redis"]
 
 [[example]]
 name = "json_example"

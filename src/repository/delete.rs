@@ -1,7 +1,7 @@
 use crate::cascade::CascadeManager;
 use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::relations::WithRelations;
 use crate::soft_delete::SoftDeletable;
 use std::collections::HashSet;
@@ -11,7 +11,7 @@ use super::Repository;
 impl<E, P> Repository<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub async fn delete(&self, id: impl AsRef<str>) -> OrmResult<bool>
   where

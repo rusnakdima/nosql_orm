@@ -1,4 +1,4 @@
-use crate::error::{OrmError, OrmResult};
+use crate::error::OrmError;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
 use serde_json::Value;

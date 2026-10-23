@@ -1,25 +1,26 @@
+use nosql_orm::provider::Storage;
 use nosql_orm::providers::json::JsonProvider;
-use nosql_orm::relations::loader::cascade::load;
 use nosql_orm::relations::loader::RelationLoader;
 use nosql_orm::relations::registry::{
   clear_relation_registry, get_relation_def, register_collection_relations,
 };
-use nosql_orm::relations::{RelationDef, RelationLoader as RelLoaderTrait, RelationType};
+use nosql_orm::relations::{RelationDef, RelationType, RelationValue};
 use serde_json::json;
 
-fn create_test_loader() -> RelationLoader<JsonProvider> {
+async fn create_test_loader() -> (RelationLoader<JsonProvider>, tempfile::TempDir) {
   let temp_dir = tempfile::TempDir::new().unwrap();
-  let provider = JsonProvider::new(temp_dir.path()).unwrap();
-  RelationLoader::new(provider)
+  let provider = JsonProvider::new(temp_dir.path()).await.unwrap();
+  (RelationLoader::new(provider), temp_dir)
 }
 
 #[tokio::test]
 async fn test_cascade_load_with_no_relations() {
   clear_relation_registry();
 
-  let loader = create_test_loader();
+  let (loader, _tmp) = create_test_loader().await;
   let doc = json!({"name": "test"});
-  let results = load(loader.provider(), &doc, "users", "", true, &loader)
+  let results = loader
+    .load_cascade_for_entity(&doc, "users", "", true)
     .await
     .unwrap();
   assert!(results.is_empty());
@@ -38,17 +39,11 @@ async fn test_cascade_load_unknown_relation() {
     )],
   );
 
-  let loader = create_test_loader();
+  let (loader, _tmp) = create_test_loader().await;
   let doc = json!({"name": "test", "_collection": "users"});
-  let result = load(
-    loader.provider(),
-    &doc,
-    "users",
-    "nonexistent",
-    true,
-    &loader,
-  )
-  .await;
+  let result = loader
+    .load_cascade_for_entity(&doc, "users", "nonexistent", true)
+    .await;
   assert!(result.is_err());
 }
 
@@ -56,9 +51,10 @@ async fn test_cascade_load_unknown_relation() {
 async fn test_cascade_load_empty_path() {
   clear_relation_registry();
 
-  let loader = create_test_loader();
+  let (loader, _tmp) = create_test_loader().await;
   let doc = json!({"name": "test", "_collection": "users"});
-  let results = load(loader.provider(), &doc, "users", "", true, &loader)
+  let results = loader
+    .load_cascade_for_entity(&doc, "users", "", true)
     .await
     .unwrap();
   assert!(results.is_empty());
@@ -77,7 +73,7 @@ async fn test_relation_def_many_to_one() {
   assert_eq!(rel.relation_type, RelationType::ManyToOne);
   assert_eq!(rel.name, "author");
   assert_eq!(rel.target_collection, "users");
-  assert_eq!(rel.source_key, "author_id");
+  assert_eq!(rel.local_key, "author_id");
 }
 
 #[tokio::test]
@@ -145,9 +141,11 @@ async fn test_cascade_load_with_single_segment_path() {
     )],
   );
 
-  let loader = create_test_loader();
+  let (loader, _tmp) = create_test_loader().await;
   let doc = json!({"name": "test", "_collection": "users"});
-  let results = load(loader.provider(), &doc, "users", "profile", true, &loader).await;
+  let results = loader
+    .load_cascade_for_entity(&doc, "users", "profile", true)
+    .await;
   assert!(results.is_ok());
 }
 
@@ -155,7 +153,7 @@ async fn test_cascade_load_with_single_segment_path() {
 async fn test_relation_def_builder_method_chaining() {
   clear_relation_registry();
 
-  let rel = RelationDef::many_to_one("author", "users", "author_id").target_key("id");
+  let rel = RelationDef::many_to_one("author", "users", "author_id");
 
   assert_eq!(rel.name, "author");
   assert_eq!(rel.target_collection, "users");
@@ -163,18 +161,15 @@ async fn test_relation_def_builder_method_chaining() {
 
 #[tokio::test]
 async fn test_relation_loader_provider() {
-  let loader = create_test_loader();
+  let (loader, _tmp) = create_test_loader().await;
   let _provider = loader.provider();
 }
-
-use nosql_orm::provider::DatabaseProvider;
-use nosql_orm::relations::RelationValue;
 
 #[tokio::test]
 async fn test_relation_loader_insert() {
   let temp_dir = tempfile::TempDir::new().unwrap();
-  let provider = JsonProvider::new(temp_dir.path()).unwrap();
-  let loader = RelationLoader::new(provider);
+  let provider = JsonProvider::new(temp_dir.path()).await.unwrap();
+  let loader = RelationLoader::new(provider.clone());
 
   let doc = json!({"name": "Test User"});
   let collection = "users";
@@ -186,18 +181,24 @@ async fn test_relation_loader_insert() {
     .await
     .unwrap();
   assert!(found.is_none());
+
+  // The loader shares the same provider instance.
+  let _ = loader.provider();
 }
 
 #[tokio::test]
 async fn test_relation_value_single() {
-  let single = RelationValue::Single(Some(Box::new(json!({"name": "test"}))));
-  assert!(single.is_some());
+  let single = RelationValue::Single(Some(json!({"name": "test"})));
+  assert!(matches!(single, RelationValue::Single(Some(_))));
 }
 
 #[tokio::test]
 async fn test_relation_value_many() {
   let many = RelationValue::Many(vec![json!({"name": "test1"}), json!({"name": "test2"})]);
-  assert_eq!(many.len(), 2);
+  match many {
+    RelationValue::Many(v) => assert_eq!(v.len(), 2),
+    _ => panic!("expected many"),
+  }
 }
 
 #[tokio::test]
@@ -219,13 +220,6 @@ async fn test_relation_registry_clear() {
   assert!(rel.is_none());
 }
 
-use nosql_orm::error::OrmResult;
-
-use nosql_orm::provider::DatabaseProvider;
-use nosql_orm::relations::types::RelationValue;
-
-use nosql_orm::relations::RelationValue;
-
 fn relation_value_to_json(rv: &RelationValue) -> serde_json::Value {
   match rv {
     RelationValue::Single(opt) => {
@@ -241,11 +235,14 @@ fn relation_value_to_json(rv: &RelationValue) -> serde_json::Value {
 
 #[test]
 fn test_relation_value_debug() {
-  let single = RelationValue::Single(Some(Box::new(json!({"name": "test"}))));
+  let single = RelationValue::Single(Some(json!({"name": "test"})));
   let debug = format!("{:?}", single);
   assert!(debug.contains("Single"));
 
   let many = RelationValue::Many(vec![]);
   let debug = format!("{:?}", many);
   assert!(debug.contains("Many"));
+
+  let _ = relation_value_to_json(&single);
+  let _ = relation_value_to_json(&many);
 }

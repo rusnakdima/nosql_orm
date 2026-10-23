@@ -1,17 +1,15 @@
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::query::Filter;
 use serde_json::Value;
 use std::time::Duration;
 
-pub struct FallbackProvider<P1: DatabaseProvider, P2: DatabaseProvider> {
+pub struct FallbackProvider<P1: Storage, P2: Storage> {
   pub primary: P1,
   pub fallback: P2,
 }
 
-impl<P1: DatabaseProvider + Send + Sync, P2: DatabaseProvider + Send + Sync>
-  FallbackProvider<P1, P2>
-{
+impl<P1: Storage + Send + Sync, P2: Storage + Send + Sync> FallbackProvider<P1, P2> {
   pub async fn find_with_fallback(
     &self,
     collection: &str,
@@ -31,10 +29,10 @@ impl<P1: DatabaseProvider + Send + Sync, P2: DatabaseProvider + Send + Sync>
       }
       Ok(Ok(_)) => {}
       Ok(Err(e)) => {
-        eprintln!("Primary provider error: {}", e);
+        tracing::warn!("Primary provider error: {}", e);
       }
       Err(_) => {
-        eprintln!("Primary provider timeout");
+        tracing::warn!("Primary provider timeout");
       }
     }
 
@@ -67,10 +65,10 @@ impl<P1: DatabaseProvider + Send + Sync, P2: DatabaseProvider + Send + Sync>
         }
       }
       Ok(Err(e)) => {
-        eprintln!("Primary provider error: {}", e);
+        tracing::warn!("Primary provider error: {}", e);
       }
       Err(_) => {
-        eprintln!("Primary provider timeout");
+        tracing::warn!("Primary provider timeout");
       }
     }
 
@@ -83,6 +81,10 @@ impl<P1: DatabaseProvider + Send + Sync, P2: DatabaseProvider + Send + Sync>
 
 pub mod json;
 pub mod sync;
+pub mod variant;
+
+pub mod backend;
+pub use backend::{connect_backend, connect_by_name, BackendKind, ConnectionParts};
 
 #[cfg(feature = "mongo")]
 pub mod mongo;

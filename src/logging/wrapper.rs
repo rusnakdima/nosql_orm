@@ -1,6 +1,6 @@
 use crate::error::OrmResult;
 use crate::nosql_index::NosqlIndex;
-use crate::provider::{DatabaseProvider, IndexInfo};
+use crate::provider::{IndexInfo, Storage};
 use crate::query::Filter;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -26,9 +26,7 @@ impl<P, L> ProviderWrapper<P, L> {
 }
 
 #[async_trait]
-impl<P: DatabaseProvider, L: LoggingStrategy + Clone + 'static> DatabaseProvider
-  for ProviderWrapper<P, L>
-{
+impl<P: Storage, L: LoggingStrategy + Clone + 'static> Storage for ProviderWrapper<P, L> {
   async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
     let start = Instant::now();
     self.logger.log_start("INSERT", collection).await;

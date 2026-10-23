@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod sqlite_integration_tests {
-  use nosql_orm::error::OrmError;
   use nosql_orm::prelude::*;
   use nosql_orm::providers::sql::SqliteProvider;
   use nosql_orm::relations::WithRelations;
+  use nosql_orm::soft_delete::SoftDeletable;
   use nosql_orm::validators::Validate;
   use serde::{Deserialize, Serialize};
   use std::fs;
@@ -75,15 +75,11 @@ mod sqlite_integration_tests {
     }
   }
 
-  impl SoftDeletes for TestNote {
+  impl SoftDeletable for TestNote {
     fn deleted_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
       None
     }
     fn set_deleted_at(&mut self, _t: Option<chrono::DateTime<chrono::Utc>>) {}
-    fn restore(&mut self) {}
-    fn is_deleted(&self) -> bool {
-      false
-    }
   }
 
   impl TestNote {
@@ -105,10 +101,12 @@ mod sqlite_integration_tests {
     let _ = fs::remove_file(db_path);
 
     let provider = SqliteProvider::connect(db_path).await?;
-    provider.execute_raw(
-            "CREATE TABLE test_notes (id TEXT PRIMARY KEY, title TEXT, content TEXT, priority INTEGER, completed INTEGER, tags TEXT, created_at TEXT, updated_at TEXT)",
-            vec![],
-        ).await?;
+    AdminCommands::execute_raw(
+      &provider,
+      "CREATE TABLE test_notes (id TEXT PRIMARY KEY, title TEXT, content TEXT, priority INTEGER, completed INTEGER, tags TEXT, created_at TEXT, updated_at TEXT)",
+      vec![],
+    )
+    .await?;
     let repo: Repository<TestNote, _> = Repository::new(provider);
     Ok(repo)
   }
@@ -368,6 +366,8 @@ mod sqlite_integration_tests {
 
     let remaining = repo.count().await?;
     assert_eq!(remaining, 2);
+
+    cleanup_notes(&repo).await?;
 
     let _ = fs::remove_file(&db_path);
 

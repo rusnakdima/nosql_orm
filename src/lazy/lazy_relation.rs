@@ -1,6 +1,6 @@
 use crate::entity::Entity;
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::relations::RelationDef;
 use crate::repository::Repository;
 use std::pin::Pin;
@@ -73,7 +73,7 @@ impl<T> Clone for Lazy<T> {
 pub struct LazyRelation<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   repo: Weak<Repository<E, P>>,
   local_id: String,
@@ -83,7 +83,7 @@ where
 impl<E, P> LazyRelation<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub fn new(repo: Arc<Repository<E, P>>, _relation: RelationDef, local_id: String) -> Self {
     Self {
@@ -125,7 +125,7 @@ where
 pub struct LazyMany<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   repo: Weak<Repository<E, P>>,
   relation: RelationDef,
@@ -137,7 +137,7 @@ where
 impl<E, P> LazyMany<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub fn new(repo: Arc<Repository<E, P>>, relation: RelationDef, local_id: String) -> Self {
     Self {

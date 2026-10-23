@@ -1,5 +1,6 @@
 use crate::error::OrmResult;
-use crate::provider::{DatabaseProvider, IndexInfo};
+use crate::logging::LoggingStrategy;
+use crate::provider::{IndexInfo, Storage};
 use crate::query::Filter;
 use serde_json::Value;
 use std::fs::OpenOptions;
@@ -8,12 +9,13 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing;
 
 const MAX_LOG_SIZE: u64 = 10 * 1024 * 1024;
 const MAX_LOG_FILES: usize = 5;
 
 #[derive(Clone)]
-pub struct FileQueryLogger<P: DatabaseProvider> {
+pub struct FileQueryLogger<P: Storage> {
   inner: Arc<P>,
   log_path: PathBuf,
   enabled: Arc<RwLock<bool>>,
@@ -22,7 +24,7 @@ pub struct FileQueryLogger<P: DatabaseProvider> {
   max_files: usize,
 }
 
-impl<P: DatabaseProvider> FileQueryLogger<P> {
+impl<P: Storage> FileQueryLogger<P> {
   pub fn new(inner: Arc<P>, log_dir: PathBuf) -> Self {
     std::fs::create_dir_all(&log_dir).ok();
     let log_path = log_dir.join("query_log.txt");
@@ -74,7 +76,7 @@ impl<P: DatabaseProvider> FileQueryLogger<P> {
   fn write_log(&self, entry: &str) {
     if self.current_size.load(Ordering::SeqCst) > self.max_size {
       if let Err(e) = self.rotate_logs() {
-        eprintln!("Failed to rotate logs: {}", e);
+        tracing::warn!("Failed to rotate logs: {}", e);
         return;
       }
     }
@@ -118,7 +120,7 @@ impl<P: DatabaseProvider> FileQueryLogger<P> {
     self.write_log(&entry);
   }
 
-  fn log_error(&self, operation: &str, collection: &str, error: &str) {
+  fn write_error_entry(&self, operation: &str, collection: &str, error: &str) {
     let entry = format!(
       "[Query] {} on '{}' FAILED: {}",
       operation, collection, error
@@ -136,7 +138,7 @@ impl<P: DatabaseProvider> FileQueryLogger<P> {
   }
 }
 
-impl<P: DatabaseProvider + Clone> FileQueryLogger<P> {
+impl<P: Storage + Clone> FileQueryLogger<P> {
   pub async fn get_recent_logs(&self, count: usize) -> Vec<String> {
     let content = std::fs::read_to_string(&self.log_path).unwrap_or_default();
     content
@@ -157,7 +159,29 @@ impl<P: DatabaseProvider + Clone> FileQueryLogger<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: DatabaseProvider + Clone> DatabaseProvider for FileQueryLogger<P> {
+impl<P: Storage> LoggingStrategy for FileQueryLogger<P> {
+  async fn log_start(&self, operation: &str, collection: &str) {
+    self.log_query(operation, collection, None);
+  }
+
+  async fn log_complete(&self, operation: &str, collection: &str, duration_ms: u64, success: bool) {
+    if success {
+      self.write_log(&format!(
+        "[Query] {} on '{}' completed in {}ms",
+        operation, collection, duration_ms
+      ));
+    } else {
+      self.write_error_entry(operation, collection, "operation failed");
+    }
+  }
+
+  async fn log_error(&self, operation: &str, collection: &str, error: &str) {
+    self.write_error_entry(operation, collection, error);
+  }
+}
+
+#[async_trait::async_trait]
+impl<P: Storage + Clone> Storage for FileQueryLogger<P> {
   async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
     let id = doc.get("id").and_then(|v| v.as_str());
     self.write_log(&format!("[Query] INSERT '{}' id={:?}", collection, id));
@@ -168,7 +192,7 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for FileQueryLogger<P> {
         self.write_log(&format!("[Query] INSERT '{}' -> id={:?}", collection, id));
       }
       Err(e) => {
-        self.log_error("INSERT", collection, &e.to_string());
+        self.write_error_entry("INSERT", collection, &e.to_string());
       }
     }
     result
@@ -191,7 +215,7 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for FileQueryLogger<P> {
         ));
       }
       Err(e) => {
-        self.log_error("FIND_BY_ID", collection, &e.to_string());
+        self.write_error_entry("FIND_BY_ID", collection, &e.to_string());
       }
     }
     result
@@ -225,7 +249,7 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for FileQueryLogger<P> {
         self.log_success("UPDATE", collection, Some(id));
       }
       Err(e) => {
-        self.log_error("UPDATE", collection, &e.to_string());
+        self.write_error_entry("UPDATE", collection, &e.to_string());
       }
     }
     result
@@ -239,7 +263,7 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for FileQueryLogger<P> {
         self.log_success("PATCH", collection, Some(id));
       }
       Err(e) => {
-        self.log_error("PATCH", collection, &e.to_string());
+        self.write_error_entry("PATCH", collection, &e.to_string());
       }
     }
     result
@@ -262,7 +286,7 @@ impl<P: DatabaseProvider + Clone> DatabaseProvider for FileQueryLogger<P> {
         ));
       }
       Err(e) => {
-        self.log_error("DELETE", collection, &e.to_string());
+        self.write_error_entry("DELETE", collection, &e.to_string());
       }
     }
     result

@@ -1,12 +1,12 @@
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use serde_json::Value;
 
 use super::super::registry::get_collection_relations;
 use super::super::types::RelationDef;
 use super::RelationLoader;
 
-pub async fn load<P: DatabaseProvider>(
+pub async fn load<P: Storage>(
   _provider: P,
   docs: Vec<Value>,
   relation: &RelationDef,

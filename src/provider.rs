@@ -38,7 +38,7 @@ impl ProviderConfig {
 }
 
 #[async_trait]
-pub trait DatabaseProvider: Send + Sync + Clone + 'static {
+pub trait Storage: Send + Sync + Clone + 'static {
   async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value>;
 
   async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>>;
@@ -147,6 +147,102 @@ pub trait AdminCommands: Send + Sync + Clone + 'static {
   async fn rename_collection(&self, old_name: &str, new_name: &str) -> OrmResult<()>;
   async fn get_server_version(&self) -> OrmResult<String>;
   async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth>;
+}
+
+/// A dyn-safe view over the storage backends.
+///
+/// [`Storage`] cannot be used as a trait object: it requires `Clone`, and
+/// `Clone: Sized` makes the trait dyn-incompatible. [`StorageBackend`] mirrors
+/// the operations an application needs and is implemented for every provider
+/// through a blanket implementation, so a backend can be held as
+/// `Arc<dyn StorageBackend>` and chosen at runtime.
+#[async_trait]
+pub trait StorageBackend: Send + Sync {
+  /// Read the documents of a collection that match the filter.
+  async fn find_many(
+    &self,
+    collection: &str,
+    filter: Option<&Filter>,
+    skip: Option<u64>,
+    limit: Option<u64>,
+    sort_by: Option<&str>,
+    sort_asc: bool,
+  ) -> OrmResult<Vec<Value>>;
+
+  /// Write a new document and return it as stored.
+  async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value>;
+
+  /// Replace the document with the given id.
+  async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value>;
+
+  /// Remove the document with the given id.
+  async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool>;
+
+  /// Count the documents of a collection that match the filter.
+  async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64>;
+
+  /// List the collections (tables, buckets) the backend holds.
+  async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>>;
+
+  /// List the databases the backend can reach.
+  async fn list_databases(&self) -> OrmResult<Vec<String>>;
+
+  /// Run a raw statement and return its result.
+  async fn execute_raw(&self, sql: &str, params: Vec<Value>) -> OrmResult<RawResult>;
+
+  /// Report whether the backend answers, and how fast it does.
+  async fn health(&self) -> OrmResult<ConnectionHealth>;
+}
+
+/// Every provider that implements the three provider traits is a backend.
+#[async_trait]
+impl<P> StorageBackend for P
+where
+  P: Storage + SchemaIntrospection + AdminCommands + Send + Sync + 'static,
+{
+  async fn find_many(
+    &self,
+    collection: &str,
+    filter: Option<&Filter>,
+    skip: Option<u64>,
+    limit: Option<u64>,
+    sort_by: Option<&str>,
+    sort_asc: bool,
+  ) -> OrmResult<Vec<Value>> {
+    Storage::find_many(self, collection, filter, skip, limit, sort_by, sort_asc).await
+  }
+
+  async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
+    Storage::insert(self, collection, doc).await
+  }
+
+  async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
+    Storage::update(self, collection, id, doc).await
+  }
+
+  async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
+    Storage::delete(self, collection, id).await
+  }
+
+  async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
+    Storage::count(self, collection, filter).await
+  }
+
+  async fn list_collections(&self) -> OrmResult<Vec<CollectionMeta>> {
+    SchemaIntrospection::list_collections(self).await
+  }
+
+  async fn list_databases(&self) -> OrmResult<Vec<String>> {
+    SchemaIntrospection::list_databases(self).await
+  }
+
+  async fn execute_raw(&self, sql: &str, params: Vec<Value>) -> OrmResult<RawResult> {
+    AdminCommands::execute_raw(self, sql, params).await
+  }
+
+  async fn health(&self) -> OrmResult<ConnectionHealth> {
+    AdminCommands::health_check_detailed(self).await
+  }
 }
 
 #[async_trait]

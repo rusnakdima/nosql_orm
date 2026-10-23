@@ -1,5 +1,5 @@
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::query::{QueryBuilder, SortDirection};
 use crate::relations::{RelationLoader, RelationType, RelationValue, WithLoaded, WithRelations};
 use crate::soft_delete::SoftDeletable;
@@ -10,7 +10,7 @@ use super::Repository;
 pub struct RelationRepository<E, P>
 where
   E: WithRelations,
-  P: DatabaseProvider,
+  P: Storage,
 {
   inner: Repository<E, P>,
   loader: RelationLoader<P>,
@@ -19,7 +19,7 @@ where
 impl<E, P> RelationRepository<E, P>
 where
   E: WithRelations,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub fn new(provider: P) -> Self {
     let loader = RelationLoader::new(provider.clone());
@@ -37,7 +37,7 @@ where
 impl<E, P> RelationRepository<E, P>
 where
   E: WithRelations + SoftDeletable,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub async fn soft_delete_cascade(&self, id: impl AsRef<str>) -> OrmResult<bool> {
     self.inner.soft_delete(id).await

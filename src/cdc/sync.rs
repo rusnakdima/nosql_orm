@@ -1,13 +1,13 @@
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use chrono::DateTime;
 use serde_json::Value;
 
-pub struct CdcSync<P: DatabaseProvider> {
+pub struct CdcSync<P: Storage> {
   provider: P,
 }
 
-impl<P: DatabaseProvider> CdcSync<P> {
+impl<P: Storage> CdcSync<P> {
   pub fn new(provider: P) -> Self {
     Self { provider }
   }

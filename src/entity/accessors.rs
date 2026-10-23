@@ -3,31 +3,28 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Type alias for the compute function signature used by `ComputedField`.
+type ComputeFn<E> = Arc<dyn Fn(&E) -> OrmResult<Value> + Send + Sync>;
+
 pub struct ComputedField<E> {
   pub name: String,
-  pub compute: Arc<dyn Fn(&E) -> OrmResult<Value> + Send + Sync>,
+  pub compute: ComputeFn<E>,
   pub cache: bool,
 }
 
 impl<E> ComputedField<E> {
-  pub fn new(
-    name: impl Into<String>,
-    compute: impl Fn(&E) -> OrmResult<Value> + Send + Sync + 'static,
-  ) -> Self {
+  pub fn new(name: impl Into<String>, compute: ComputeFn<E>) -> Self {
     Self {
       name: name.into(),
-      compute: Arc::new(compute),
+      compute,
       cache: false,
     }
   }
 
-  pub fn cached(
-    name: impl Into<String>,
-    compute: impl Fn(&E) -> OrmResult<Value> + Send + Sync + 'static,
-  ) -> Self {
+  pub fn cached(name: impl Into<String>, compute: ComputeFn<E>) -> Self {
     Self {
       name: name.into(),
-      compute: Arc::new(compute),
+      compute,
       cache: true,
     }
   }

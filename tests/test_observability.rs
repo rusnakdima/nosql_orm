@@ -1,7 +1,9 @@
+use nosql_orm::error::{OrmError, OrmResult};
 use nosql_orm::observability::circuit_breaker::{
   CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
 };
 use nosql_orm::observability::rate_limiter::{RateLimiter, RateLimiterConfig, RateLimiterMetrics};
+use std::future::Future;
 use std::time::Duration;
 
 #[test]
@@ -43,7 +45,7 @@ fn test_circuit_breaker_metrics_new() {
   assert_eq!(metrics.successes(), 0);
   assert_eq!(metrics.failures(), 0);
   assert_eq!(metrics.rejections(), 0);
-  assert_eq!(metrics.state_changes(), 0);
+  assert_eq!(metrics.state_changes_count(), 0);
 }
 
 #[test]
@@ -84,7 +86,7 @@ fn test_circuit_breaker_metrics_record_state_change() {
   let metrics = CircuitBreakerMetrics::new();
   metrics.record_state_change();
   metrics.record_state_change();
-  assert_eq!(metrics.state_changes(), 2);
+  assert_eq!(metrics.state_changes_count(), 2);
 }
 
 #[test]
@@ -130,12 +132,16 @@ fn test_circuit_state_debug() {
 }
 
 fn create_test_breaker() -> CircuitBreaker {
-  CircuitBreaker::with_config(
+  CircuitBreaker::new("test").with_config(
     CircuitBreakerConfig::default()
       .with_failure_threshold(3)
       .with_timeout(1000)
       .with_reset_interval(100),
   )
+}
+
+fn failing_operation() -> impl Future<Output = OrmResult<u32>> {
+  async { Err(OrmError::Provider("operation failed".to_string())) }
 }
 
 #[tokio::test]
@@ -146,8 +152,11 @@ async fn test_circuit_breaker_initial_state_closed() {
 
 #[tokio::test]
 async fn test_circuit_breaker_allows_requests_in_closed_state() {
-  let breaker = create_test_breaker();
-  assert!(breaker.should_allow_request().await);
+  let mut breaker = create_test_breaker();
+  let result = breaker.call(|| async { Ok::<u32, OrmError>(42) }).await;
+  assert!(result.is_ok());
+  assert_eq!(result.unwrap(), 42);
+  assert_eq!(breaker.state(), CircuitState::Closed);
 }
 
 #[tokio::test]
@@ -155,10 +164,12 @@ async fn test_circuit_breaker_state_transitions_on_failure() {
   let mut breaker = create_test_breaker();
 
   for _ in 0..3 {
-    let _ = breaker.record_failure().await;
+    let result = breaker.call(|| failing_operation()).await;
+    assert!(result.is_err());
   }
 
   assert_eq!(breaker.state(), CircuitState::Open);
+  assert_eq!(breaker.metrics().failures(), 3);
 }
 
 #[tokio::test]
@@ -166,11 +177,15 @@ async fn test_circuit_breaker_rejects_requests_in_open_state() {
   let mut breaker = create_test_breaker();
 
   for _ in 0..3 {
-    let _ = breaker.record_failure().await;
+    let _ = breaker.call(|| failing_operation()).await;
   }
 
   assert_eq!(breaker.state(), CircuitState::Open);
-  assert!(!breaker.should_allow_request().await);
+
+  let result = breaker.call(|| async { Ok::<u32, OrmError>(7) }).await;
+  assert!(result.is_err());
+  assert_eq!(breaker.metrics().rejections(), 1);
+  assert_eq!(breaker.state(), CircuitState::Open);
 }
 
 #[tokio::test]
@@ -178,14 +193,16 @@ async fn test_circuit_breaker_half_open_after_timeout() {
   let mut breaker = create_test_breaker();
 
   for _ in 0..3 {
-    let _ = breaker.record_failure().await;
+    let _ = breaker.call(|| failing_operation()).await;
   }
 
   assert_eq!(breaker.state(), CircuitState::Open);
 
   tokio::time::sleep(Duration::from_millis(1500)).await;
 
-  assert!(breaker.should_allow_request().await);
+  let result = breaker.call(|| async { Ok::<u32, OrmError>(1) }).await;
+  assert!(result.is_ok());
+  assert_eq!(breaker.metrics().rejections(), 0);
 }
 
 #[tokio::test]
@@ -193,7 +210,7 @@ async fn test_circuit_breaker_reset() {
   let mut breaker = create_test_breaker();
 
   for _ in 0..3 {
-    let _ = breaker.record_failure().await;
+    let _ = breaker.call(|| failing_operation()).await;
   }
 
   assert_eq!(breaker.state(), CircuitState::Open);
@@ -208,18 +225,17 @@ async fn test_circuit_breaker_get_stats() {
   let mut breaker = create_test_breaker();
 
   for _ in 0..5 {
-    let _ = breaker.record_call().await;
-    let _ = breaker.record_success().await;
+    let _ = breaker.call(|| async { Ok::<u32, OrmError>(1) }).await;
   }
 
   for _ in 0..2 {
-    let _ = breaker.record_failure().await;
+    let _ = breaker.call(|| failing_operation()).await;
   }
 
   let stats = breaker.get_stats();
-  assert_eq!(stats.calls, 7);
-  assert_eq!(stats.successes, 5);
-  assert_eq!(stats.failures, 2);
+  assert_eq!(stats.get("calls_total").map(|s| s.as_str()), Some("7"));
+  assert_eq!(stats.get("successes_total").map(|s| s.as_str()), Some("5"));
+  assert_eq!(stats.get("failures_total").map(|s| s.as_str()), Some("2"));
 }
 
 #[test]
@@ -276,7 +292,12 @@ fn test_rate_limiter_metrics_record_rejected() {
 fn test_rate_limiter_metrics_record_tokens() {
   let metrics = RateLimiterMetrics::new();
   metrics.record_tokens(5);
-  assert_eq!(metrics.tokens_acquired(), 5);
+  assert_eq!(
+    metrics
+      .tokens_acquired
+      .load(std::sync::atomic::Ordering::Relaxed),
+    5
+  );
 }
 
 #[test]
@@ -291,7 +312,7 @@ fn test_rate_limiter_metrics_clone() {
 }
 
 fn create_test_rate_limiter() -> RateLimiter {
-  RateLimiter::with_config(
+  RateLimiter::new("test").with_config(
     RateLimiterConfig::default()
       .with_rate(10.0)
       .with_burst(5)

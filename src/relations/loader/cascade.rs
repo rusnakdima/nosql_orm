@@ -1,5 +1,5 @@
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -7,7 +7,7 @@ use super::super::registry::get_relation_def;
 use super::super::types::RelationValue;
 use super::RelationLoader;
 
-pub async fn load<P: DatabaseProvider>(
+pub async fn load<P: Storage>(
   _provider: P,
   entity_doc: &Value,
   table: &str,

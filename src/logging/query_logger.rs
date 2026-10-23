@@ -1,5 +1,5 @@
 use crate::error::OrmResult;
-use crate::provider::{DatabaseProvider, IndexInfo};
+use crate::provider::{IndexInfo, Storage};
 use crate::query::Filter;
 use serde_json::Value;
 use std::sync::Arc;
@@ -44,7 +44,7 @@ impl<P> QueryLogger<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: DatabaseProvider> DatabaseProvider for QueryLogger<P> {
+impl<P: Storage> Storage for QueryLogger<P> {
   async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
     let result = self.inner.insert(collection, doc).await;
     result

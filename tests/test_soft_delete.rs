@@ -126,11 +126,11 @@ fn test_soft_delete_ext_set_deleted_at() {
   assert_eq!(ext.deleted_at(), Some(time));
 }
 
-use nosql_orm::entity::Entity;
-use nosql_orm::error::OrmError;
+use nosql_orm::entity::{Entity, EntityMeta};
+use nosql_orm::error::{OrmError, OrmResult};
 use nosql_orm::providers::json::JsonProvider;
+use nosql_orm::relations::WithRelations;
 use nosql_orm::repository::Repository;
-use nosql_orm::timestamps::Timestamps;
 use nosql_orm::validators::Validate;
 use serde::{Deserialize, Serialize};
 
@@ -151,8 +151,8 @@ impl Entity for SoftDeletedUser {
     self.id = Some(id);
   }
 
-  fn collection() -> &'static str {
-    "soft_deleted_users"
+  fn meta() -> EntityMeta {
+    EntityMeta::new("soft_deleted_users")
   }
 
   fn is_soft_deletable() -> bool {
@@ -160,7 +160,7 @@ impl Entity for SoftDeletedUser {
   }
 }
 
-impl Timestamps for SoftDeletedUser {}
+impl WithRelations for SoftDeletedUser {}
 
 impl Validate for SoftDeletedUser {
   fn validate(&self) -> OrmResult<()> {
@@ -181,16 +181,17 @@ impl SoftDeletable for SoftDeletedUser {
   }
 }
 
-fn create_soft_delete_repo() -> (Repository<SoftDeletedUser, JsonProvider>, tempfile::TempDir) {
+async fn create_soft_delete_repo() -> (Repository<SoftDeletedUser, JsonProvider>, tempfile::TempDir)
+{
   let temp_dir = tempfile::TempDir::new().unwrap();
-  let provider = JsonProvider::new(temp_dir.path()).unwrap();
+  let provider = JsonProvider::new(temp_dir.path()).await.unwrap();
   let repo = Repository::new(provider);
   (repo, temp_dir)
 }
 
 #[tokio::test]
 async fn test_soft_delete_repository_find_all_excludes_deleted() {
-  let (repo, _temp_dir) = create_soft_delete_repo();
+  let (repo, _temp_dir) = create_soft_delete_repo().await;
 
   repo
     .insert(SoftDeletedUser {
@@ -210,14 +211,14 @@ async fn test_soft_delete_repository_find_all_excludes_deleted() {
     .await
     .unwrap();
 
-  let all = repo.find_all().await.unwrap();
+  let all = repo.query().find().await.unwrap();
   assert_eq!(all.len(), 1);
   assert_eq!(all[0].name, "Active User");
 }
 
 #[tokio::test]
 async fn test_soft_delete_repository_find_all_including_deleted() {
-  let (repo, _temp_dir) = create_soft_delete_repo();
+  let (repo, _temp_dir) = create_soft_delete_repo().await;
 
   repo
     .insert(SoftDeletedUser {
@@ -243,7 +244,7 @@ async fn test_soft_delete_repository_find_all_including_deleted() {
 
 #[tokio::test]
 async fn test_soft_delete_repository_find_by_id_excludes_deleted() {
-  let (repo, _temp_dir) = create_soft_delete_repo();
+  let (repo, _temp_dir) = create_soft_delete_repo().await;
 
   let user = repo
     .insert(SoftDeletedUser {
@@ -254,12 +255,23 @@ async fn test_soft_delete_repository_find_by_id_excludes_deleted() {
     .await
     .unwrap();
 
-  let id = user.id.unwrap();
+  let id = user.id.clone().unwrap();
 
   let found = repo.find_by_id(&id).await.unwrap();
   assert!(found.is_some());
 
-  repo.hard_delete(&id).await.unwrap();
+  repo.soft_delete(&id).await.unwrap();
+
+  // `find_by_id` does not filter soft-deleted rows ...
+  let found = repo.find_by_id(&id).await.unwrap();
+  assert!(found.is_some());
+
+  // ... but queries do.
+  let active = repo.query().find().await.unwrap();
+  assert!(active.is_empty());
+
+  // A hard delete removes the row entirely.
+  repo.delete(&id).await.unwrap();
 
   let found = repo.find_by_id(&id).await.unwrap();
   assert!(found.is_none());
@@ -267,7 +279,7 @@ async fn test_soft_delete_repository_find_by_id_excludes_deleted() {
 
 #[tokio::test]
 async fn test_soft_delete_repository_restore() {
-  let (repo, _temp_dir) = create_soft_delete_repo();
+  let (repo, _temp_dir) = create_soft_delete_repo().await;
 
   let mut user = repo
     .insert(SoftDeletedUser {
@@ -278,23 +290,25 @@ async fn test_soft_delete_repository_restore() {
     .await
     .unwrap();
 
-  let id = user.id.unwrap();
+  let id = user.id.clone().unwrap();
 
   user.deleted_at = Some(Utc::now());
   repo.update(user).await.unwrap();
 
-  let found = repo.find_by_id(&id).await.unwrap();
-  assert!(found.is_none());
+  // The row is hidden from queries once `deleted_at` is set.
+  let active = repo.query().find().await.unwrap();
+  assert!(active.is_empty());
 
   repo.restore(&id).await.unwrap();
 
-  let found = repo.find_by_id(&id).await.unwrap();
-  assert!(found.is_some());
+  let active = repo.query().find().await.unwrap();
+  assert_eq!(active.len(), 1);
+  assert_eq!(active[0].id, Some(id));
 }
 
 #[tokio::test]
 async fn test_soft_delete_repository_hard_delete() {
-  let (repo, _temp_dir) = create_soft_delete_repo();
+  let (repo, _temp_dir) = create_soft_delete_repo().await;
 
   let user = repo
     .insert(SoftDeletedUser {
@@ -305,17 +319,20 @@ async fn test_soft_delete_repository_hard_delete() {
     .await
     .unwrap();
 
-  let id = user.id.unwrap();
-  let deleted = repo.hard_delete(&id).await.unwrap();
+  let id = user.id.clone().unwrap();
+  let deleted = repo.delete(&id).await.unwrap();
   assert!(deleted);
 
   let found = repo.find_by_id(&id).await.unwrap();
   assert!(found.is_none());
+
+  let all = repo.find_all_including_deleted().await.unwrap();
+  assert!(all.is_empty());
 }
 
 #[tokio::test]
 async fn test_soft_delete_repository_soft_delete() {
-  let (repo, _temp_dir) = create_soft_delete_repo();
+  let (repo, _temp_dir) = create_soft_delete_repo().await;
 
   let user = repo
     .insert(SoftDeletedUser {
@@ -326,11 +343,15 @@ async fn test_soft_delete_repository_soft_delete() {
     .await
     .unwrap();
 
-  let id = user.id.unwrap();
+  let id = user.id.clone().unwrap();
   repo.soft_delete(&id).await.unwrap();
 
+  // `find_by_id` does not filter soft-deleted rows, but queries do.
   let found = repo.find_by_id(&id).await.unwrap();
-  assert!(found.is_none());
+  assert!(found.is_some());
+
+  let active = repo.query().find().await.unwrap();
+  assert!(active.is_empty());
 
   let all = repo.find_all_including_deleted().await.unwrap();
   assert_eq!(all.len(), 1);
@@ -339,7 +360,7 @@ async fn test_soft_delete_repository_soft_delete() {
 
 #[tokio::test]
 async fn test_soft_delete_repository_delete_marks_as_deleted() {
-  let (repo, _temp_dir) = create_soft_delete_repo();
+  let (repo, _temp_dir) = create_soft_delete_repo().await;
 
   let user = repo
     .insert(SoftDeletedUser {
@@ -350,8 +371,8 @@ async fn test_soft_delete_repository_delete_marks_as_deleted() {
     .await
     .unwrap();
 
-  let id = user.id.unwrap();
-  repo.delete(&id).await.unwrap();
+  let id = user.id.clone().unwrap();
+  repo.soft_delete(&id).await.unwrap();
 
   let all = repo.find_all_including_deleted().await.unwrap();
   assert_eq!(all.len(), 1);
@@ -362,7 +383,7 @@ use nosql_orm::query::Filter;
 
 #[tokio::test]
 async fn test_soft_delete_repository_find_soft_deleted() {
-  let (repo, _temp_dir) = create_soft_delete_repo();
+  let (repo, _temp_dir) = create_soft_delete_repo().await;
 
   repo
     .insert(SoftDeletedUser {
@@ -383,13 +404,22 @@ async fn test_soft_delete_repository_find_soft_deleted() {
     .unwrap();
 
   let filter = Filter::IsNotNull("deleted_at".to_string());
-  let results = repo.find_many(Some(filter)).await.unwrap();
+  let results = repo.query().filter(filter).find().await.unwrap();
   assert_eq!(results.len(), 0);
+
+  let deleted = repo
+    .query_including_deleted()
+    .filter(Filter::IsNotNull("deleted_at".to_string()))
+    .find()
+    .await
+    .unwrap();
+  assert_eq!(deleted.len(), 1);
+  assert_eq!(deleted[0].name, "Deleted");
 }
 
 #[tokio::test]
 async fn test_soft_delete_repository_count_only_active() {
-  let (repo, _temp_dir) = create_soft_delete_repo();
+  let (repo, _temp_dir) = create_soft_delete_repo().await;
 
   repo
     .insert(SoftDeletedUser {
@@ -409,7 +439,10 @@ async fn test_soft_delete_repository_count_only_active() {
     .await
     .unwrap();
 
-  assert_eq!(repo.count().await.unwrap(), 1);
+  // `count` without a filter counts every row; the query builder scopes it to
+  // the rows that are not soft-deleted.
+  assert_eq!(repo.count().await.unwrap(), 2);
+  assert_eq!(repo.query().count().await.unwrap(), 1);
 }
 
 #[tokio::test]

@@ -101,11 +101,7 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
           .get_ident()
           .map(|i| i.to_string())
           .unwrap_or_default();
-        if ident == "entity" {
-          if let Ok(s) = list.parse_args::<syn::LitStr>() {
-            table_name = s.value();
-          }
-        } else if ident == "table_name" {
+        if ident == "entity" || ident == "table_name" {
           if let Ok(s) = list.parse_args::<syn::LitStr>() {
             table_name = s.value();
           }
@@ -310,11 +306,11 @@ fn parse_relation_attr(
     .map(|s| s.trim().trim_matches('"'))
     .collect();
 
-  let name = parts.get(0)?;
-  let target = parts.get(1).unwrap_or(&"");
-  let key = parts.get(2).unwrap_or(&"id");
+  let name = parts.first()?;
+  let target = parts.get(1).copied().unwrap_or("");
+  let key = parts.get(2).copied().unwrap_or("id");
 
-  let on_delete_str = parts.get(3).map(|s| *s).unwrap_or("");
+  let on_delete_str = parts.get(3).copied().unwrap_or("");
   let is_cascade = on_delete_str.contains("Cascade");
   let on_delete = if is_cascade {
     quote! { ::nosql_orm::sql::types::SqlOnDelete::Cascade }
@@ -365,7 +361,7 @@ fn to_snake_case(s: &str) -> String {
 
 fn parse_index_attr(s: &str) -> Option<proc_macro2::TokenStream> {
   let parts: Vec<&str> = s.split(',').map(|p| p.trim().trim_matches('"')).collect();
-  let field = parts.get(0)?.trim();
+  let field = parts.first()?.trim();
   let order: i32 = parts.get(1).and_then(|o| o.parse().ok()).unwrap_or(1);
   let unique = parts.get(2).map(|u| *u == "unique").unwrap_or(false);
 
@@ -383,10 +379,10 @@ fn parse_index_list(tokens: &proc_macro2::TokenStream) -> Option<proc_macro2::To
 
 fn parse_sql_column_attr(s: &str) -> Option<proc_macro2::TokenStream> {
   let parts: Vec<&str> = s.split(',').map(|p| p.trim().trim_matches('"')).collect();
-  let name = parts.get(0)?.trim();
+  let name = parts.first()?.trim();
   let col_type = parts.get(1).map(|t| t.trim()).unwrap_or("text");
-  let is_unique = parts.get(2).map(|u| *u == "unique").unwrap_or(false);
-  let is_primary = parts.get(2).map(|p| *p == "primary").unwrap_or(false);
+  let is_unique = parts.get(2).copied() == Some("unique");
+  let is_primary = parts.get(2).copied() == Some("primary");
 
   let sql_col_type = match col_type {
     "serial" => quote! { ::nosql_orm::sql::SqlColumnType::Serial },

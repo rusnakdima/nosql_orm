@@ -230,9 +230,9 @@ mod proptest_tests {
     #[test]
     fn proptest_query_builder_chaining(field in ".+", value in ".+") {
       let query = QueryBuilder::new()
-        .where_eq(&field, &value)
-        .where_gt(&field, &value)
-        .where_lt(&field, &value);
+        .where_eq(&field, &*value)
+        .where_gt(&field, &*value)
+        .where_lt(&field, &*value);
       prop_assert!(!query.filters.is_empty());
     }
 

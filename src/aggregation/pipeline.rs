@@ -70,7 +70,7 @@ impl AggregationPipeline {
     self.stages.iter().map(|s| s.to_value()).collect()
   }
 
-  pub async fn execute<P: crate::provider::DatabaseProvider>(
+  pub async fn execute<P: crate::provider::Storage>(
     &self,
     provider: &P,
     collection: &str,

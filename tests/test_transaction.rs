@@ -1,7 +1,6 @@
 use nosql_orm::error::OrmError;
 use nosql_orm::providers::json::JsonProvider;
 use nosql_orm::transaction::{Transaction, TransactionState};
-use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_transaction_begin() {
@@ -126,5 +125,3 @@ async fn test_transaction_state_equality() {
   assert_ne!(TransactionState::Committed, TransactionState::RolledBack);
   assert_ne!(TransactionState::RolledBack, TransactionState::Pending);
 }
-
-use tempfile::TempDir;

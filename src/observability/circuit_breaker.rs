@@ -166,11 +166,7 @@ impl CircuitBreaker {
       CircuitState::Open => {
         if let Some(last_failure) = self.last_failure_time {
           let timeout = Duration::from_millis(self.config.timeout_ms);
-          if last_failure.elapsed() >= timeout {
-            true
-          } else {
-            false
-          }
+          last_failure.elapsed() >= timeout
         } else {
           false
         }

@@ -1,6 +1,6 @@
 use crate::entity::Entity;
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::query::{Cursor, Filter, OrderBy, PaginatedResult, QueryBuilder, SortDirection};
 use serde_json::Value;
 
@@ -9,7 +9,7 @@ use super::Repository;
 pub struct RepositoryQuery<'r, E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   repo: &'r Repository<E, P>,
   builder: QueryBuilder,
@@ -18,7 +18,7 @@ where
 impl<'r, E, P> RepositoryQuery<'r, E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub fn where_eq(mut self, field: impl Into<String>, value: impl Into<Value>) -> Self {
     self.builder = self.builder.where_eq(field, value);
@@ -180,7 +180,7 @@ where
 impl<E, P> Repository<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub fn query(&self) -> RepositoryQuery<'_, E, P> {
     let builder = if E::is_soft_deletable() {

@@ -1,5 +1,5 @@
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use serde_json::Value;
 
 #[derive(Debug, Clone, Copy)]
@@ -35,8 +35,8 @@ impl ProviderSync {
     options: SyncOptions,
   ) -> OrmResult<bool>
   where
-    S: DatabaseProvider,
-    T: DatabaseProvider,
+    S: Storage,
+    T: Storage,
   {
     let entity = source.find_by_id(collection, id).await?;
     match entity {
@@ -74,8 +74,8 @@ impl ProviderSync {
     options: SyncOptions,
   ) -> OrmResult<usize>
   where
-    S: DatabaseProvider,
-    T: DatabaseProvider,
+    S: Storage,
+    T: Storage,
   {
     let entities = source
       .find_many(collection, Some(filter), None, None, None, true)

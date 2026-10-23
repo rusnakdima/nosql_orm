@@ -1,11 +1,18 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
+#[allow(dead_code)]
 pub struct ConnectionLifecycle {
   created_at: Instant,
   last_used: AtomicU64,
   use_count: AtomicU64,
   idle_time_ms: AtomicU64,
+}
+
+impl Default for ConnectionLifecycle {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl ConnectionLifecycle {

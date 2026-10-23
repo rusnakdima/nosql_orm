@@ -2,17 +2,20 @@ use nosql_orm::logging::db_query_logger::DbQueryLogger;
 use nosql_orm::logging::file_query_logger::FileQueryLogger;
 use nosql_orm::logging::query_logger::QueryLogger;
 use nosql_orm::logging::wrapper::ProviderWrapper;
+use nosql_orm::logging::LoggingStrategy;
+use nosql_orm::provider::Storage;
 use nosql_orm::providers::json::JsonProvider;
 use std::sync::Arc;
 
-fn create_test_provider() -> JsonProvider {
+async fn create_test_provider() -> (JsonProvider, tempfile::TempDir) {
   let temp_dir = tempfile::TempDir::new().unwrap();
-  JsonProvider::new(temp_dir.path()).unwrap()
+  let provider = JsonProvider::new(temp_dir.path()).await.unwrap();
+  (provider, temp_dir)
 }
 
 #[tokio::test]
 async fn test_query_logger_enable_disable() {
-  let provider = create_test_provider();
+  let (provider, _tmp) = create_test_provider().await;
   let logger = QueryLogger::new(provider);
 
   assert!(logger.is_enabled().await);
@@ -26,13 +29,13 @@ async fn test_query_logger_enable_disable() {
 
 #[tokio::test]
 async fn test_query_logger_new() {
-  let provider = create_test_provider();
+  let (provider, _tmp) = create_test_provider().await;
   let _logger = QueryLogger::new(provider);
 }
 
 #[tokio::test]
 async fn test_query_logger_insert_logs() {
-  let provider = create_test_provider();
+  let (provider, _tmp) = create_test_provider().await;
   let logger = QueryLogger::new(provider);
 
   let doc = serde_json::json!({"name": "test"});
@@ -41,8 +44,8 @@ async fn test_query_logger_insert_logs() {
 
 #[tokio::test]
 async fn test_query_logger_find_by_id() {
-  let provider = create_test_provider();
-  let logger = QueryLogger::new(provider);
+  let (provider, _tmp) = create_test_provider().await;
+  let logger = QueryLogger::new(provider.clone());
 
   let doc = serde_json::json!({"name": "test"});
   provider.insert("users", doc).await.unwrap();
@@ -52,7 +55,7 @@ async fn test_query_logger_find_by_id() {
 
 #[tokio::test]
 async fn test_query_logger_find_many() {
-  let provider = create_test_provider();
+  let (provider, _tmp) = create_test_provider().await;
   let logger = QueryLogger::new(provider);
 
   let _ = logger
@@ -62,22 +65,22 @@ async fn test_query_logger_find_many() {
 
 #[tokio::test]
 async fn test_query_logger_update() {
-  let provider = create_test_provider();
-  let logger = QueryLogger::new(provider);
+  let (provider, _tmp) = create_test_provider().await;
+  let logger = QueryLogger::new(provider.clone());
 
   let doc = serde_json::json!({"name": "test"});
   let inserted = provider.insert("users", doc).await.unwrap();
   let id = inserted["id"].as_str().unwrap();
 
   let _ = logger
-    .update("users", serde_json::json!({"name": "updated"}), id)
+    .update("users", id, serde_json::json!({"name": "updated"}))
     .await;
 }
 
 #[tokio::test]
 async fn test_query_logger_delete() {
-  let provider = create_test_provider();
-  let logger = QueryLogger::new(provider);
+  let (provider, _tmp) = create_test_provider().await;
+  let logger = QueryLogger::new(provider.clone());
 
   let doc = serde_json::json!({"name": "test"});
   let inserted = provider.insert("users", doc).await.unwrap();
@@ -88,7 +91,7 @@ async fn test_query_logger_delete() {
 
 #[tokio::test]
 async fn test_query_logger_find_all() {
-  let provider = create_test_provider();
+  let (provider, _tmp) = create_test_provider().await;
   let logger = QueryLogger::new(provider);
 
   let _ = logger.find_all("users").await;
@@ -96,15 +99,15 @@ async fn test_query_logger_find_all() {
 
 #[tokio::test]
 async fn test_query_logger_count() {
-  let provider = create_test_provider();
+  let (provider, _tmp) = create_test_provider().await;
   let logger = QueryLogger::new(provider);
 
-  let _ = logger.count("users").await;
+  let _ = logger.count("users", None).await;
 }
 
 #[tokio::test]
 async fn test_query_logger_exists() {
-  let provider = create_test_provider();
+  let (provider, _tmp) = create_test_provider().await;
   let logger = QueryLogger::new(provider);
 
   let _ = logger.exists("users", "nonexistent").await;
@@ -112,11 +115,9 @@ async fn test_query_logger_exists() {
 
 #[tokio::test]
 async fn test_provider_wrapper_insert() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider.clone()), log_dir.path().to_path_buf());
   let wrapper = ProviderWrapper::new(provider, logger);
 
   let doc = serde_json::json!({"name": "test"});
@@ -126,11 +127,9 @@ async fn test_provider_wrapper_insert() {
 
 #[tokio::test]
 async fn test_provider_wrapper_find_by_id() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider.clone()),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider.clone()), log_dir.path().to_path_buf());
   let wrapper = ProviderWrapper::new(provider, logger);
 
   let doc = serde_json::json!({"name": "test"});
@@ -144,11 +143,9 @@ async fn test_provider_wrapper_find_by_id() {
 
 #[tokio::test]
 async fn test_provider_wrapper_find_many() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider.clone()),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider.clone()), log_dir.path().to_path_buf());
   let wrapper = ProviderWrapper::new(provider, logger);
 
   let result = wrapper
@@ -159,11 +156,9 @@ async fn test_provider_wrapper_find_many() {
 
 #[tokio::test]
 async fn test_provider_wrapper_update() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider.clone()),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider.clone()), log_dir.path().to_path_buf());
   let wrapper = ProviderWrapper::new(provider, logger);
 
   let doc = serde_json::json!({"name": "test"});
@@ -171,18 +166,16 @@ async fn test_provider_wrapper_update() {
   let id = inserted["id"].as_str().unwrap();
 
   let result = wrapper
-    .update("users", serde_json::json!({"name": "updated"}), id)
+    .update("users", id, serde_json::json!({"name": "updated"}))
     .await;
   assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_provider_wrapper_delete() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider.clone()),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider.clone()), log_dir.path().to_path_buf());
   let wrapper = ProviderWrapper::new(provider, logger);
 
   let doc = serde_json::json!({"name": "test"});
@@ -195,24 +188,20 @@ async fn test_provider_wrapper_delete() {
 
 #[tokio::test]
 async fn test_provider_wrapper_count() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider.clone()),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider.clone()), log_dir.path().to_path_buf());
   let wrapper = ProviderWrapper::new(provider, logger);
 
-  let result = wrapper.count("users").await;
+  let result = wrapper.count("users", None).await;
   assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_provider_wrapper_find_all() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider.clone()),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider.clone()), log_dir.path().to_path_buf());
   let wrapper = ProviderWrapper::new(provider, logger);
 
   let result = wrapper.find_all("users").await;
@@ -221,20 +210,16 @@ async fn test_provider_wrapper_find_all() {
 
 #[tokio::test]
 async fn test_file_query_logger_new() {
-  let provider = create_test_provider();
-  let _logger = FileQueryLogger::new(
-    Arc::new(provider),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let _logger = FileQueryLogger::new(Arc::new(provider), log_dir.path().to_path_buf());
 }
 
 #[tokio::test]
 async fn test_file_query_logger_enable_disable() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider), log_dir.path().to_path_buf());
 
   assert!(logger.is_enabled().await);
 
@@ -247,27 +232,33 @@ async fn test_file_query_logger_enable_disable() {
 
 #[tokio::test]
 async fn test_file_query_logger_log() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider), log_dir.path().to_path_buf());
 
-  logger
-    .log_operation("INSERT", "users", &serde_json::json!({}), 10, true)
-    .await
-    .unwrap();
+  logger.log_start("INSERT", "users").await;
+  logger.log_complete("INSERT", "users", 10, true).await;
+
+  let logs = logger.get_recent_logs(10).await;
+  assert!(!logs.is_empty(), "expected file logger to record entries");
+  assert!(
+    logs
+      .iter()
+      .any(|l| l.contains("INSERT") && l.contains("users")),
+    "expected log entry mentioning the INSERT operation on 'users', got: {:?}",
+    logs
+  );
 }
 
 #[tokio::test]
 async fn test_db_query_logger_new() {
-  let provider = create_test_provider();
+  let (provider, _tmp) = create_test_provider().await;
   let _logger = DbQueryLogger::new(provider);
 }
 
 #[tokio::test]
 async fn test_db_query_logger_enable_disable() {
-  let provider = create_test_provider();
+  let (provider, _tmp) = create_test_provider().await;
   let logger = DbQueryLogger::new(provider);
 
   assert!(logger.is_enabled().await);
@@ -281,38 +272,51 @@ async fn test_db_query_logger_enable_disable() {
 
 #[tokio::test]
 async fn test_db_query_logger_log() {
-  let provider = create_test_provider();
-  let logger = DbQueryLogger::new(provider);
+  let (provider, _tmp) = create_test_provider().await;
+  let logger = DbQueryLogger::new(provider.clone());
 
-  logger
-    .log_operation("INSERT", "users", &serde_json::json!({}), 10, true)
-    .await
-    .unwrap();
+  logger.log_start("INSERT", "users").await;
+  logger.log_complete("INSERT", "users", 10, true).await;
+
+  let logged = provider.count("query_logs", None).await.unwrap();
+  assert!(
+    logged >= 1,
+    "expected the db logger to persist at least one entry, got {}",
+    logged
+  );
 }
 
 #[test]
 fn test_logging_mod_exports() {
   use nosql_orm::logging;
-  let _ = logging;
+  let _ = std::any::type_name::<logging::DbQueryLogger>();
+  let _ = std::any::type_name::<logging::FileQueryLogger<JsonProvider>>();
+  let _ = std::any::type_name::<logging::QueryLogger<JsonProvider>>();
+  let _ = std::any::type_name::<logging::ProviderWrapper<JsonProvider, DbQueryLogger>>();
 }
 
-use nosql_orm::logging::LoggingStrategy;
-
-#[test]
-fn test_logging_strategy_trait_object() {
-  let strategy: Box<dyn LoggingStrategy> = Box::new(FileQueryLogger::new(
-    Arc::new(create_test_provider()),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  ));
-  assert!(strategy.log_start("test", "users").await.is_ok());
+async fn exercise_logging_strategy<S: LoggingStrategy>(logger: &S) {
+  logger.log_start("SELECT", "users").await;
+  logger.log_complete("SELECT", "users", 1, true).await;
+  logger.log_error("SELECT", "users", "boom").await;
 }
 
-#[test]
-fn test_logging_strategy_clone() {
-  let provider = create_test_provider();
-  let logger = FileQueryLogger::new(
-    Arc::new(provider),
-    tempfile::TempDir::new().unwrap().path().to_path_buf(),
-  );
+#[tokio::test]
+async fn test_logging_strategy_generic() {
+  let (provider, _tmp) = create_test_provider().await;
+  let logger = DbQueryLogger::new(provider);
+  exercise_logging_strategy(&logger).await;
+
+  let (provider2, _tmp2) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let file_logger = FileQueryLogger::new(Arc::new(provider2), log_dir.path().to_path_buf());
+  exercise_logging_strategy(&file_logger).await;
+}
+
+#[tokio::test]
+async fn test_logging_strategy_clone() {
+  let (provider, _tmp) = create_test_provider().await;
+  let log_dir = tempfile::TempDir::new().unwrap();
+  let logger = FileQueryLogger::new(Arc::new(provider), log_dir.path().to_path_buf());
   let _cloned = logger.clone();
 }

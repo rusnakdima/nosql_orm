@@ -1,11 +1,11 @@
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use std::time::Instant;
 
 pub struct ReplicationConfig<S, T>
 where
-    S: DatabaseProvider,
-    T: DatabaseProvider,
+    S: Storage,
+    T: Storage,
 {
     pub source_provider: S,
     pub target_provider: T,
@@ -29,16 +29,16 @@ pub enum ConflictResolution {
 
 pub struct Replication<S, T>
 where
-    S: DatabaseProvider,
-    T: DatabaseProvider,
+    S: Storage,
+    T: Storage,
 {
     config: ReplicationConfig<S, T>,
 }
 
 impl<S, T> Replication<S, T>
 where
-    S: DatabaseProvider,
-    T: DatabaseProvider,
+    S: Storage,
+    T: Storage,
 {
     pub fn new(config: ReplicationConfig<S, T>) -> Self {
         Self { config }

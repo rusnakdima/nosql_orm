@@ -1,6 +1,6 @@
 use crate::entity::{Entity, FrontendProjection};
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::query::Projection;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
@@ -10,7 +10,7 @@ use super::Repository;
 impl<E, P> Repository<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub async fn find_by_id(&self, id: impl AsRef<str>) -> OrmResult<Option<E>> {
     match self

@@ -1,12 +1,13 @@
 //! SQLite provider for nosql_orm.
 
-use crate::error::{map_err_connection, OrmError, OrmResult};
+use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
-  TransactionControl, TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
+  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
+  TransactionId,
 };
+use crate::providers::sql::common::build_insert_sql;
 use crate::providers::sql::row;
 use crate::query::Filter;
 use crate::sql::types::SqlDialect;
@@ -82,7 +83,7 @@ impl SqliteProvider {
 }
 
 #[async_trait]
-impl DatabaseProvider for SqliteProvider {
+impl Storage for SqliteProvider {
   async fn insert(&self, collection: &str, mut doc: Value) -> OrmResult<Value> {
     let id = match doc["id"].as_str() {
       Some(s) => s.to_string(),
@@ -94,45 +95,6 @@ impl DatabaseProvider for SqliteProvider {
       .as_object()
       .map(|m| m.keys().map(|k| k.as_str()).collect())
       .unwrap_or_default();
-
-    let placeholders: Vec<String> = (0..columns.len()).map(|_| "?".to_string()).collect();
-
-    let sql = format!(
-      "INSERT INTO {} ({}) VALUES ({})",
-      self.dialect.quote_identifier(collection),
-      columns
-        .iter()
-        .map(|c| self.dialect.quote_identifier(c))
-        .collect::<Vec<_>>()
-        .join(", "),
-      placeholders.join(", ")
-    );
-
-    let columns_str = columns
-      .iter()
-      .map(|c| self.dialect.quote_identifier(c))
-      .collect::<Vec<_>>()
-      .join(", ");
-
-    let placeholders_str = placeholders.join(", ");
-
-    let sql = format!(
-      "INSERT INTO {} ({}) VALUES ({})",
-      self.dialect.quote_identifier(collection),
-      columns_str,
-      placeholders_str
-    );
-
-    let sql = format!(
-      "INSERT INTO {} ({}) VALUES ({})",
-      self.dialect.quote_identifier(collection),
-      columns
-        .iter()
-        .map(|c| self.dialect.quote_identifier(c))
-        .collect::<Vec<_>>()
-        .join(", "),
-      placeholders.join(", ")
-    );
 
     fn json_to_sql_param(v: &Value) -> String {
       match v {
@@ -170,21 +132,12 @@ impl DatabaseProvider for SqliteProvider {
       .map(|c| {
         doc
           .get(*c)
-          .map(|v| json_to_sql_param(v))
+          .map(json_to_sql_param)
           .unwrap_or_else(|| "NULL".to_string())
       })
       .collect();
 
-    let sql_with_values = format!(
-      "{} ({}) VALUES ({})",
-      self.dialect.quote_identifier(collection),
-      columns
-        .iter()
-        .map(|c| self.dialect.quote_identifier(c))
-        .collect::<Vec<_>>()
-        .join(", "),
-      values.join(", ")
-    );
+    let sql_with_values = build_insert_sql(&self.dialect, collection, &columns, &values);
 
     let _conn = self.conn.clone();
     let collection = collection.to_string();
@@ -199,7 +152,7 @@ impl DatabaseProvider for SqliteProvider {
           dialect.quote_identifier(&collection)
         );
         let mut stmt = conn_guard.prepare(&sql)?;
-        let result = stmt.query_row([id_clone], |row| row::row_to_json_sqlite(row));
+        let result = stmt.query_row([id_clone], row::row_to_json_sqlite);
 
         match result {
           Ok(value) => Ok(value),
@@ -220,7 +173,7 @@ impl DatabaseProvider for SqliteProvider {
     self
       .with_connection(move |conn_guard| {
         let mut stmt = conn_guard.prepare(&sql)?;
-        let result = stmt.query_row([id_owned], |row| row::row_to_json_sqlite(row));
+        let result = stmt.query_row([id_owned], row::row_to_json_sqlite);
 
         match result {
           Ok(value) => Ok(Some(value)),
@@ -258,12 +211,13 @@ impl DatabaseProvider for SqliteProvider {
       ));
     }
 
-    if let Some(s) = skip {
-      sql.push_str(&format!(" OFFSET {}", s));
-    }
-
+    // SQL reads "LIMIT n OFFSET m" — the other order is a syntax error.
     if let Some(l) = limit {
       sql.push_str(&format!(" LIMIT {}", l));
+    }
+
+    if let Some(s) = skip {
+      sql.push_str(&format!(" OFFSET {}", s));
     }
 
     self
@@ -302,7 +256,7 @@ impl DatabaseProvider for SqliteProvider {
           dialect.quote_identifier(&collection)
         );
         let mut stmt = conn_guard.prepare(&sql)?;
-        let result = stmt.query_row([id_owned.as_str()], |row| row::row_to_json_sqlite(row));
+        let result = stmt.query_row([id_owned.as_str()], row::row_to_json_sqlite);
 
         match result {
           Ok(value) => Ok(value),
@@ -334,7 +288,7 @@ impl DatabaseProvider for SqliteProvider {
           dialect.quote_identifier(&collection)
         );
         let mut stmt = conn_guard.prepare(&sql)?;
-        let result = stmt.query_row([id_owned.as_str()], |row| row::row_to_json_sqlite(row));
+        let result = stmt.query_row([id_owned.as_str()], row::row_to_json_sqlite);
 
         match result {
           Ok(value) => Ok(value),
@@ -354,7 +308,7 @@ impl DatabaseProvider for SqliteProvider {
     let id_owned = id.to_string();
     self
       .with_connection(move |conn_guard| {
-        let rows = conn_guard.execute(&sql, [])?;
+        let rows = conn_guard.execute(&sql, [id_owned.as_str()])?;
         Ok(rows > 0)
       })
       .await
@@ -367,7 +321,9 @@ impl DatabaseProvider for SqliteProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
+      let clause = self.query_builder.filter_to_sql(f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(clause.as_str());
     }
 
     self
@@ -393,7 +349,9 @@ impl DatabaseProvider for SqliteProvider {
     );
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
+      let clause = self.query_builder.filter_to_sql(&f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(clause.as_str());
     }
 
     self
@@ -408,7 +366,9 @@ impl DatabaseProvider for SqliteProvider {
     let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
+      let clause = self.query_builder.filter_to_sql(&f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(clause.as_str());
     }
 
     self
@@ -602,10 +562,19 @@ impl AdminCommands for SqliteProvider {
           }
           rows_data.push(row_values);
         }
+        // A statement that writes reports what it changed; a statement that
+        // reads reports nothing — `changes` still holds the count of the
+        // last write, which is not this statement's.
+        let affected_rows = if columns.is_empty() {
+          conn_guard.changes()
+        } else {
+          0
+        };
+
         Ok(RawResult {
           columns,
           rows: rows_data,
-          affected_rows: 0,
+          affected_rows,
           last_insert_id: None,
         })
       })
@@ -740,5 +709,160 @@ impl TransactionControl for SqliteProvider {
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
     Ok(self.transaction_manager.lock().await.is_some())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use tempfile::tempdir;
+
+  /// Create the table a test writes to.
+  ///
+  /// The provider writes to the tables the database already has — it does
+  /// not create them. A test that inserts must therefore make its table
+  /// first, exactly as a user of the library would.
+  async fn make_table(provider: &SqliteProvider, columns: &[(&str, &str)]) -> OrmResult<()> {
+    let columns = columns
+      .iter()
+      .map(|(name, kind)| format!("{} {}", name, kind))
+      .collect::<Vec<_>>()
+      .join(", ");
+    let sql = format!("CREATE TABLE users ({})", columns);
+    provider.execute_raw(&sql, Vec::new()).await?;
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn sqlite_insert_find_by_id() -> OrmResult<()> {
+    let temp = tempdir()?;
+    let db_path = temp.path().join("test.db");
+    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+    make_table(
+      &provider,
+      &[("id", "TEXT"), ("name", "TEXT"), ("email", "TEXT")],
+    )
+    .await?;
+
+    let doc = serde_json::json!({
+      "id": "test-id-1",
+      "name": "Alice",
+      "email": "alice@example.com"
+    });
+    let inserted = provider.insert("users", doc.clone()).await?;
+    assert_eq!(inserted["id"], "test-id-1");
+    assert_eq!(inserted["name"], "Alice");
+
+    let found = provider.find_by_id("users", "test-id-1").await?;
+    assert!(found.is_some());
+    assert_eq!(found.unwrap()["name"], "Alice");
+
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn sqlite_insert_delete() -> OrmResult<()> {
+    let temp = tempdir()?;
+    let db_path = temp.path().join("test.db");
+    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+    make_table(&provider, &[("id", "TEXT"), ("name", "TEXT")]).await?;
+
+    let doc = serde_json::json!({"id": "delete-me", "name": "Bob"});
+    provider.insert("users", doc).await?;
+
+    let found_before = provider.find_by_id("users", "delete-me").await?;
+    assert!(found_before.is_some());
+
+    provider.delete("users", "delete-me").await?;
+
+    let found_after = provider.find_by_id("users", "delete-me").await?;
+    assert!(found_after.is_none());
+
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn sqlite_update() -> OrmResult<()> {
+    let temp = tempdir()?;
+    let db_path = temp.path().join("test.db");
+    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+    make_table(
+      &provider,
+      &[("id", "TEXT"), ("name", "TEXT"), ("age", "INTEGER")],
+    )
+    .await?;
+
+    let doc = serde_json::json!({"id": "update-me", "name": "Charlie", "age": 30});
+    provider.insert("users", doc).await?;
+
+    let updated = provider
+      .update(
+        "users",
+        "update-me",
+        serde_json::json!({"name": "Charles", "age": 31}),
+      )
+      .await?;
+    assert_eq!(updated["name"], "Charles");
+    assert_eq!(updated["age"], 31);
+
+    let found = provider.find_by_id("users", "update-me").await?;
+    assert!(found.is_some());
+    assert_eq!(found.unwrap()["name"], "Charles");
+
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn sqlite_find_many_pages_and_sorts() -> OrmResult<()> {
+    let temp = tempdir()?;
+    let db_path = temp.path().join("test.db");
+    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+    make_table(&provider, &[("id", "TEXT"), ("name", "TEXT")]).await?;
+
+    for (id, name) in [("a", "Ann"), ("b", "Bob"), ("c", "Cid")] {
+      provider
+        .insert("users", serde_json::json!({"id": id, "name": name}))
+        .await?;
+    }
+
+    let all = provider
+      .find_many("users", None, Some(0), Some(10), None, true)
+      .await?;
+    assert_eq!(all.len(), 3);
+
+    let page = provider
+      .find_many("users", None, Some(0), Some(2), None, true)
+      .await?;
+    assert_eq!(page.len(), 2);
+
+    let sorted = provider
+      .find_many("users", None, Some(0), Some(10), Some("name"), false)
+      .await?;
+    assert_eq!(sorted[0]["name"], "Cid");
+
+    let counted = provider.count("users", None).await?;
+    assert_eq!(counted, 3);
+
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn sqlite_list_collections_counts_the_rows() -> OrmResult<()> {
+    let temp = tempdir()?;
+    let db_path = temp.path().join("test.db");
+    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+    make_table(&provider, &[("id", "TEXT"), ("name", "TEXT")]).await?;
+    provider
+      .insert("users", serde_json::json!({"id": "u1", "name": "Ann"}))
+      .await?;
+
+    let collections = provider.list_collections().await?;
+    let users = collections
+      .iter()
+      .find(|c| c.name == "users")
+      .expect("the users table is listed");
+    assert_eq!(users.document_count, 1);
+
+    Ok(())
   }
 }

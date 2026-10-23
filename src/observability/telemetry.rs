@@ -25,6 +25,7 @@ impl Default for TelemetryConfig {
   }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct Telemetry {
   config: TelemetryConfig,
@@ -136,11 +137,13 @@ impl Default for Telemetry {
 }
 
 #[cfg(not(feature = "opentelemetry"))]
+#[allow(dead_code)]
 enum SpanContext {
   Tracing(TracingSpan),
 }
 
 #[cfg(not(feature = "opentelemetry"))]
+#[allow(dead_code)]
 pub struct SpanBuilder {
   span: Option<SpanContext>,
 }

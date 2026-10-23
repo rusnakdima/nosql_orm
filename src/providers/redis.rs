@@ -1,8 +1,8 @@
 use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, IndexInfo, RawResult, SchemaIntrospection, TransactionControl, TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, IndexInfo,
+  RawResult, SchemaIntrospection, Storage, TransactionControl, TransactionId,
 };
 use crate::query::Filter;
 use async_trait::async_trait;
@@ -11,7 +11,6 @@ use redis::AsyncCommands;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct RedisProvider {
@@ -46,7 +45,7 @@ impl RedisProvider {
 }
 
 #[async_trait]
-impl DatabaseProvider for RedisProvider {
+impl Storage for RedisProvider {
   async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
     let id = uuid::Uuid::new_v4().to_string();
     let mut doc_with_id = doc.clone();
@@ -465,5 +464,20 @@ impl TransactionControl for RedisProvider {
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
     Ok(self.transaction_manager.lock().await.is_some())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  #[ignore]
+  #[tokio::test]
+  async fn redis_insert_requires_live_server() {
+    todo!()
+  }
+
+  #[ignore]
+  #[tokio::test]
+  async fn redis_find_by_id_requires_live_server() {
+    todo!()
   }
 }

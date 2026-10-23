@@ -152,7 +152,7 @@ impl PrefixHolder {
       }
     };
     let mut result = name.to_string();
-    for (_, v) in guard.iter() {
+    for v in guard.values() {
       result = format!("{}{}", v, result);
     }
     result

@@ -1,6 +1,6 @@
 use crate::entity::Entity;
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::relations::{get_relation_def, WithRelations};
 
 pub struct RelationTraversal;
@@ -13,7 +13,7 @@ impl RelationTraversal {
   ) -> OrmResult<Option<String>>
   where
     E: Entity + WithRelations,
-    P: DatabaseProvider,
+    P: Storage,
   {
     let mut current_id = start_id.to_string();
     let mut current_table = E::table_name().to_string();
@@ -49,7 +49,7 @@ impl RelationTraversal {
   ) -> OrmResult<Option<String>>
   where
     E: Entity + WithRelations,
-    P: DatabaseProvider,
+    P: Storage,
   {
     let rel = get_relation_def(table, root_relation).ok_or_else(|| {
       crate::error::OrmError::InvalidQuery(format!("Relation '{}' not found", root_relation))
@@ -79,7 +79,7 @@ impl RelationTraversal {
     parent_field: &str,
   ) -> OrmResult<Option<String>>
   where
-    P: DatabaseProvider,
+    P: Storage,
   {
     let filter = crate::query::Filter::Eq("id".to_string(), serde_json::json!(id));
 

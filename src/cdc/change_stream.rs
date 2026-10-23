@@ -1,5 +1,6 @@
 use crate::cdc::{Change, ChangeType};
 use crate::error::OrmResult;
+#[cfg(feature = "mongo")]
 use chrono::{DateTime, Utc};
 
 pub struct ChangeStream {
@@ -68,13 +69,11 @@ impl ChangeStream {
     let before = event
       .full_document_before_change
       .as_ref()
-      .map(|d| serde_json::to_value(d).ok())
-      .flatten();
+      .and_then(|d| serde_json::to_value(d).ok());
     let after = event
       .full_document
       .as_ref()
-      .map(|d| serde_json::to_value(d).ok())
-      .flatten();
+      .and_then(|d| serde_json::to_value(d).ok());
 
     let timestamp = event
       .cluster_time

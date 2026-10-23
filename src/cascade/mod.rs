@@ -1,6 +1,6 @@
 use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::relations::{RelationDef, WithRelations};
 
 pub mod hard_delete;
@@ -8,11 +8,11 @@ pub mod helpers;
 pub mod restore;
 pub mod soft_delete;
 
-pub struct CascadeManager<P: DatabaseProvider> {
+pub struct CascadeManager<P: Storage> {
   provider: P,
 }
 
-impl<P: DatabaseProvider> CascadeManager<P> {
+impl<P: Storage> CascadeManager<P> {
   pub fn new(provider: P) -> Self {
     Self { provider }
   }

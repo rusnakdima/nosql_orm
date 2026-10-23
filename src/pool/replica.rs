@@ -1,4 +1,4 @@
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::sync::Arc;
@@ -11,27 +11,22 @@ pub struct ReplicaConfig {
   pub failover: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ReadSelection {
+  #[default]
   RoundRobin,
   LeastLatency,
   Random,
 }
 
-impl Default for ReadSelection {
-  fn default() -> Self {
-    ReadSelection::RoundRobin
-  }
-}
-
-pub struct ReplicaPool<P: DatabaseProvider> {
+pub struct ReplicaPool<P: Storage> {
   primary: Arc<P>,
   replicas: Vec<Arc<P>>,
   config: ReplicaConfig,
   round_robin_index: std::sync::atomic::AtomicUsize,
 }
 
-impl<P: DatabaseProvider> ReplicaPool<P> {
+impl<P: Storage> ReplicaPool<P> {
   pub fn new(primary: Arc<P>, config: ReplicaConfig) -> Self {
     Self {
       primary,

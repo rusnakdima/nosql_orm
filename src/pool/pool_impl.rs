@@ -1,5 +1,5 @@
 use crate::error::{OrmError, OrmResult};
-use crate::provider::{DatabaseProvider, IndexInfo};
+use crate::provider::{IndexInfo, Storage};
 use crate::providers::json::JsonProvider;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -54,6 +54,7 @@ pub struct Pooled<T> {
   _permit: Option<OwnedSemaphorePermit>,
 }
 
+#[allow(private_interfaces)]
 impl<T> Pooled<T> {
   pub fn new(inner: T) -> Self {
     Self {
@@ -137,12 +138,12 @@ impl PoolInner {
   }
 }
 
-pub struct Pool<P: DatabaseProvider> {
+pub struct Pool<P: Storage> {
   provider: Arc<P>,
   inner: Arc<PoolInner>,
 }
 
-impl<P: DatabaseProvider> Pool<P> {
+impl<P: Storage> Pool<P> {
   pub fn with_config(provider: P, config: PoolConfig) -> Self {
     Self {
       provider: Arc::new(provider),
@@ -185,6 +186,7 @@ impl JsonPool {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct PooledJson {
   provider: Arc<JsonProvider>,
   permit: Arc<OwnedSemaphorePermit>,
@@ -195,7 +197,7 @@ impl Drop for PooledJson {
 }
 
 #[async_trait]
-impl DatabaseProvider for PooledJson {
+impl Storage for PooledJson {
   async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
     self.provider.insert(collection, doc).await
   }
@@ -308,6 +310,7 @@ impl MongoPool {
 
 #[cfg(feature = "mongo")]
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct PooledMongo {
   client: mongodb::Client,
   permit: Arc<OwnedSemaphorePermit>,

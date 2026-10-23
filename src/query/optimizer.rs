@@ -1,5 +1,5 @@
 use crate::admin_types::IndexInfo;
-use crate::query::hints::{OptimizationHint, QueryAnalyzer, QueryHint};
+use crate::query::hints::{OptimizationHint, QueryAnalyzer};
 use crate::query::Filter;
 use std::collections::HashMap;
 
@@ -12,6 +12,7 @@ pub struct OptimizedQuery {
   pub warnings: Vec<String>,
 }
 
+#[allow(dead_code)]
 pub struct QueryOptimizer {
   analyzers: HashMap<String, QueryAnalyzer>,
   rule_based_optimizer: bool,
@@ -41,7 +42,7 @@ impl QueryOptimizer {
       .analyzers
       .get(collection)
       .map(|a| a.analyze(collection, &optimized_filter))
-      .unwrap_or_else(|| QueryHint::new());
+      .unwrap_or_default();
 
     OptimizedQuery {
       original: filter.to_string(),

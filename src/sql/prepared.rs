@@ -127,6 +127,7 @@ impl PreparedStatementCache {
   }
 }
 
+#[allow(dead_code)]
 pub struct BatchPreparedStatements {
   cache: PreparedStatementCache,
   batch_size: usize,

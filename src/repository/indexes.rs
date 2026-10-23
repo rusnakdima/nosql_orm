@@ -1,13 +1,13 @@
 use crate::entity::Entity;
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 
 use super::Repository;
 
 impl<E, P> Repository<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub async fn create_index(&self, index: crate::nosql_index::NosqlIndex) -> OrmResult<()> {
     self

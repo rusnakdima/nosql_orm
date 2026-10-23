@@ -1,12 +1,12 @@
 use crate::error::OrmResult;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use serde_json::Value;
 use std::collections::HashMap;
 
 pub struct FastQueryExecutor;
 
 impl FastQueryExecutor {
-  pub async fn exec_single<P: DatabaseProvider>(
+  pub async fn exec_single<P: Storage>(
     provider: &P,
     collection: &str,
     id: &str,
@@ -14,7 +14,7 @@ impl FastQueryExecutor {
     provider.find_by_id(collection, id).await
   }
 
-  pub async fn exec_count<P: DatabaseProvider>(
+  pub async fn exec_count<P: Storage>(
     provider: &P,
     collection: &str,
     filter: Option<&crate::query::Filter>,
@@ -22,7 +22,7 @@ impl FastQueryExecutor {
     provider.count(collection, filter).await
   }
 
-  pub async fn exec_exists<P: DatabaseProvider>(
+  pub async fn exec_exists<P: Storage>(
     provider: &P,
     collection: &str,
     id: &str,
@@ -30,7 +30,7 @@ impl FastQueryExecutor {
     provider.exists(collection, id).await
   }
 
-  pub async fn exec_batch_by_ids<P: DatabaseProvider>(
+  pub async fn exec_batch_by_ids<P: Storage>(
     provider: &P,
     collection: &str,
     ids: &[String],
@@ -48,7 +48,7 @@ impl FastQueryExecutor {
     Ok(results)
   }
 
-  pub async fn exec_find_simple<P: DatabaseProvider>(
+  pub async fn exec_find_simple<P: Storage>(
     provider: &P,
     collection: &str,
     filter: Option<&crate::query::Filter>,
@@ -59,7 +59,7 @@ impl FastQueryExecutor {
       .await
   }
 
-  pub async fn exec_delete_single<P: DatabaseProvider>(
+  pub async fn exec_delete_single<P: Storage>(
     provider: &P,
     collection: &str,
     id: &str,
@@ -67,7 +67,7 @@ impl FastQueryExecutor {
     provider.delete(collection, id).await
   }
 
-  pub async fn exec_insert_single<P: DatabaseProvider>(
+  pub async fn exec_insert_single<P: Storage>(
     provider: &P,
     collection: &str,
     doc: Value,
@@ -86,17 +86,18 @@ impl FastQueryExecutor {
   }
 }
 
-pub trait FastPathProvider: DatabaseProvider {
+pub trait FastPathProvider: Storage {
   fn supports_fast_path() -> bool {
     false
   }
 
+  #[allow(async_fn_in_trait)]
   async fn exec_fast_single(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
     self.find_by_id(collection, id).await
   }
 }
 
-impl<P: DatabaseProvider> FastPathProvider for P {}
+impl<P: Storage> FastPathProvider for P {}
 
 #[cfg(test)]
 mod tests {

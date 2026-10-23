@@ -3,9 +3,9 @@
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
-  TransactionControl, TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
+  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
+  TransactionId,
 };
 use crate::providers::sql::row;
 use crate::query::Filter;
@@ -17,7 +17,6 @@ use mysql_async::{Opts, Pool, Row};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct MySqlProvider {
@@ -58,7 +57,7 @@ impl MySqlProvider {
   }
 
   pub fn dialect(&self) -> SqlDialect {
-    self.dialect.clone()
+    self.dialect
   }
 }
 
@@ -89,7 +88,7 @@ fn convert_params(params: Vec<JsonValue>) -> Vec<mysql_async::Value> {
 }
 
 #[async_trait]
-impl DatabaseProvider for MySqlProvider {
+impl Storage for MySqlProvider {
   async fn insert(&self, collection: &str, mut doc: JsonValue) -> OrmResult<JsonValue> {
     let id = if doc.get("id").is_none() {
       uuid::Uuid::new_v4().to_string()
@@ -184,12 +183,13 @@ impl DatabaseProvider for MySqlProvider {
       ));
     }
 
-    if let Some(s) = skip {
-      sql.push_str(&format!(" LIMIT {}, 18446744073709551615", s));
-    }
-
+    // SQL reads "LIMIT n OFFSET m" — two LIMIT clauses are a syntax error.
     if let Some(l) = limit {
       sql.push_str(&format!(" LIMIT {}", l));
+    }
+
+    if let Some(s) = skip {
+      sql.push_str(&format!(" OFFSET {}", s));
     }
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
@@ -450,7 +450,7 @@ impl SchemaIntrospection for MySqlProvider {
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
     let (count,): (i64,) = map_err_query(conn.exec_first(&count_sql, ()).await)?.unwrap_or((0,));
 
-    let size: i64 = match conn.exec_iter(&size_sql, (&collection,)).await {
+    let size: i64 = match conn.exec_iter(size_sql, (&collection,)).await {
       Ok(mut r) => match r.collect::<Row>().await {
         Ok(rows) => rows
           .first()

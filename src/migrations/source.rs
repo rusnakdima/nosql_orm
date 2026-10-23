@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::error::OrmResult;
 use crate::migrations::migration::Migration;
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use std::marker::PhantomData;
 
 pub enum MigrationSource {
@@ -11,16 +11,16 @@ pub enum MigrationSource {
   SQL,
 }
 
-pub trait MigrationLoader<P: DatabaseProvider>: Send + Sync {
+pub trait MigrationLoader<P: Storage>: Send + Sync {
   fn load_migrations(&self) -> OrmResult<Vec<Box<dyn Migration<P>>>>;
 }
 
-pub struct SqlFileLoader<P: DatabaseProvider> {
+pub struct SqlFileLoader<P: Storage> {
   pub path: PathBuf,
   _phantom: PhantomData<P>,
 }
 
-impl<P: DatabaseProvider> SqlFileLoader<P> {
+impl<P: Storage> SqlFileLoader<P> {
   pub fn new(path: impl Into<PathBuf>) -> Self {
     Self {
       path: path.into(),
@@ -29,7 +29,7 @@ impl<P: DatabaseProvider> SqlFileLoader<P> {
   }
 }
 
-impl<P: DatabaseProvider> MigrationLoader<P> for SqlFileLoader<P> {
+impl<P: Storage> MigrationLoader<P> for SqlFileLoader<P> {
   fn load_migrations(&self) -> OrmResult<Vec<Box<dyn Migration<P>>>> {
     let mut migrations: Vec<Box<dyn Migration<P>>> = Vec::new();
     let entries = std::fs::read_dir(&self.path)?;

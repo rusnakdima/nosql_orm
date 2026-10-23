@@ -70,10 +70,7 @@ impl Cli {
     self
   }
 
-  pub async fn run<P: crate::provider::DatabaseProvider + Clone>(
-    &self,
-    provider: P,
-  ) -> OrmResult<ExitCode> {
+  pub async fn run<P: crate::provider::Storage + Clone>(&self, provider: P) -> OrmResult<ExitCode> {
     for cmd in &self.commands {
       let result = self.run_command(cmd.clone(), provider.clone()).await;
       match result {
@@ -88,7 +85,7 @@ impl Cli {
     Ok(ExitCode::SUCCESS)
   }
 
-  async fn run_command<P: crate::provider::DatabaseProvider + Clone>(
+  async fn run_command<P: crate::provider::Storage + Clone>(
     &self,
     cmd: CliCommand,
     provider: P,

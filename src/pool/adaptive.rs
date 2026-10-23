@@ -2,7 +2,7 @@ use crate::error::OrmResult;
 use crate::pool::auto_scaling::AutoScaler;
 use crate::pool::auto_scaling::AutoScalerConfig;
 use crate::pool::pool_impl::{PoolConfig, PoolInner};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use tokio::sync::{watch, OwnedSemaphorePermit};
 const UTILIZATION_MULTIPLIER: u64 = 1000;
 
 #[async_trait]
-pub trait AdaptivePoolProvider: DatabaseProvider + Send + Sync {
+pub trait AdaptivePoolProvider: Storage + Send + Sync {
   async fn on_scale_up(&self, _new_size: usize) -> OrmResult<()> {
     Ok(())
   }
@@ -98,7 +98,7 @@ pub struct AdaptivePooled<P: AdaptivePoolProvider> {
 
 impl<P: AdaptivePoolProvider> AdaptivePooled<P> {
   pub fn provider(&self) -> &P {
-    &*self.provider
+    &self.provider
   }
 }
 

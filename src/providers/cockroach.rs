@@ -1,8 +1,8 @@
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, RawResult, TransactionControl, TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
+  IndexInfo, RawResult, Storage, TransactionControl, TransactionId,
 };
 use crate::query::Filter;
 use async_trait::async_trait;
@@ -28,7 +28,7 @@ impl CockroachProvider {
 }
 
 #[async_trait]
-impl DatabaseProvider for CockroachProvider {
+impl Storage for CockroachProvider {
   async fn insert(&self, _collection: &str, _doc: Value) -> OrmResult<Value> {
     Err(OrmError::Provider(
       "CockroachDB not yet implemented".to_string(),

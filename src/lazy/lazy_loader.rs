@@ -1,6 +1,6 @@
 use crate::entity::Entity;
 use crate::lazy::lazy_relation::{LazyMany, LazyRelation};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::relations::RelationDef;
 use crate::repository::Repository;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ impl LazyLoader {
   ) -> LazyRelation<E, P>
   where
     E: Entity,
-    P: DatabaseProvider,
+    P: Storage,
   {
     LazyRelation::new(repo, relation, local_id)
   }
@@ -27,7 +27,7 @@ impl LazyLoader {
   ) -> LazyMany<E, P>
   where
     E: Entity,
-    P: DatabaseProvider,
+    P: Storage,
   {
     LazyMany::new(repo, relation, local_id)
   }
@@ -36,7 +36,7 @@ impl LazyLoader {
 pub trait RepositoryLazyExt<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   fn lazy_relation(self: Arc<Self>, relation: RelationDef, local_id: String) -> LazyRelation<E, P>;
   fn lazy_many(self: Arc<Self>, relation: RelationDef, local_id: String) -> LazyMany<E, P>;
@@ -45,7 +45,7 @@ where
 impl<E, P> RepositoryLazyExt<E, P> for Repository<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   fn lazy_relation(self: Arc<Self>, relation: RelationDef, local_id: String) -> LazyRelation<E, P> {
     LazyLoader::relation(self, relation, local_id)

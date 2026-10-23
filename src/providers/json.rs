@@ -8,9 +8,8 @@ use tokio::sync::RwLock;
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  DatabaseProvider, FieldInfo, IndexInfo, RawResult, SchemaIntrospection, TransactionControl,
-  TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
+  IndexInfo, RawResult, SchemaIntrospection, Storage, TransactionControl, TransactionId,
 };
 use crate::query::Filter;
 use crate::utils::{compare_values, generate_id, get_document_id_string};
@@ -84,6 +83,7 @@ fn validate_collection_name(name: &str) -> OrmResult<()> {
   Ok(())
 }
 
+#[allow(dead_code)]
 fn make_path(base_dir: &Path, collection: &str) -> OrmResult<PathBuf> {
   validate_collection_name(collection)?;
   Ok(base_dir.join(format!("{}.json", collection)))
@@ -128,9 +128,9 @@ impl JsonProvider {
       if records.len() >= self.cache_config.max_entries_per_collection {
         if let Some(ids) = access.get_mut(collection) {
           if let Some(oldest_id) = ids.pop_front() {
-            cache
-              .get_mut(collection)
-              .map(|r| r.retain(|doc| Self::id_of(doc) != Some(&oldest_id)));
+            if let Some(r) = cache.get_mut(collection) {
+              r.retain(|doc| Self::id_of(doc) != Some(&oldest_id))
+            }
           }
         }
       }
@@ -205,7 +205,7 @@ impl JsonProvider {
 }
 
 #[async_trait]
-impl DatabaseProvider for JsonProvider {
+impl Storage for JsonProvider {
   async fn insert(&self, collection: &str, mut doc: Value) -> OrmResult<Value> {
     self.ensure_loaded(collection).await?;
     self.evict_if_needed(collection).await;
@@ -541,7 +541,6 @@ impl SchemaIntrospection for JsonProvider {
                           .sum::<usize>() as u64;
                         (docs.len() as u64, size)
                       }
-                      Ok(_) => (0, 0),
                       Err(_) => (0, content.len() as u64),
                     },
                     Err(_) => (0, 0),
@@ -627,11 +626,7 @@ impl SchemaIntrospection for JsonProvider {
       storage_size_bytes: size_bytes,
       index_count: 0,
       index_size_bytes: 0,
-      average_document_size: if document_count > 0 {
-        size_bytes / document_count
-      } else {
-        0
-      },
+      average_document_size: size_bytes.checked_div(document_count).unwrap_or(0),
     })
   }
 

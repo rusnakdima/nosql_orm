@@ -1,7 +1,7 @@
 use crate::entity::Entity;
 use crate::error::OrmResult;
 use crate::events::listener::EntityEvents;
-use crate::provider::{AdminCommands, DatabaseProvider};
+use crate::provider::{AdminCommands, Storage};
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -64,7 +64,7 @@ impl Default for SyncResult {
 pub struct Repository<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub(crate) provider: P,
   pub(crate) events: Option<Arc<EntityEvents>>,
@@ -86,7 +86,7 @@ impl Default for QueryTimeout {
 impl<E, P> Repository<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub fn new(provider: P) -> Self {
     Self {
@@ -157,7 +157,7 @@ pub trait QueryStreamTrait<E> {
 pub struct QueryStream<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   provider: P,
   collection: String,
@@ -174,7 +174,7 @@ where
 impl<E, P> QueryStream<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub fn new(
     provider: P,
@@ -280,7 +280,7 @@ where
 impl<E, P> QueryStreamTrait<E> for QueryStream<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   type Item = OrmResult<E>;
 
@@ -292,7 +292,7 @@ where
 impl<E, P> Repository<E, P>
 where
   E: Entity,
-  P: DatabaseProvider,
+  P: Storage,
 {
   pub async fn find_stream(
     &self,

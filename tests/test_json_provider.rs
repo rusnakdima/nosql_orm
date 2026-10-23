@@ -2,7 +2,7 @@ use tempfile::TempDir;
 use tokio::fs;
 
 use nosql_orm::error::OrmError;
-use nosql_orm::provider::DatabaseProvider;
+use nosql_orm::provider::Storage;
 use nosql_orm::providers::json::{CacheConfig, JsonProvider, JsonProviderConfig};
 
 async fn create_test_provider() -> (JsonProvider, TempDir) {

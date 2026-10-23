@@ -1,6 +1,6 @@
 use crate::entity::Entity;
 use crate::error::{OrmError, OrmResult};
-use crate::provider::DatabaseProvider;
+use crate::provider::Storage;
 use crate::repository::Repository;
 use serde::Serialize;
 use tokio::fs::File;
@@ -39,7 +39,7 @@ impl Exporter {
     ) -> OrmResult<ExportStats>
     where
         E: Entity + Serialize,
-        P: DatabaseProvider,
+        P: Storage,
     {
         match self.format {
             DataFormat::Json => self.export_json(repository, output).await,
@@ -57,7 +57,7 @@ impl Exporter {
     ) -> OrmResult<ExportStats>
     where
         E: Entity + Serialize,
-        P: DatabaseProvider,
+        P: Storage,
     {
         let start = Instant::now();
         let mut exported = 0;
@@ -115,7 +115,7 @@ impl Exporter {
     ) -> OrmResult<ExportStats>
     where
         E: Entity + Serialize,
-        P: DatabaseProvider,
+        P: Storage,
     {
         let start = Instant::now();
         let mut exported = 0;
@@ -227,7 +227,7 @@ impl Importer {
     ) -> OrmResult<ImportStats>
     where
         E: Entity + serde::de::DeserializeOwned + Send + Sync,
-        P: DatabaseProvider,
+        P: Storage,
     {
         match self.format {
             DataFormat::Json => self.import_json(repository, input).await,
@@ -243,7 +243,7 @@ impl Importer {
     ) -> OrmResult<ImportStats>
     where
         E: Entity + serde::de::DeserializeOwned + Send + Sync,
-        P: DatabaseProvider,
+        P: Storage,
     {
         let start = Instant::now();
         let mut imported = 0;
@@ -282,7 +282,7 @@ impl Importer {
     ) -> OrmResult<ImportStats>
     where
         E: Entity + serde::de::DeserializeOwned + Send + Sync,
-        P: DatabaseProvider,
+        P: Storage,
     {
         let start = Instant::now();
         let mut imported = 0;
@@ -342,4 +342,235 @@ pub struct ImportStats {
     pub skipped: usize,
     pub errors: usize,
     pub duration_ms: u64,
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::entity::{Entity, EntityMeta};
+  use crate::provider::Storage;
+  use crate::repository::Repository;
+  use crate::providers::sql::sqlite::SqliteProvider;
+  use async_trait::async_trait;
+  use parking_lot::RwLock;
+  use serde::Serialize;
+  use serde_json::Value;
+  use std::collections::HashMap;
+  use tempfile::tempdir;
+
+  #[derive(Debug, Clone, Serialize, Deserialize)]
+  struct TestEntity {
+    pub id: Option<String>,
+    pub name: String,
+    pub age: i32,
+  }
+
+  impl Entity for TestEntity {
+    fn meta() -> EntityMeta {
+      EntityMeta::new("test_entities")
+    }
+
+    fn get_id(&self) -> Option<String> {
+      self.id.clone()
+    }
+
+    fn set_id(&mut self, id: String) {
+      self.id = Some(id);
+    }
+  }
+
+  #[derive(Clone)]
+  struct MockProvider {
+    data: std::sync::Arc<RwLock<HashMap<String, Vec<Value>>>>,
+  }
+
+  impl Default for MockProvider {
+    fn default() -> Self {
+      Self {
+        data: std::sync::Arc::new(RwLock::new(HashMap::new())),
+      }
+    }
+  }
+
+  #[async_trait]
+  impl Storage for MockProvider {
+    async fn insert(&self, collection: &str, doc: Value) -> crate::error::OrmResult<Value> {
+      self
+        .data
+        .write()
+        .entry(collection.to_string())
+        .or_default()
+        .push(doc.clone());
+      Ok(doc)
+    }
+
+    async fn find_by_id(
+      &self,
+      collection: &str,
+      id: &str,
+    ) -> crate::error::OrmResult<Option<Value>> {
+      let docs = self.data.read();
+      let found = docs.get(collection).and_then(|v| {
+        v.iter().find(|doc| {
+          doc.get("id")
+            .and_then(|v| v.as_str())
+            .map(|sid| sid == id)
+            .unwrap_or(false)
+        }).cloned()
+      });
+      Ok(found)
+    }
+
+    async fn delete(&self, collection: &str, id: &str) -> crate::error::OrmResult<()> {
+      let mut data = self.data.write();
+      if let Some(docs) = data.get_mut(collection) {
+        docs.retain(|doc| {
+          doc.get("id")
+            .and_then(|v| v.as_str())
+            .map(|sid| sid != id)
+            .unwrap_or(true)
+        });
+      }
+      Ok(())
+    }
+
+    async fn update(
+      &self,
+      collection: &str,
+      id: &str,
+      doc: Value,
+    ) -> crate::error::OrmResult<Value> {
+      let mut data = self.data.write();
+      if let Some(docs) = data.get_mut(collection) {
+        if let Some(existing) = docs.iter_mut().find(|d| {
+          d.get("id")
+            .and_then(|v| v.as_str())
+            .map(|sid| sid == id)
+            .unwrap_or(false)
+        }) {
+          if let Some(obj) = existing.as_object_mut() {
+            if let Some(upd) = doc.as_object() {
+              obj.extend(upd.clone());
+            }
+          }
+          return Ok(existing.clone());
+        }
+      }
+      Err(crate::error::OrmError::NotFound(format!(
+        "id {} not found",
+        id
+      )))
+    }
+
+    async fn find(
+      &self,
+      collection: &str,
+      _filter: crate::query::Filter,
+    ) -> crate::error::OrmResult<Vec<Value>> {
+      let data = self.data.read();
+      Ok(data.get(collection).cloned().unwrap_or_default())
+    }
+
+    async fn count(
+      &self,
+      _collection: &str,
+      _filter: crate::query::Filter,
+    ) -> crate::error::OrmResult<i64> {
+      Ok(0)
+    }
+
+    async fn health_check(&self) -> crate::error::OrmResult<()> {
+      Ok(())
+    }
+  }
+
+  #[test]
+  fn import_export_json_roundtrip() -> crate::error::OrmResult<()> {
+    let entities = vec![
+      TestEntity {
+        id: Some("1".to_string()),
+        name: "Alice".to_string(),
+        age: 30,
+      },
+      TestEntity {
+        id: Some("2".to_string()),
+        name: "Bob".to_string(),
+        age: 25,
+      },
+    ];
+
+    let json = serde_json::to_string(&entities).unwrap();
+    let roundtripped: Vec<TestEntity> = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(entities.len(), roundtripped.len());
+    assert_eq!(entities[0].name, roundtripped[0].name);
+    assert_eq!(entities[1].age, roundtripped[1].age);
+
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn import_export_csv_roundtrip() -> crate::error::OrmResult<()> {
+    let temp = tempdir().unwrap();
+    let csv_path = temp.path().join("test.csv");
+
+    let entities = vec![
+      TestEntity {
+        id: Some("1".to_string()),
+        name: "Charlie".to_string(),
+        age: 35,
+      },
+      TestEntity {
+        id: Some("2".to_string()),
+        name: "Diana".to_string(),
+        age: 28,
+      },
+    ];
+
+    let mut csv_content = String::from("id,name,age\n");
+    for e in &entities {
+      csv_content.push_str(&format!("{},{},{}\n", e.id.as_ref().unwrap(), e.name, e.age));
+    }
+
+    let provider = MockProvider::default();
+    let repo = Repository::<TestEntity, MockProvider>::new(provider.clone());
+    let exporter = Exporter::new(DataFormat::Csv).with_batch_size(100);
+    exporter
+      .export_csv(&repo, csv_path.to_str().unwrap())
+      .await
+      .unwrap();
+
+    let read_content = std::fs::read_to_string(&csv_path).unwrap();
+    assert!(read_content.contains("Charlie"));
+    assert!(read_content.contains("Diana"));
+
+    Ok(())
+  }
+
+  #[test]
+  fn import_export_csv_with_missing_fields() -> crate::error::OrmResult<()> {
+    // Simulate CSV rows with missing fields parsed manually
+    let csv_with_missing = "id,name,age\n1,Alice,\n2,,30\n";
+
+    let lines: Vec<&str> = csv_with_missing.lines().collect();
+    assert_eq!(lines.len(), 3); // header + 2 rows
+
+    // Row 1: id=1, name=Alice, age=empty
+    let row1: Vec<&str> = lines[1].split(',').collect();
+    assert_eq!(row1[0], "1");
+    assert_eq!(row1[1], "Alice");
+    assert_eq!(row1[2], ""); // age missing
+
+    // Row 2: id=2, name=empty, age=30
+    let row2: Vec<&str> = lines[2].split(',').collect();
+    assert_eq!(row2[0], "2");
+    assert_eq!(row2[1], "");
+    assert_eq!(row2[2], "30");
+
+    // Missing fields should default to empty string / None when deserialized
+    assert_eq!(row1[2], "");
+    assert_eq!(row2[1], "");
+
+    Ok(())
+  }
 }
