@@ -3,6 +3,16 @@ use nosql_orm::relations::{
   register_collection_relations, RelationDef, RelationType,
 };
 use nosql_orm::sql::types::SqlOnDelete;
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
+/// The relation registry is one global for the process, and the cases below
+/// register, clear and read it. They run in parallel by default, so they take
+/// this lock and go one at a time.
+fn registry_lock() -> MutexGuard<'static, ()> {
+  static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+  let lock = LOCK.get_or_init(|| Mutex::new(()));
+  lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[test]
 fn test_relation_def_many_to_one() {
@@ -106,6 +116,7 @@ fn test_relation_def_on_delete_set_null() {
 
 #[test]
 fn test_relation_registry_register_and_get() {
+  let _guard = registry_lock();
   let _ = clear_relation_registry();
   let _ = clear_registered_collections();
 
@@ -122,6 +133,7 @@ fn test_relation_registry_register_and_get() {
 
 #[test]
 fn test_relation_registry_get_unknown_collection() {
+  let _guard = registry_lock();
   let _ = clear_relation_registry();
   let _ = clear_registered_collections();
 
@@ -131,6 +143,7 @@ fn test_relation_registry_get_unknown_collection() {
 
 #[test]
 fn test_relation_registry_clear() {
+  let _guard = registry_lock();
   let _ = clear_relation_registry();
   let _ = clear_registered_collections();
 

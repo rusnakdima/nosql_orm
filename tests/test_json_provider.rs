@@ -228,8 +228,11 @@ async fn test_delete() {
 async fn test_delete_not_found() {
   let (provider, _temp_dir) = create_test_provider().await;
 
+  // Deleting an id that is not there is not an error: the call reports
+  // whether it removed anything, and the answer here is "no".
   let result = provider.delete("users", "nonexistent").await;
-  assert!(result.is_err());
+  assert!(result.is_ok());
+  assert!(!result.unwrap());
 }
 
 #[tokio::test]

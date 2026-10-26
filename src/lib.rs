@@ -164,6 +164,9 @@ pub mod prelude {
   #[cfg(feature = "json")]
   pub use crate::providers::json::JsonProvider;
 
+  #[cfg(feature = "json")]
+  pub use crate::providers::json_tree::JsonTreeProvider;
+
   pub use crate::pool::{JsonPool, Pool, PoolConfig, Pooled};
 
   #[cfg(feature = "mongo")]

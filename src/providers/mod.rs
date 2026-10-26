@@ -80,6 +80,7 @@ impl<P1: Storage + Send + Sync, P2: Storage + Send + Sync> FallbackProvider<P1, 
 }
 
 pub mod json;
+pub mod json_tree;
 pub mod sync;
 pub mod variant;
 
@@ -103,6 +104,9 @@ pub use sync::{ConflictResolution, ProviderSync, SyncOptions};
 
 #[cfg(feature = "json")]
 pub use json::JsonProvider;
+
+#[cfg(feature = "json")]
+pub use json_tree::JsonTreeProvider;
 
 #[cfg(feature = "mongo")]
 pub use mongo::MongoProvider;

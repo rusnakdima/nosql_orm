@@ -6,6 +6,21 @@ use nosql_orm::relations::registry::{
 };
 use nosql_orm::relations::{RelationDef, RelationType, RelationValue};
 use serde_json::json;
+use std::sync::OnceLock;
+use tokio::sync::{Mutex, MutexGuard};
+
+/// The relation registry is one global for the process, and the cases below
+/// clear it and register into it. They run in parallel by default, so they
+/// take this lock and go one at a time.
+///
+/// The lock is an async one on purpose: these cases are `tokio::test`s on a
+/// current-thread runtime, and a blocking lock held across an `.await` would
+/// deadlock the runtime.
+async fn registry_lock() -> MutexGuard<'static, ()> {
+  static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+  let lock = LOCK.get_or_init(|| Mutex::new(()));
+  lock.lock().await
+}
 
 async fn create_test_loader() -> (RelationLoader<JsonProvider>, tempfile::TempDir) {
   let temp_dir = tempfile::TempDir::new().unwrap();
@@ -15,6 +30,7 @@ async fn create_test_loader() -> (RelationLoader<JsonProvider>, tempfile::TempDi
 
 #[tokio::test]
 async fn test_cascade_load_with_no_relations() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   let (loader, _tmp) = create_test_loader().await;
@@ -28,6 +44,7 @@ async fn test_cascade_load_with_no_relations() {
 
 #[tokio::test]
 async fn test_cascade_load_unknown_relation() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   register_collection_relations(
@@ -49,6 +66,7 @@ async fn test_cascade_load_unknown_relation() {
 
 #[tokio::test]
 async fn test_cascade_load_empty_path() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   let (loader, _tmp) = create_test_loader().await;
@@ -62,6 +80,7 @@ async fn test_cascade_load_empty_path() {
 
 #[tokio::test]
 async fn test_relation_def_many_to_one() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   register_collection_relations(
@@ -78,6 +97,7 @@ async fn test_relation_def_many_to_one() {
 
 #[tokio::test]
 async fn test_relation_def_one_to_many() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   register_collection_relations(
@@ -93,6 +113,7 @@ async fn test_relation_def_one_to_many() {
 
 #[tokio::test]
 async fn test_relation_def_many_to_many() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   register_collection_relations(
@@ -108,6 +129,7 @@ async fn test_relation_def_many_to_many() {
 
 #[tokio::test]
 async fn test_relation_def_one_to_one() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   register_collection_relations(
@@ -122,6 +144,7 @@ async fn test_relation_def_one_to_one() {
 
 #[tokio::test]
 async fn test_relation_def_nonexistent() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   let rel = get_relation_def("users", "nonexistent");
@@ -130,6 +153,7 @@ async fn test_relation_def_nonexistent() {
 
 #[tokio::test]
 async fn test_cascade_load_with_single_segment_path() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   register_collection_relations(
@@ -151,6 +175,7 @@ async fn test_cascade_load_with_single_segment_path() {
 
 #[tokio::test]
 async fn test_relation_def_builder_method_chaining() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   let rel = RelationDef::many_to_one("author", "users", "author_id");
@@ -203,6 +228,7 @@ async fn test_relation_value_many() {
 
 #[tokio::test]
 async fn test_relation_registry_clear() {
+  let _guard = registry_lock().await;
   clear_relation_registry();
 
   register_collection_relations(

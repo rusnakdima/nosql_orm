@@ -45,7 +45,7 @@ impl<P: Storage> MigrationRunner<P> {
       .unwrap_or(false);
     if !exists {
       let schema = serde_json::json!({
-          "_id": "_schema",
+          "id": "_schema",
           "version": 0,
           "name": "schema",
           "applied_at": null

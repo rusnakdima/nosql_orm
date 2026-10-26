@@ -16,11 +16,12 @@ pub async fn load<P: Storage>(
   loader: &RelationLoader<P>,
 ) -> OrmResult<HashMap<String, RelationValue>> {
   let mut results = HashMap::new();
-  let segments: Vec<&str> = path.split('.').collect();
-
-  if segments.is_empty() {
+  // An empty path asks for no relation at all. Splitting it would produce one
+  // empty segment, which is not a relation name.
+  if path.trim().is_empty() {
     return Ok(results);
   }
+  let segments: Vec<&str> = path.split('.').collect();
 
   let first = segments[0];
   let rel_def = get_relation_def(table, first).ok_or_else(|| {

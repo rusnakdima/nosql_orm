@@ -1,12 +1,22 @@
 use nosql_orm::relations::{
-  clear_registered_collections, clear_relation_registry, get_relation_def,
-  register_collection_relations, RelationDef, RelationType,
+  get_relation_def, register_collection_relations, RelationDef, RelationType,
 };
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
+/// The relation registry is one global for the process, and the cases below
+/// register into it and read it back. They run in parallel by default, so they
+/// take this lock and go one at a time.
+fn registry_lock() -> MutexGuard<'static, ()> {
+  static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+  let lock = LOCK.get_or_init(|| Mutex::new(()));
+  lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Test that three-level nested path resolution works correctly
 /// Path: todos -> assignees (profiles) -> user (users) -> profile (profiles)
 #[test]
 fn test_nested_path_three_levels() {
+  let _guard = registry_lock();
   // Register relations for each collection (without clear, to avoid interference)
   register_collection_relations(
     "todos",
@@ -52,6 +62,7 @@ fn test_nested_path_three_levels() {
 /// The fix handles single object (ManyToOne) not just arrays (OneToMany/ManyToMany)
 #[test]
 fn test_children_already_loaded_many_to_one() {
+  let _guard = registry_lock();
   register_collection_relations(
     "posts",
     vec![RelationDef::many_to_one("author", "users", "author_id")],
@@ -78,6 +89,7 @@ fn test_children_already_loaded_many_to_one() {
 /// Test that get_relation_def_for_path handles empty docs array
 #[test]
 fn test_get_relation_def_for_path_empty_docs() {
+  let _guard = registry_lock();
   register_collection_relations(
     "todos",
     vec![RelationDef::many_to_many(
@@ -97,11 +109,16 @@ fn test_get_relation_def_for_path_empty_docs() {
 /// Test that get_relation_def_for_path warns on mixed collections
 #[test]
 fn test_get_relation_def_for_path_mixed_collections() {
-  register_collection_relations("todos", vec![]);
-  register_collection_relations("tasks", vec![]);
+  let _guard = registry_lock();
+  // These collections are registered empty on purpose. They use their own
+  // names: the registry keeps the first registration for a collection, so
+  // reusing "todos" here would race with the test that registers a real
+  // relation for it.
+  register_collection_relations("mixed_a", vec![]);
+  register_collection_relations("mixed_b", vec![]);
 
-  let todos_result = get_relation_def("todos", "any");
-  let tasks_result = get_relation_def("tasks", "any");
+  let todos_result = get_relation_def("mixed_a", "any");
+  let tasks_result = get_relation_def("mixed_b", "any");
   assert!(
     todos_result.is_none(),
     "Should return None for empty relation registry"
@@ -115,9 +132,10 @@ fn test_get_relation_def_for_path_mixed_collections() {
 /// Test RelationDef builder methods for all relation types
 #[test]
 fn test_relation_def_all_types() {
-  let _ = clear_relation_registry();
-  let _ = clear_registered_collections();
-
+  let _guard = registry_lock();
+  // This test only builds relation definitions; it never reads the global
+  // registry. Clearing the registry here would race with the tests that do
+  // read it, because the test binary runs its cases in parallel.
   let many_to_one = RelationDef::many_to_one("author", "users", "author_id");
   assert_eq!(many_to_one.relation_type, RelationType::ManyToOne);
   assert_eq!(many_to_one.name, "author");
