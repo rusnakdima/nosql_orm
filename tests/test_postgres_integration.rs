@@ -88,6 +88,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_connection_and_health_check() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -104,6 +105,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_insert_and_find() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -128,6 +130,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_update() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -152,6 +155,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_delete() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -174,6 +178,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_find_many_with_filter() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -207,6 +212,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_count() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -221,6 +227,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_transaction_commit() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -250,6 +257,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_transaction_rollback() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -279,6 +287,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_batch_operations() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -306,6 +315,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_query_builder_usage() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -345,6 +355,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_update_many() -> OrmResult<()> {
     let provider = match setup_provider().await {
@@ -378,6 +389,7 @@ mod postgres_integration_tests {
     Ok(())
   }
 
+  #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
   #[tokio::test]
   async fn test_delete_many() -> OrmResult<()> {
     let provider = match setup_provider().await {

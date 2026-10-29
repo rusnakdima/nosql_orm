@@ -16,6 +16,7 @@ async fn setup_redis_provider_with_prefix(prefix: &str) -> OrmResult<RedisProvid
   )
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_provider_connection() {
   let provider = setup_redis_provider().await;
@@ -25,6 +26,7 @@ async fn test_redis_provider_connection() {
   let _ = provider.unwrap();
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_with_prefix() {
   let provider_result = setup_redis_provider_with_prefix("test:").await;
@@ -35,6 +37,7 @@ async fn test_redis_with_prefix() {
   let _ = provider;
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_insert_and_find_by_id() {
   let provider_result = setup_redis_provider().await;
@@ -59,6 +62,7 @@ async fn test_redis_insert_and_find_by_id() {
   let _ = provider.delete(&collection, id).await;
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_find_many_empty() {
   let provider_result = setup_redis_provider().await;
@@ -74,6 +78,7 @@ async fn test_redis_find_many_empty() {
   assert!(results.is_empty());
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_find_many_with_filter() {
   let provider_result = setup_redis_provider().await;
@@ -103,6 +108,7 @@ async fn test_redis_find_many_with_filter() {
   let _ = provider.delete(&collection, "nonexistent").await;
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_find_many_with_skip_limit() {
   let provider_result = setup_redis_provider().await;
@@ -128,6 +134,7 @@ async fn test_redis_find_many_with_skip_limit() {
   let _ = provider.delete(&collection, "nonexistent").await;
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_update() {
   let provider_result = setup_redis_provider().await;
@@ -159,6 +166,7 @@ async fn test_redis_update() {
   let _ = provider.delete(&collection, id).await;
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_delete() {
   let provider_result = setup_redis_provider().await;
@@ -181,6 +189,7 @@ async fn test_redis_delete() {
   assert!(found.is_none());
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_count() {
   let provider_result = setup_redis_provider().await;
@@ -206,6 +215,7 @@ async fn test_redis_count() {
   let _ = provider.delete(&collection, "nonexistent").await;
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_exists() {
   let provider_result = setup_redis_provider().await;
@@ -227,6 +237,7 @@ async fn test_redis_exists() {
   let _ = provider.delete(&collection, id).await;
 }
 
+#[ignore = "needs a running Redis — set REDIS_CONNECTION_STRING"]
 #[tokio::test]
 async fn test_redis_find_all() {
   let provider_result = setup_redis_provider().await;
