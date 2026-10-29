@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::admin_types::CollectionOptions;
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
-use crate::admin_types::CollectionOptions;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
   IndexInfo, RawResult, SchemaIntrospection, Storage, TransactionControl, TransactionId,
@@ -62,13 +62,19 @@ fn doc_path(base_dir: &Path, collection: &str, id: &str) -> OrmResult<PathBuf> {
   // id may contain '.' which maps to '/' on disk.
   let rel = id.replace('.', "/");
   if rel.contains("..") || rel.starts_with('/') || rel.starts_with('.') {
-    return Err(OrmError::InvalidInput(format!("invalid document id: {}", id)));
+    return Err(OrmError::InvalidInput(format!(
+      "invalid document id: {}",
+      id
+    )));
   }
   Ok(base_dir.join(collection).join(format!("{}.json", rel)))
 }
 
 fn id_of(doc: &Value) -> Option<String> {
-  doc.get("id").and_then(|v| v.as_str()).map(|s| s.to_string())
+  doc
+    .get("id")
+    .and_then(|v| v.as_str())
+    .map(|s| s.to_string())
 }
 
 /// JSON file-tree provider.
@@ -103,12 +109,12 @@ impl JsonTreeProvider {
     let mut docs: Vec<Value> = Vec::new();
     if dir.exists() {
       // Walk recursively for *.json files.
-      fn walk(dir: &Path, base: &Path, out: &mut Vec<Value>) {
+      fn walk(dir: &Path, out: &mut Vec<Value>) {
         if let Ok(entries) = std::fs::read_dir(dir) {
           for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-              walk(&path, base, out);
+              walk(&path, out);
             } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
               if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(value) = serde_json::from_str::<Value>(&content) {
@@ -119,7 +125,7 @@ impl JsonTreeProvider {
           }
         }
       }
-      walk(&dir, &dir, &mut docs);
+      walk(&dir, &mut docs);
     }
     let mut w = self.cache.write().await;
     w.insert(collection.to_string(), docs);
@@ -151,23 +157,30 @@ impl JsonTreeProvider {
 
 #[async_trait]
 impl Storage for JsonTreeProvider {
-  async fn insert(&self, collection: &str, mut doc: Value) -> OrmResult<Value> {
+  async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
     self.ensure_loaded(collection).await?;
-    if doc.get("id").and_then(|v| v.as_str()).is_none_or(|s| s.is_empty()) {
-      return Err(OrmError::Validation("document must carry a non-empty 'id'".to_string()));
+    if doc
+      .get("id")
+      .and_then(|v| v.as_str())
+      .is_none_or(|s| s.is_empty())
+    {
+      return Err(OrmError::Validation(
+        "document must carry a non-empty 'id'".to_string(),
+      ));
     }
     // reject duplicate
     {
       let r = self.cache.read().await;
       if let Some(recs) = r.get(collection) {
         let id = get_document_id_string(&doc)?;
-        if recs.iter().any(|r| id_of(r).as_deref() == Some(id.as_str())) {
+        if recs
+          .iter()
+          .any(|r| id_of(r).as_deref() == Some(id.as_str()))
+        {
           return Err(OrmError::Duplicate(format!("id={}", id)));
         }
       }
     }
-    let id = get_document_id_string(&doc)?;
-    // validate id matches path? plan says body id must equal path id; here id is the path id.
     self.flush_document(collection, &doc).await?;
     let mut w = self.cache.write().await;
     let records = w.entry(collection.to_string()).or_default();
@@ -210,7 +223,11 @@ impl Storage for JsonTreeProvider {
         let av = a.get(field);
         let bv = b.get(field);
         let ord = compare_values(av, bv);
-        if sort_asc { ord } else { ord.reverse() }
+        if sort_asc {
+          ord
+        } else {
+          ord.reverse()
+        }
       });
     }
     let skip = skip.unwrap_or(0) as usize;
@@ -230,7 +247,10 @@ impl Storage for JsonTreeProvider {
     // validate existence
     {
       let r = self.cache.read().await;
-      let exists = r.get(collection).map(|recs| recs.iter().any(|d| id_of(d).as_deref() == Some(id))).unwrap_or(false);
+      let exists = r
+        .get(collection)
+        .map(|recs| recs.iter().any(|d| id_of(d).as_deref() == Some(id)))
+        .unwrap_or(false);
       if !exists {
         return Err(OrmError::NotFound(format!("{}/{}", collection, id)));
       }
@@ -238,7 +258,10 @@ impl Storage for JsonTreeProvider {
     self.flush_document(collection, &doc).await?;
     let mut w = self.cache.write().await;
     let records = w.get_mut(collection).unwrap();
-    let pos = records.iter().position(|r| id_of(r).as_deref() == Some(id)).unwrap();
+    let pos = records
+      .iter()
+      .position(|r| id_of(r).as_deref() == Some(id))
+      .unwrap();
     records[pos] = doc.clone();
     Ok(doc)
   }
@@ -246,7 +269,10 @@ impl Storage for JsonTreeProvider {
   async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
     self.ensure_loaded(collection).await?;
     // read existing
-    let existing = self.find_by_id(collection, id).await?.ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
+    let existing = self
+      .find_by_id(collection, id)
+      .await?
+      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
     let mut merged = existing.clone();
     if let (Value::Object(base), Value::Object(updates)) = (&mut merged, patch) {
       for (k, v) in updates {
@@ -281,16 +307,37 @@ impl Storage for JsonTreeProvider {
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
     self.ensure_loaded(collection).await?;
     let r = self.cache.read().await;
-    let count = r.get(collection).map(|recs| recs.iter().filter(|d| filter.is_none_or(|f| f.matches(d))).count()).unwrap_or(0);
+    let count = r
+      .get(collection)
+      .map(|recs| {
+        recs
+          .iter()
+          .filter(|d| filter.is_none_or(|f| f.matches(d)))
+          .count()
+      })
+      .unwrap_or(0);
     Ok(count as u64)
   }
 
-  async fn update_many(&self, collection: &str, filter: Option<Filter>, updates: Value) -> OrmResult<usize> {
+  async fn update_many(
+    &self,
+    collection: &str,
+    filter: Option<Filter>,
+    updates: Value,
+  ) -> OrmResult<usize> {
     self.ensure_loaded(collection).await?;
     // Collect ids to update
     let ids: Vec<String> = {
       let r = self.cache.read().await;
-      r.get(collection).map(|recs| recs.iter().filter(|d| filter.as_ref().is_none_or(|f| f.matches(d))).filter_map(|d| id_of(d)).collect()).unwrap_or_default()
+      r.get(collection)
+        .map(|recs| {
+          recs
+            .iter()
+            .filter(|d| filter.as_ref().is_none_or(|f| f.matches(d)))
+            .filter_map(id_of)
+            .collect()
+        })
+        .unwrap_or_default()
     };
     let mut count = 0;
     for id in ids {
@@ -313,7 +360,15 @@ impl Storage for JsonTreeProvider {
     self.ensure_loaded(collection).await?;
     let ids: Vec<String> = {
       let r = self.cache.read().await;
-      r.get(collection).map(|recs| recs.iter().filter(|d| filter.as_ref().is_some_and(|f| f.matches(d))).filter_map(|d| id_of(d)).collect()).unwrap_or_default()
+      r.get(collection)
+        .map(|recs| {
+          recs
+            .iter()
+            .filter(|d| filter.as_ref().is_some_and(|f| f.matches(d)))
+            .filter_map(id_of)
+            .collect()
+        })
+        .unwrap_or_default()
     };
     let mut deleted = 0;
     for id in ids {
@@ -324,13 +379,23 @@ impl Storage for JsonTreeProvider {
     Ok(deleted)
   }
 
-  async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> { Ok(()) }
-  async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> { Ok(()) }
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> { Ok(vec![]) }
-  async fn health_check(&self) -> OrmResult<bool> { Ok(true) }
+  async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
+    Ok(())
+  }
+  async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
+    Ok(())
+  }
+  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    Ok(vec![])
+  }
+  async fn health_check(&self) -> OrmResult<bool> {
+    Ok(true)
+  }
 
   async fn find_all(&self, collection: &str) -> OrmResult<Vec<Value>> {
-    self.find_many(collection, None, None, None, None, true).await
+    self
+      .find_many(collection, None, None, None, None, true)
+      .await
   }
 
   async fn exists(&self, collection: &str, id: &str) -> OrmResult<bool> {
@@ -348,7 +413,13 @@ impl SchemaIntrospection for JsonTreeProvider {
         let entry = entry.map_err(OrmError::Io)?;
         if entry.path().is_dir() {
           if let Some(name) = entry.file_name().to_str() {
-            out.push(CollectionMeta { name: name.to_string(), document_count: 0, size_bytes: 0, created_at: None, updated_at: None });
+            out.push(CollectionMeta {
+              name: name.to_string(),
+              document_count: 0,
+              size_bytes: 0,
+              created_at: None,
+              updated_at: None,
+            });
           }
         }
       }
@@ -365,12 +436,15 @@ impl SchemaIntrospection for JsonTreeProvider {
         let mut fields = HashMap::new();
         if let Some(obj) = doc.as_object() {
           for (k, v) in obj {
-            fields.insert(k.clone(), FieldInfo {
-              name: k.clone(),
-              field_type: format!("{}", v),
-              nullable: true,
-              default_value: None,
-            });
+            fields.insert(
+              k.clone(),
+              FieldInfo {
+                name: k.clone(),
+                field_type: format!("{}", v),
+                nullable: true,
+                default_value: None,
+              },
+            );
           }
         }
         Ok(CollectionSchema {
@@ -380,7 +454,12 @@ impl SchemaIntrospection for JsonTreeProvider {
           options: CollectionOptions::default(),
         })
       }
-      None => Ok(CollectionSchema { name: collection.to_string(), fields: HashMap::new(), indexes: vec![], options: CollectionOptions::default() }),
+      None => Ok(CollectionSchema {
+        name: collection.to_string(),
+        fields: HashMap::new(),
+        indexes: vec![],
+        options: CollectionOptions::default(),
+      }),
     }
   }
   async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
@@ -436,9 +515,15 @@ impl AdminCommands for JsonTreeProvider {
     Ok(())
   }
   async fn execute_raw(&self, _sql: &str, _params: Vec<Value>) -> OrmResult<RawResult> {
-    Err(OrmError::NotSupported("execute_raw not supported".to_string()))
+    Err(OrmError::NotSupported(
+      "execute_raw not supported".to_string(),
+    ))
   }
-  async fn create_collection(&self, name: &str, _schema: Option<CollectionSchema>) -> OrmResult<()> {
+  async fn create_collection(
+    &self,
+    name: &str,
+    _schema: Option<CollectionSchema>,
+  ) -> OrmResult<()> {
     validate_collection_name(name)?;
     let dir = collection_path(&self.base_dir, name)?;
     std::fs::create_dir_all(&dir).map_err(OrmError::Io)?;
@@ -448,16 +533,29 @@ impl AdminCommands for JsonTreeProvider {
     Ok("json-tree".to_string())
   }
   async fn health_check_detailed(&self) -> OrmResult<ConnectionHealth> {
-    Ok(ConnectionHealth { healthy: true, latency_ms: None, server_version: None, connected_at: None, pool_stats: None })
+    Ok(ConnectionHealth {
+      healthy: true,
+      latency_ms: None,
+      server_version: None,
+      connected_at: None,
+      pool_stats: None,
+    })
   }
 }
 
 // TransactionControl (no-ops)
 #[async_trait]
 impl TransactionControl for JsonTreeProvider {
-  async fn begin_transaction(&self) -> OrmResult<TransactionId> { Ok(TransactionId("noop".to_string())) }
-  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> { Ok(()) }
-  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> { Ok(()) }
-  async fn is_transaction_active(&self) -> OrmResult<bool> { Ok(false) }
+  async fn begin_transaction(&self) -> OrmResult<TransactionId> {
+    Ok(TransactionId("noop".to_string()))
+  }
+  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Ok(())
+  }
+  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Ok(())
+  }
+  async fn is_transaction_active(&self) -> OrmResult<bool> {
+    Ok(false)
+  }
 }
-
