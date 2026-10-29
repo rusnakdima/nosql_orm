@@ -73,7 +73,18 @@ pub trait Entity: Serialize + DeserializeOwned + Debug + Send + Sync + 'static {
   }
 
   fn from_value(value: Value) -> OrmResult<Self> {
-    serde_json::from_value(value).map_err(Into::into)
+    serde_json::from_value(with_booleans(value, &Self::boolean_fields())).map_err(Into::into)
+  }
+
+  /// The fields that hold a boolean.
+  ///
+  /// A SQL database has no boolean type: a boolean column is an integer
+  /// that holds 0 or 1. The entity says which of its fields are booleans,
+  /// so the integers can be read back as the booleans they stand for. The
+  /// derive fills this in from the field types; an entity written by hand
+  /// names its own.
+  fn boolean_fields() -> Vec<&'static str> {
+    Vec::new()
   }
 
   fn table_name() -> String {
@@ -97,4 +108,32 @@ pub fn extract_id(value: &Value, id_field: &str) -> Option<String> {
   value
     .get(id_field)
     .and_then(|v| v.as_str().map(ToString::to_string))
+}
+
+/// Turn the integers a SQL database stores for a boolean back into booleans.
+///
+/// SQLite has no boolean type and MySQL's is an alias for a tiny integer,
+/// so a boolean column holds 0 or 1. Read back as they were stored, the
+/// row cannot be deserialized into the entity, because an integer is not a
+/// boolean. The entity names the fields that are booleans, so the
+/// conversion is made once, where the entity's own schema is known.
+fn with_booleans(value: Value, boolean_fields: &[&str]) -> Value {
+  if boolean_fields.is_empty() {
+    return value;
+  }
+
+  let Value::Object(mut map) = value else {
+    return value;
+  };
+  for name in boolean_fields {
+    let Some(field) = map.get_mut(*name) else {
+      continue;
+    };
+    if let Some(flag) = field.as_i64() {
+      if flag == 0 || flag == 1 {
+        *field = Value::Bool(flag != 0);
+      }
+    }
+  }
+  Value::Object(map)
 }

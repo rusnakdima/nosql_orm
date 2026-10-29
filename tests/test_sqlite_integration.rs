@@ -8,8 +8,20 @@ mod sqlite_integration_tests {
   use serde::{Deserialize, Serialize};
   use std::fs;
 
+  /// The database a test writes to.
+  ///
+  /// The tests run in parallel, so each one gets a database of its own: a
+  /// shared file would have one test's table be another's, and one test's
+  /// records be the other's.
   fn get_db_path() -> String {
-    std::env::var("SQLITE_DB_PATH").unwrap_or_else(|_| "/tmp/test_nosql_orm.db".to_string())
+    if let Ok(path) = std::env::var("SQLITE_DB_PATH") {
+      return path;
+    }
+    let test = std::thread::current()
+      .name()
+      .unwrap_or("test")
+      .replace("::", "_");
+    format!("/tmp/test_nosql_orm_{test}.db")
   }
 
   #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +45,9 @@ mod sqlite_integration_tests {
     }
     fn set_id(&mut self, id: String) {
       self.id = Some(id);
+    }
+    fn boolean_fields() -> Vec<&'static str> {
+      vec!["completed"]
     }
   }
 

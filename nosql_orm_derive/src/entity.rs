@@ -176,6 +176,12 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
   };
 
   let id_field_ident = syn::Ident::new(&id_field, proc_macro2::Span::call_site());
+  let boolean_fields = boolean_fields(input);
+  let boolean_fields_impl = if boolean_fields.is_empty() {
+    quote! { Vec::new() }
+  } else {
+    quote! { vec![#(#boolean_fields),*] }
+  };
   let entity_impl = quote! {
       impl #impl_generics ::nosql_orm::Entity for #name #ty_generics #where_clause {
           fn meta() -> ::nosql_orm::EntityMeta {
@@ -186,6 +192,7 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
           fn is_soft_deletable() -> bool { #has_soft_delete_attr }
           fn indexes() -> Vec<::nosql_orm::nosql_index::NosqlIndex> { #indexes_impl }
           fn sql_columns() -> Vec<::nosql_orm::sql::SqlColumnDef> { #sql_columns_impl }
+          fn boolean_fields() -> Vec<&'static str> { #boolean_fields_impl }
       }
   };
   all_outputs.push(entity_impl);
@@ -435,4 +442,149 @@ fn parse_cascade_attr(ts_str: &str, attr_name: &str) -> Option<bool> {
   } else {
     None
   }
+}
+
+/// The fields that hold a boolean.
+///
+/// A SQL database has no boolean type: a boolean column is an integer that
+/// holds 0 or 1. The entity says which of its fields are booleans, so the
+/// integers can be read back as the booleans they stand for. The field
+/// types say which fields those are.
+fn boolean_fields(input: &DeriveInput) -> Vec<String> {
+  let rename_all = serde_rename_all(input);
+  let syn::Data::Struct(data) = &input.data else {
+    return Vec::new();
+  };
+  let syn::Fields::Named(fields) = &data.fields else {
+    return Vec::new();
+  };
+
+  let mut names = Vec::new();
+  for field in &fields.named {
+    if !holds_a_boolean(&field.ty) {
+      continue;
+    }
+    let Some(ident) = &field.ident else {
+      continue;
+    };
+    let name = serde_field_name(&ident.to_string(), &field.attrs, &rename_all);
+    names.push(name);
+  }
+  names
+}
+
+/// Whether a field's type is a boolean, or an optional boolean.
+fn holds_a_boolean(ty: &syn::Type) -> bool {
+  let syn::Type::Path(path) = ty else {
+    return false;
+  };
+  let Some(segment) = path.path.segments.last() else {
+    return false;
+  };
+  if segment.ident == "bool" {
+    return true;
+  }
+  if segment.ident != "Option" {
+    return false;
+  }
+  let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+    return false;
+  };
+  arguments.args.iter().any(|argument| {
+    let syn::GenericArgument::Type(inner) = argument else {
+      return false;
+    };
+    let syn::Type::Path(inner_path) = inner else {
+      return false;
+    };
+    inner_path
+      .path
+      .segments
+      .last()
+      .map(|segment| segment.ident == "bool")
+      .unwrap_or(false)
+  })
+}
+
+/// The rule the container gives the field names in the store.
+fn serde_rename_all(input: &DeriveInput) -> Option<String> {
+  for attr in &input.attrs {
+    if !attr.path().is_ident("serde") {
+      continue;
+    }
+    let mut rename_all = None;
+    let _ = attr.parse_nested_meta(|meta| {
+      if meta.path.is_ident("rename_all") {
+        let value: syn::LitStr = meta.value()?.parse()?;
+        rename_all = Some(value.value());
+      }
+      Ok(())
+    });
+    if rename_all.is_some() {
+      return rename_all;
+    }
+  }
+  None
+}
+
+/// The name a field has in the store.
+fn serde_field_name(field: &str, attrs: &[syn::Attribute], rename_all: &Option<String>) -> String {
+  for attr in attrs {
+    if !attr.path().is_ident("serde") {
+      continue;
+    }
+    let mut rename = None;
+    let _ = attr.parse_nested_meta(|meta| {
+      if meta.path.is_ident("rename") {
+        let value: syn::LitStr = meta.value()?.parse()?;
+        rename = Some(value.value());
+      }
+      Ok(())
+    });
+    if let Some(rename) = rename {
+      return rename;
+    }
+  }
+
+  match rename_all.as_deref() {
+    Some("camelCase") => to_camel_case(field),
+    Some("PascalCase") => {
+      let camel = to_camel_case(field);
+      let mut chars = camel.chars();
+      match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => camel,
+      }
+    }
+    Some("snake_case") => to_snake_case(field),
+    Some("SCREAMING_SNAKE_CASE") => to_snake_case(field).to_uppercase(),
+    Some("kebab-case") => to_snake_case(field).replace('_', "-"),
+    Some("SCREAMING-KEBAB-CASE") => to_snake_case(field).to_uppercase().replace('_', "-"),
+    Some("lowercase") => field.to_lowercase(),
+    Some("UPPERCASE") => field.to_uppercase(),
+    _ => field.to_string(),
+  }
+}
+
+/// `is_active` becomes `isActive`.
+fn to_camel_case(s: &str) -> String {
+  let mut result = String::new();
+  let mut upper_next = false;
+  for (i, c) in s.chars().enumerate() {
+    if c == '_' {
+      upper_next = true;
+      continue;
+    }
+    if i == 0 {
+      result.push(c.to_lowercase().next().unwrap_or(c));
+      continue;
+    }
+    if upper_next {
+      result.push(c.to_uppercase().next().unwrap_or(c));
+      upper_next = false;
+      continue;
+    }
+    result.push(c);
+  }
+  result
 }

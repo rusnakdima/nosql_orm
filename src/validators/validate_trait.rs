@@ -9,8 +9,8 @@ use crate::error::OrmResult;
 /// # Examples
 ///
 /// ```
-/// use nosql_orm::Validate;
 /// use nosql_orm::error::OrmResult;
+/// use nosql_orm::validators::Validate;
 ///
 /// struct User {
 ///     name: String,
@@ -20,10 +20,10 @@ use crate::error::OrmResult;
 /// impl Validate for User {
 ///     fn validate(&self) -> OrmResult<()> {
 ///         if self.name.is_empty() {
-///             return Err(Box::new(nosql_orm::error::OrmError::Validation("Name required".to_string())));
+///             return Err(nosql_orm::error::OrmError::Validation("Name required".to_string()));
 ///         }
 ///         if self.age < 18 {
-///             return Err(Box::new(nosql_orm::error::OrmError::Validation("Must be 18+".to_string())));
+///             return Err(nosql_orm::error::OrmError::Validation("Must be 18+".to_string()));
 ///         }
 ///         Ok(())
 ///     }
