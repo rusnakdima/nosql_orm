@@ -47,10 +47,13 @@ impl ConnectionLifecycle {
 }
 
 fn current_timestamp_ms() -> u64 {
+  // `duration_since` fails only if the system clock is set before the Unix
+  // epoch, which is a misconfigured clock rather than a programming error.
+  // Saturating to zero keeps the idle-time arithmetic total.
   std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
-    .unwrap()
-    .as_millis() as u64
+    .map(|d| d.as_millis() as u64)
+    .unwrap_or(0)
 }
 
 #[derive(Debug, Clone)]

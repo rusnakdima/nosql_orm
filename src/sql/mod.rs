@@ -3,10 +3,12 @@
 //! This module provides SQL-specific types that work alongside the
 //! existing `Storage` trait to enable SQL database support.
 
+pub mod introspection;
 pub mod prepared;
 pub mod query;
 pub mod types;
 
+pub use introspection::TableIntrospector;
 pub use prepared::{BatchPreparedStatements, PreparedStatement, PreparedStatementCache};
 pub use query::SqlQueryBuilder;
 pub use types::{

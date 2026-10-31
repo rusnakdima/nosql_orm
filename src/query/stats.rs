@@ -46,7 +46,14 @@ impl QueryStatistics {
   }
 
   pub fn record(&self, collection: &str, duration_ms: f64, filter: &Filter) {
-    let mut guard = self.by_collection.write().unwrap();
+    // A poisoned lock means some other thread panicked while holding it.
+    // The statistics map is rebuilt from the recorded events, so the guard
+    // is recovered rather than propagating the panic into every subsequent
+    // query.
+    let mut guard = self
+      .by_collection
+      .write()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
     let stats = guard.entry(collection.to_string()).or_default();
 
     stats.total_queries += 1;
@@ -76,7 +83,12 @@ impl QueryStatistics {
   }
 
   pub fn get_stats(&self, collection: &str) -> Option<CollectionStats> {
-    self.by_collection.read().unwrap().get(collection).cloned()
+    self
+      .by_collection
+      .read()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .get(collection)
+      .cloned()
   }
 }
 

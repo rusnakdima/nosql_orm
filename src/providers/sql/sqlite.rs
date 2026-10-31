@@ -7,9 +7,10 @@ use crate::provider::{
   IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
   TransactionId,
 };
-use crate::providers::sql::common::build_insert_sql;
+use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::row;
-use crate::query::Filter;
+use crate::query::{Filter, OrderBy, Projection};
+use crate::sql::introspection::TableIntrospector;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
 use async_trait::async_trait;
@@ -66,6 +67,38 @@ impl SqliteProvider {
     self.dialect
   }
 
+  /// The query builder this provider renders statements with.
+  pub fn query_builder(&self) -> &SqlQueryBuilder {
+    &self.query_builder
+  }
+
+  /// Builds a `SELECT` statement for `table`.
+  ///
+  /// An exclude projection names the fields to drop, so the table's real
+  /// columns are read from the database first and the statement names what
+  /// is left.
+  pub async fn build_select(
+    &self,
+    table: &str,
+    filter: Option<&Filter>,
+    projection: Option<&Projection>,
+    order_by: Option<&[OrderBy]>,
+    limit: Option<u32>,
+    offset: Option<u64>,
+  ) -> OrmResult<String> {
+    crate::sql::introspection::build_select(
+      self,
+      &self.query_builder,
+      table,
+      filter,
+      projection,
+      order_by,
+      limit,
+      offset,
+    )
+    .await
+  }
+
   async fn with_connection<R, F>(&self, f: F) -> OrmResult<R>
   where
     F: FnOnce(&rusqlite::Connection) -> Result<R, rusqlite::Error> + Send + 'static,
@@ -79,6 +112,39 @@ impl SqliteProvider {
     .await
     .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?;
     result.map_err(|e| OrmError::Connection(format!("SQLite error: {}", e)))
+  }
+}
+
+impl SqlProviderHelpers for SqliteProvider {
+  fn dialect(&self) -> SqlDialect {
+    self.dialect
+  }
+
+  fn query_builder(&self) -> &SqlQueryBuilder {
+    &self.query_builder
+  }
+}
+
+#[async_trait]
+impl TableIntrospector for SqliteProvider {
+  async fn table_columns(&self, table: &str) -> OrmResult<Vec<String>> {
+    let dialect = self.dialect;
+    let table = table.to_string();
+    self
+      .with_connection(move |conn_guard| {
+        let mut stmt = conn_guard.prepare(&format!(
+          "PRAGMA table_info({})",
+          dialect.quote_identifier(&table)
+        ))?;
+        let mut rows = stmt.query([])?;
+        let mut columns = Vec::new();
+        while let Some(row) = rows.next()? {
+          let name: String = row.get(1)?;
+          columns.push(name);
+        }
+        Ok(columns)
+      })
+      .await
   }
 }
 
@@ -96,48 +162,17 @@ impl Storage for SqliteProvider {
       .map(|m| m.keys().map(|k| k.as_str()).collect())
       .unwrap_or_default();
 
-    fn json_to_sql_param(v: &Value) -> String {
-      match v {
-        Value::Null => "NULL".to_string(),
-        Value::Bool(b) => {
-          if *b {
-            "TRUE".to_string()
-          } else {
-            "FALSE".to_string()
-          }
-        }
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => format!("'{}'", s.replace('\'', "''")),
-        Value::Array(arr) => {
-          let items = arr
-            .iter()
-            .map(json_to_sql_param)
-            .collect::<Vec<_>>()
-            .join(", ");
-          format!("({})", items)
-        }
-        Value::Object(obj) => {
-          let pairs = obj
-            .iter()
-            .map(|(k, v)| format!("{}: {}", k, json_to_sql_param(v)))
-            .collect::<Vec<_>>()
-            .join(", ");
-          format!("'{{{}}}'", pairs)
-        }
-      }
-    }
-
     let values: Vec<String> = columns
       .iter()
       .map(|c| {
         doc
           .get(*c)
-          .map(json_to_sql_param)
+          .map(|v| self.query_builder.value_to_sql(v))
           .unwrap_or_else(|| "NULL".to_string())
       })
       .collect();
 
-    let sql_with_values = build_insert_sql(&self.dialect, collection, &columns, &values);
+    let sql_with_values = self.build_insert_sql(collection, &columns, &values);
 
     let _conn = self.conn.clone();
     let collection = collection.to_string();
@@ -164,10 +199,7 @@ impl Storage for SqliteProvider {
   }
 
   async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
-    let sql = format!(
-      "SELECT * FROM {} WHERE id = ?",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_select_by_id_sql(collection);
 
     let id_owned = id.to_string();
     self
@@ -238,11 +270,7 @@ impl Storage for SqliteProvider {
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
     let set_clauses = self.query_builder.build_set_clause(&doc, &["id"])?;
 
-    let sql = format!(
-      "UPDATE {} SET {} WHERE id = ?",
-      self.dialect.quote_identifier(collection),
-      set_clauses.join(", ")
-    );
+    let sql = self.build_update_by_id_sql(collection, &set_clauses);
 
     let id_owned = id.to_string();
     let collection = collection.to_string();
@@ -270,11 +298,7 @@ impl Storage for SqliteProvider {
   async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
     let set_clauses = self.query_builder.build_set_clause(&patch, &[])?;
 
-    let sql = format!(
-      "UPDATE {} SET {} WHERE id = ?",
-      self.dialect.quote_identifier(collection),
-      set_clauses.join(", ")
-    );
+    let sql = self.build_update_by_id_sql(collection, &set_clauses);
 
     let id_owned = id.to_string();
     let collection = collection.to_string();
@@ -300,10 +324,7 @@ impl Storage for SqliteProvider {
   }
 
   async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    let sql = format!(
-      "DELETE FROM {} WHERE id = ?",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_delete_by_id_sql(collection);
 
     let id_owned = id.to_string();
     self
@@ -315,10 +336,7 @@ impl Storage for SqliteProvider {
   }
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
-    let mut sql = format!(
-      "SELECT COUNT(*) FROM {}",
-      self.dialect.quote_identifier(collection)
-    );
+    let mut sql = self.build_count_sql(collection);
 
     if let Some(f) = filter {
       let clause = self.query_builder.filter_to_sql(f)?;
@@ -342,11 +360,7 @@ impl Storage for SqliteProvider {
   ) -> OrmResult<usize> {
     let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
 
-    let mut sql = format!(
-      "UPDATE {} SET {}",
-      self.dialect.quote_identifier(collection),
-      set_clauses.join(", ")
-    );
+    let mut sql = self.build_update_sql(collection, &set_clauses);
 
     if let Some(f) = filter {
       let clause = self.query_builder.filter_to_sql(&f)?;
@@ -586,10 +600,7 @@ impl AdminCommands for SqliteProvider {
     collection: &str,
     _schema: Option<CollectionSchema>,
   ) -> OrmResult<()> {
-    let sql = format!(
-      "CREATE TABLE {} (id TEXT PRIMARY KEY)",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_create_table_sql(collection);
     self
       .with_connection(move |conn_guard| {
         conn_guard.execute(&sql, [])?;
@@ -599,10 +610,7 @@ impl AdminCommands for SqliteProvider {
   }
 
   async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
-    let sql = format!(
-      "DROP TABLE IF EXISTS {}",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_drop_table_sql(collection);
     self
       .with_connection(move |conn_guard| {
         conn_guard.execute(&sql, [])?;
@@ -612,11 +620,7 @@ impl AdminCommands for SqliteProvider {
   }
 
   async fn rename_collection(&self, from: &str, to: &str) -> OrmResult<()> {
-    let sql = format!(
-      "ALTER TABLE {} RENAME TO {}",
-      self.dialect.quote_identifier(from),
-      self.dialect.quote_identifier(to)
-    );
+    let sql = self.build_rename_table_sql(from, to);
     self
       .with_connection(move |conn_guard| {
         conn_guard.execute(&sql, [])?;

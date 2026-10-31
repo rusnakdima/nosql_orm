@@ -7,8 +7,10 @@ use crate::provider::{
   IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
   TransactionId,
 };
+use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::row;
-use crate::query::Filter;
+use crate::query::{Filter, OrderBy, Projection};
+use crate::sql::introspection::TableIntrospector;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
 use async_trait::async_trait;
@@ -56,8 +58,71 @@ impl MySqlProvider {
     &self.query_builder
   }
 
+  /// Builds a `SELECT` statement for `table`.
+  ///
+  /// An exclude projection names the fields to drop, so the table's real
+  /// columns are read from the database first and the statement names what
+  /// is left.
+  pub async fn build_select(
+    &self,
+    table: &str,
+    filter: Option<&Filter>,
+    projection: Option<&Projection>,
+    order_by: Option<&[OrderBy]>,
+    limit: Option<u32>,
+    offset: Option<u64>,
+  ) -> OrmResult<String> {
+    crate::sql::introspection::build_select(
+      self,
+      &self.query_builder,
+      table,
+      filter,
+      projection,
+      order_by,
+      limit,
+      offset,
+    )
+    .await
+  }
+
   pub fn dialect(&self) -> SqlDialect {
     self.dialect
+  }
+}
+
+impl SqlProviderHelpers for MySqlProvider {
+  fn dialect(&self) -> SqlDialect {
+    self.dialect
+  }
+
+  fn query_builder(&self) -> &SqlQueryBuilder {
+    &self.query_builder
+  }
+}
+
+#[async_trait]
+impl TableIntrospector for MySqlProvider {
+  async fn table_columns(&self, table: &str) -> OrmResult<Vec<String>> {
+    let sql = "SELECT COLUMN_NAME
+               FROM INFORMATION_SCHEMA.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE()
+                 AND TABLE_NAME = ?
+               ORDER BY ORDINAL_POSITION";
+
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let rows: Vec<Row> = map_err_query(
+      map_err_query(conn.exec_iter(sql, (table,)).await)?
+        .collect()
+        .await,
+    )?;
+
+    let mut columns = Vec::with_capacity(rows.len());
+    for row in rows {
+      if let Some(name) = row.get::<String, _>(0) {
+        columns.push(name);
+      }
+    }
+    Ok(columns)
   }
 }
 
@@ -115,16 +180,7 @@ impl Storage for MySqlProvider {
       })
       .collect();
 
-    let sql = format!(
-      "INSERT INTO {} ({}) VALUES ({})",
-      self.dialect.quote_identifier(collection),
-      columns
-        .iter()
-        .map(|c| self.dialect.quote_identifier(c))
-        .collect::<Vec<_>>()
-        .join(", "),
-      values.join(", ")
-    );
+    let sql = self.build_insert_sql(collection, &columns, &values);
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
@@ -137,10 +193,7 @@ impl Storage for MySqlProvider {
   }
 
   async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<JsonValue>> {
-    let sql = format!(
-      "SELECT * FROM {} WHERE id = ?",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_select_by_id_sql(collection);
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
@@ -211,11 +264,7 @@ impl Storage for MySqlProvider {
   async fn update(&self, collection: &str, id: &str, doc: JsonValue) -> OrmResult<JsonValue> {
     let set_clauses = self.query_builder.build_set_clause(&doc, &["id"])?;
 
-    let sql = format!(
-      "UPDATE {} SET {} WHERE id = ?",
-      self.dialect.quote_identifier(collection),
-      set_clauses.join(", ")
-    );
+    let sql = self.build_update_by_id_sql(collection, &set_clauses);
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
@@ -247,10 +296,7 @@ impl Storage for MySqlProvider {
   }
 
   async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    let sql = format!(
-      "DELETE FROM {} WHERE id = ?",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_delete_by_id_sql(collection);
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
 
@@ -260,10 +306,7 @@ impl Storage for MySqlProvider {
   }
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
-    let mut sql = format!(
-      "SELECT COUNT(*) FROM {}",
-      self.dialect.quote_identifier(collection)
-    );
+    let mut sql = self.build_count_sql(collection);
 
     if let Some(f) = filter {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
@@ -285,11 +328,7 @@ impl Storage for MySqlProvider {
   ) -> OrmResult<usize> {
     let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
 
-    let mut sql = format!(
-      "UPDATE {} SET {}",
-      self.dialect.quote_identifier(collection),
-      set_clauses.join(", ")
-    );
+    let mut sql = self.build_update_sql(collection, &set_clauses);
 
     if let Some(f) = filter {
       sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
@@ -589,31 +628,21 @@ impl AdminCommands for MySqlProvider {
     collection: &str,
     _schema: Option<CollectionSchema>,
   ) -> OrmResult<()> {
-    let sql = format!(
-      "CREATE TABLE {} (id TEXT PRIMARY KEY)",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_create_table_sql(collection);
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
     map_err_query(conn.exec_drop(&sql, ()).await)?;
     Ok(())
   }
 
   async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
-    let sql = format!(
-      "DROP TABLE IF EXISTS {}",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_drop_table_sql(collection);
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
     map_err_query(conn.exec_drop(&sql, ()).await)?;
     Ok(())
   }
 
   async fn rename_collection(&self, from: &str, to: &str) -> OrmResult<()> {
-    let sql = format!(
-      "RENAME TABLE {} TO {}",
-      self.dialect.quote_identifier(from),
-      self.dialect.quote_identifier(to)
-    );
+    let sql = self.build_rename_table_sql(from, to);
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
     map_err_query(conn.exec_drop(&sql, ()).await)?;
     Ok(())

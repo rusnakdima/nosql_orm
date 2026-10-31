@@ -84,6 +84,11 @@ name = "test_redis_provider"
 path = "tests/test_redis_provider.rs"
 required-features = ["redis"]
 
+[[test]]
+name = "test_sql_projection"
+path = "tests/test_sql_projection.rs"
+required-features = ["sql-sqlite"]
+
 [[example]]
 name = "json_example"
 path = "examples/json_example.rs"

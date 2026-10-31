@@ -7,8 +7,10 @@ use crate::provider::{
   IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
   TransactionId,
 };
+use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::row;
-use crate::query::Filter;
+use crate::query::{Filter, OrderBy, Projection};
+use crate::sql::introspection::TableIntrospector;
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;
 use async_trait::async_trait;
@@ -58,6 +60,73 @@ impl PostgresProvider {
   pub fn dialect(&self) -> SqlDialect {
     self.dialect
   }
+
+  /// The query builder this provider renders statements with.
+  pub fn query_builder(&self) -> &SqlQueryBuilder {
+    &self.query_builder
+  }
+
+  /// Builds a `SELECT` statement for `table`.
+  ///
+  /// An exclude projection names the fields to drop, so the table's real
+  /// columns are read from the database first and the statement names what
+  /// is left.
+  pub async fn build_select(
+    &self,
+    table: &str,
+    filter: Option<&Filter>,
+    projection: Option<&Projection>,
+    order_by: Option<&[OrderBy]>,
+    limit: Option<u32>,
+    offset: Option<u64>,
+  ) -> OrmResult<String> {
+    crate::sql::introspection::build_select(
+      self,
+      &self.query_builder,
+      table,
+      filter,
+      projection,
+      order_by,
+      limit,
+      offset,
+    )
+    .await
+  }
+}
+
+impl SqlProviderHelpers for PostgresProvider {
+  fn dialect(&self) -> SqlDialect {
+    self.dialect
+  }
+
+  fn query_builder(&self) -> &SqlQueryBuilder {
+    &self.query_builder
+  }
+}
+
+#[async_trait]
+impl TableIntrospector for PostgresProvider {
+  async fn table_columns(&self, table: &str) -> OrmResult<Vec<String>> {
+    let sql = "SELECT a.attname::text
+               FROM pg_catalog.pg_attribute a
+               JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+               JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = current_schema()
+                 AND c.relname = $1
+                 AND a.attnum > 0
+                 AND NOT a.attisdropped
+               ORDER BY a.attnum";
+
+    let client = map_err_connection(self.pool.get().await)?;
+    let rows = map_err_query(client.query(sql, &[&table]).await)?;
+
+    let mut columns = Vec::with_capacity(rows.len());
+    for row in rows {
+      let name: String = row.get(0);
+      columns.push(name);
+    }
+    Ok(columns)
+  }
 }
 
 #[async_trait]
@@ -84,16 +153,7 @@ impl Storage for PostgresProvider {
       })
       .collect();
 
-    let sql = format!(
-      "INSERT INTO {} ({}) VALUES ({}) RETURNING *",
-      self.dialect.quote_identifier(collection),
-      columns
-        .iter()
-        .map(|c| self.dialect.quote_identifier(c))
-        .collect::<Vec<_>>()
-        .join(", "),
-      values.join(", ")
-    );
+    let sql = self.build_insert_sql(collection, &columns, &values);
 
     let client = map_err_connection(self.pool.get().await)?;
 
@@ -103,10 +163,7 @@ impl Storage for PostgresProvider {
   }
 
   async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
-    let sql = format!(
-      "SELECT * FROM {} WHERE id = $1",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_select_by_id_sql(collection);
 
     let client = map_err_connection(self.pool.get().await)?;
 
@@ -165,11 +222,7 @@ impl Storage for PostgresProvider {
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
     let set_clauses = self.query_builder.build_set_clause(&doc, &["id"])?;
 
-    let sql = format!(
-      "UPDATE {} SET {} WHERE id = $1 RETURNING *",
-      self.dialect.quote_identifier(collection),
-      set_clauses.join(", ")
-    );
+    let sql = self.build_update_by_id_sql(collection, &set_clauses);
 
     let client = map_err_connection(self.pool.get().await)?;
 
@@ -181,11 +234,7 @@ impl Storage for PostgresProvider {
   async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
     let set_clauses = self.query_builder.build_set_clause(&patch, &[])?;
 
-    let sql = format!(
-      "UPDATE {} SET {} WHERE id = $1 RETURNING *",
-      self.dialect.quote_identifier(collection),
-      set_clauses.join(", ")
-    );
+    let sql = self.build_update_by_id_sql(collection, &set_clauses);
 
     let client = map_err_connection(self.pool.get().await)?;
 
@@ -195,10 +244,7 @@ impl Storage for PostgresProvider {
   }
 
   async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    let sql = format!(
-      "DELETE FROM {} WHERE id = $1",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_delete_by_id_sql(collection);
 
     let client = map_err_connection(self.pool.get().await)?;
 
@@ -208,10 +254,7 @@ impl Storage for PostgresProvider {
   }
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
-    let mut sql = format!(
-      "SELECT COUNT(*) FROM {}",
-      self.dialect.quote_identifier(collection)
-    );
+    let mut sql = self.build_count_sql(collection);
 
     if let Some(f) = filter {
       let clause = self.query_builder.filter_to_sql(f)?;
@@ -235,11 +278,7 @@ impl Storage for PostgresProvider {
   ) -> OrmResult<usize> {
     let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
 
-    let mut sql = format!(
-      "UPDATE {} SET {}",
-      self.dialect.quote_identifier(collection),
-      set_clauses.join(", ")
-    );
+    let mut sql = self.build_update_sql(collection, &set_clauses);
 
     if let Some(f) = filter {
       let clause = self.query_builder.filter_to_sql(&f)?;
@@ -577,31 +616,21 @@ impl AdminCommands for PostgresProvider {
     collection: &str,
     _schema: Option<CollectionSchema>,
   ) -> OrmResult<()> {
-    let sql = format!(
-      "CREATE TABLE {} (id TEXT PRIMARY KEY)",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_create_table_sql(collection);
     let client = map_err_connection(self.pool.get().await)?;
     map_err_query(client.execute(&sql, &[]).await)?;
     Ok(())
   }
 
   async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
-    let sql = format!(
-      "DROP TABLE IF EXISTS {}",
-      self.dialect.quote_identifier(collection)
-    );
+    let sql = self.build_drop_table_sql(collection);
     let client = map_err_connection(self.pool.get().await)?;
     map_err_query(client.execute(&sql, &[]).await)?;
     Ok(())
   }
 
   async fn rename_collection(&self, from: &str, to: &str) -> OrmResult<()> {
-    let sql = format!(
-      "ALTER TABLE {} RENAME TO {}",
-      self.dialect.quote_identifier(from),
-      self.dialect.quote_identifier(to)
-    );
+    let sql = self.build_rename_table_sql(from, to);
     let client = map_err_connection(self.pool.get().await)?;
     map_err_query(client.execute(&sql, &[]).await)?;
     Ok(())

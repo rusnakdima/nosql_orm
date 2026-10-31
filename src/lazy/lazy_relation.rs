@@ -105,15 +105,18 @@ where
       .repo
       .upgrade()
       .ok_or_else(|| crate::error::OrmError::Internal("Repository has been dropped".to_string()))?;
-    let result = repo.find_by_id(&self.local_id).await;
+    let result = repo.find_by_id(&self.local_id).await?;
 
+    // Return the value that was just fetched rather than reading the cache
+    // back: `close()` can null the cache in the window between the write
+    // lock being released and a read lock being taken.
+    let fetched = Arc::new(result);
     {
       let mut write = self.cached.write().await;
-      *write = Some(Arc::new(result?));
+      *write = Some(fetched.clone());
     }
 
-    let read = self.cached.read().await;
-    Ok(read.clone().unwrap())
+    Ok(fetched)
   }
 
   pub fn close(&self) {
@@ -187,13 +190,16 @@ where
 
     let result = query.find().await?;
 
+    // Return the value that was just fetched rather than reading the cache
+    // back: `close()` can null the cache in the window between the write
+    // lock being released and a read lock being taken.
+    let fetched = Arc::new(result);
     {
       let mut write = self.cached.write().await;
-      *write = Some(Arc::new(result));
+      *write = Some(fetched.clone());
     }
 
-    let read = self.cached.read().await;
-    Ok(read.clone().unwrap())
+    Ok(fetched)
   }
 
   pub async fn reload(&self) -> OrmResult<Arc<Vec<E>>> {

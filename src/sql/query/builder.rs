@@ -17,10 +17,6 @@ impl SqlQueryBuilder {
     self.dialect
   }
 
-  pub(crate) fn get_table_columns(&self, _table: &str) -> Vec<String> {
-    Vec::new()
-  }
-
   pub fn build_set_clause(
     &self,
     doc: &serde_json::Value,
@@ -133,7 +129,7 @@ mod tests {
       exclude: None,
     };
     let sql = builder
-      .build_select("users", None, Some(&projection), None, None, None)
+      .build_select("users", None, Some(&projection), None, None, None, None)
       .expect("build_select failed");
     assert_eq!(sql, "SELECT `id`, `name` FROM `users`");
   }

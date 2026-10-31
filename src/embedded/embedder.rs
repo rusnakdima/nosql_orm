@@ -9,11 +9,15 @@ impl Embedder {
     for field in embedded_fields {
       let embedded = result.get(*field).cloned();
       if let Some(embedded_obj) = embedded.and_then(|e| e.as_object().cloned()) {
-        for (key, value) in embedded_obj {
-          let prefixed_key = format!("{}_{}", field, key);
-          result.as_object_mut().unwrap().insert(prefixed_key, value);
+        // `result.get` returned `Some`, so `result` is an object. Bind it
+        // once instead of re-asserting that with an unwrap.
+        if let Value::Object(obj) = &mut result {
+          for (key, value) in embedded_obj {
+            let prefixed_key = format!("{}_{}", field, key);
+            obj.insert(prefixed_key, value);
+          }
+          obj.remove(*field);
         }
-        result.as_object_mut().unwrap().remove(*field);
       }
     }
 
@@ -43,15 +47,18 @@ impl Embedder {
           if let Some(value) = result.get(&key) {
             embedded.insert(stripped.to_string(), value.clone());
           }
-          result.as_object_mut().unwrap().remove(&key);
+          // `keys_to_remove` came from `result.as_object()`, so `result` is
+          // an object here.
+          if let Value::Object(obj) = &mut result {
+            obj.remove(&key);
+          }
         }
       }
 
       if !embedded.is_empty() {
-        result
-          .as_object_mut()
-          .unwrap()
-          .insert(field.to_string(), Value::Object(embedded));
+        if let Value::Object(obj) = &mut result {
+          obj.insert(field.to_string(), Value::Object(embedded));
+        }
       }
     }
 

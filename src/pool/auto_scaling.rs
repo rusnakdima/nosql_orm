@@ -32,10 +32,13 @@ pub struct AutoScaler {
 }
 
 fn current_epoch_secs() -> u64 {
+  // `duration_since` fails only if the system clock is set before the Unix
+  // epoch, which is a misconfigured clock rather than a programming error.
+  // Saturating to zero keeps the cooldown arithmetic total.
   std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
-    .unwrap()
-    .as_secs()
+    .map(|d| d.as_secs())
+    .unwrap_or(0)
 }
 
 impl AutoScaler {

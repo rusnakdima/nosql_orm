@@ -249,11 +249,12 @@ where
   }
 
   pub async fn next_item(&mut self) -> OrmResult<Option<E>> {
-    if let Some(ref mut batch) = self.batch {
+    if let Some(batch) = &mut self.batch {
       if self.batch_index < batch.len() {
-        let item = batch.pop_front().unwrap();
-        self.batch_index += 1;
-        return Ok(Some(item));
+        if let Some(item) = batch.pop_front() {
+          self.batch_index += 1;
+          return Ok(Some(item));
+        }
       }
     }
 
@@ -265,11 +266,12 @@ where
 
     self.fetch_batch().await?;
 
-    if let Some(ref mut batch) = self.batch {
+    if let Some(batch) = &mut self.batch {
       if !batch.is_empty() {
-        let item = batch.pop_front().unwrap();
-        self.batch_index += 1;
-        return Ok(Some(item));
+        if let Some(item) = batch.pop_front() {
+          self.batch_index += 1;
+          return Ok(Some(item));
+        }
       }
     }
 

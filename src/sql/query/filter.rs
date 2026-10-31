@@ -3,6 +3,19 @@ use crate::query::Filter;
 
 use super::builder::SqlQueryBuilder;
 
+/// Check that `name` can be used as an identifier.
+///
+/// The compiler quotes every identifier it emits, and
+/// [`SqlDialect::quote_identifier`](crate::sql::types::SqlDialect::quote_identifier)
+/// escapes the dialect's quote character by doubling it. That escaping is
+/// what makes a hostile name safe: it stays one identifier instead of
+/// terminating the statement. So the only names rejected here are the ones
+/// quoting cannot rescue — an empty name, one longer than the database's
+/// identifier limit, and one carrying a NUL byte (which truncates the name
+/// in C-based clients).
+///
+/// A name that merely *needs* quoting — one with a space, a dash, a leading
+/// digit or SQL syntax in it — is not rejected. It is quoted and escaped.
 fn validate_identifier(name: &str) -> OrmResult<()> {
   if name.is_empty() {
     return Err(OrmError::InvalidInput(
@@ -14,37 +27,21 @@ fn validate_identifier(name: &str) -> OrmResult<()> {
       "Identifier exceeds maximum length of 64".to_string(),
     ));
   }
-  for (i, c) in name.chars().enumerate() {
-    if i == 0 && c.is_ascii_digit() {
-      return Err(OrmError::InvalidInput(format!(
-        "Identifier '{}' cannot start with a digit",
-        name
-      )));
-    }
-    if !c.is_ascii_alphanumeric() && c != '_' {
-      return Err(OrmError::InvalidInput(format!(
-        "Identifier '{}' contains invalid character '{}'",
-        name, c
-      )));
-    }
-  }
-  let sql_keywords = [
-    "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "EXEC", "EXECUTE", "UNION",
-    "WHERE", "FROM", "TABLE", "INDEX", "DATABASE", "SCHEMA", "GRANT", "REVOKE",
-  ];
-  let upper = name.to_uppercase();
-  for keyword in sql_keywords {
-    if upper == keyword {
-      return Err(OrmError::InvalidInput(format!(
-        "Identifier '{}' is a reserved keyword",
-        name
-      )));
-    }
+  if name.contains('\0') {
+    return Err(OrmError::InvalidInput(format!(
+      "Identifier '{}' contains a NUL byte",
+      name
+    )));
   }
   Ok(())
 }
 
 impl SqlQueryBuilder {
+  /// Render `filter` as a SQL `WHERE` clause body.
+  ///
+  /// Every field name is emitted as a quoted identifier, escaped by the
+  /// dialect's quoting convention, so a field name carrying SQL syntax
+  /// stays one identifier. Values are emitted as SQL literals.
   pub fn filter_to_sql(&self, filter: &Filter) -> OrmResult<String> {
     match filter {
       Filter::Eq(field, value) => {

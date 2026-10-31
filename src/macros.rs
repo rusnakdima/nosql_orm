@@ -41,7 +41,8 @@ macro_rules! filters {
         conditions.push(filter!($field, $op, $value));
       )*
       if conditions.len() == 1 {
-        conditions.pop().unwrap()
+        // The length was just checked, so the pop cannot fail.
+        conditions.pop().expect("conditions has exactly one element")
       } else {
         Filter::And(conditions)
       }

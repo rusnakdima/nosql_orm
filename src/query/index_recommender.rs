@@ -69,10 +69,13 @@ impl IndexRecommender {
       }
     }
 
+    // `partial_cmp` returns `None` when either side is NaN. Treating that as
+    // `Equal` keeps the sort a total order instead of panicking on a value
+    // that slipped in from bad input.
     recommendations.sort_by(|a, b| {
       b.estimated_improvement
         .partial_cmp(&a.estimated_improvement)
-        .unwrap()
+        .unwrap_or(std::cmp::Ordering::Equal)
     });
     recommendations
   }

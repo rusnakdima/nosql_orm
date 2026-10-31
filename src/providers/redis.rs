@@ -469,15 +469,25 @@ impl TransactionControl for RedisProvider {
 
 #[cfg(test)]
 mod tests {
+  use crate::error::{OrmError, OrmResult};
+
   #[ignore]
   #[tokio::test]
-  async fn redis_insert_requires_live_server() {
-    todo!()
+  async fn redis_insert_requires_live_server() -> OrmResult<()> {
+    // Needs a live Redis server, so there is nothing to assert offline.
+    // Report the missing capability as an error instead of panicking.
+    Err(OrmError::NotSupported(
+      "redis insert needs a live Redis server".to_string(),
+    ))
   }
 
   #[ignore]
   #[tokio::test]
-  async fn redis_find_by_id_requires_live_server() {
-    todo!()
+  async fn redis_find_by_id_requires_live_server() -> OrmResult<()> {
+    // Needs a live Redis server, so there is nothing to assert offline.
+    // Report the missing capability as an error instead of panicking.
+    Err(OrmError::NotSupported(
+      "redis find_by_id needs a live Redis server".to_string(),
+    ))
   }
 }

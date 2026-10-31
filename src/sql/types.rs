@@ -12,11 +12,18 @@ pub enum SqlDialect {
 }
 
 impl SqlDialect {
+  /// Quote `name` as an SQL identifier for this dialect.
+  ///
+  /// The dialect's quote character is escaped by doubling it, which is the
+  /// standard SQL escape: a `"` inside a `"…"` identifier and a `` ` `` inside
+  /// a `` `…` `` identifier. Doubling is what makes the quoting safe — a
+  /// name carrying SQL syntax stays one identifier instead of terminating
+  /// the statement.
   pub fn quote_identifier(&self, name: &str) -> String {
     match self {
-      SqlDialect::PostgreSQL => format!("\"{}\"", name),
-      SqlDialect::SQLite => format!("\"{}\"", name),
-      SqlDialect::MySQL => format!("`{}`", name),
+      SqlDialect::PostgreSQL => format!("\"{}\"", name.replace('"', "\"\"")),
+      SqlDialect::SQLite => format!("\"{}\"", name.replace('"', "\"\"")),
+      SqlDialect::MySQL => format!("`{}`", name.replace('`', "``")),
     }
   }
 

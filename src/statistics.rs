@@ -60,7 +60,14 @@ impl StatisticsService for InMemoryStatisticsService {
 
   fn record_delta(&self, name: &str, delta: i64) -> i64 {
     let counter = {
-      let mut counters = self.counters.write().expect("counters poisoned");
+      // A poisoned lock means some other thread panicked while holding it.
+      // The counters themselves are atomic and independently consistent, so
+      // the guard is recovered rather than propagating the panic into every
+      // subsequent metric.
+      let mut counters = self
+        .counters
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
       counters
         .entry(name.to_string())
         .or_insert_with(|| Arc::new(AtomicU64::new(0)))
@@ -81,7 +88,7 @@ impl StatisticsService for InMemoryStatisticsService {
     self
       .counters
       .read()
-      .expect("counters poisoned")
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
       .get(name)
       .map(|c| c.load(Ordering::SeqCst))
       .unwrap_or(0)
@@ -91,7 +98,7 @@ impl StatisticsService for InMemoryStatisticsService {
     self
       .counters
       .read()
-      .expect("counters poisoned")
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
       .keys()
       .cloned()
       .collect()

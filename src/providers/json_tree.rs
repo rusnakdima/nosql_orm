@@ -257,11 +257,13 @@ impl Storage for JsonTreeProvider {
     }
     self.flush_document(collection, &doc).await?;
     let mut w = self.cache.write().await;
-    let records = w.get_mut(collection).unwrap();
+    let records = w
+      .get_mut(collection)
+      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
     let pos = records
       .iter()
       .position(|r| id_of(r).as_deref() == Some(id))
-      .unwrap();
+      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
     records[pos] = doc.clone();
     Ok(doc)
   }
@@ -341,7 +343,10 @@ impl Storage for JsonTreeProvider {
     };
     let mut count = 0;
     for id in ids {
-      let existing = self.find_by_id(collection, &id).await?.unwrap();
+      let existing = self
+        .find_by_id(collection, &id)
+        .await?
+        .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
       let mut merged = existing;
       if let (Value::Object(base), Value::Object(patch)) = (&mut merged, &updates) {
         for (k, v) in patch {

@@ -52,9 +52,22 @@ impl<P: Storage> FileQueryLogger<P> {
   }
 
   fn rotate_logs(&self) -> std::io::Result<()> {
-    let log_dir = self.log_path.parent().unwrap();
-    let base_name = self.log_path.file_stem().unwrap().to_string_lossy();
-    let ext = self.log_path.extension().unwrap().to_string_lossy();
+    let log_dir = self.log_path.parent().ok_or_else(|| {
+      std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        format!("log path {:?} has no parent directory", self.log_path),
+      )
+    })?;
+    let base_name = self
+      .log_path
+      .file_stem()
+      .map(|s| s.to_string_lossy())
+      .unwrap_or_else(|| "query_log".into());
+    let ext = self
+      .log_path
+      .extension()
+      .map(|s| s.to_string_lossy())
+      .unwrap_or_else(|| "txt".into());
 
     for i in (1..self.max_files).rev() {
       let from = log_dir.join(format!("{}.{}.{}", base_name, i, ext));
