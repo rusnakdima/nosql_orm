@@ -1,21 +1,9 @@
 use crate::error::{OrmError, OrmResult};
 use crate::query::Filter;
+use serde_json::Value;
 
 use super::builder::SqlQueryBuilder;
 
-/// Check that `name` can be used as an identifier.
-///
-/// The compiler quotes every identifier it emits, and
-/// [`SqlDialect::quote_identifier`](crate::sql::types::SqlDialect::quote_identifier)
-/// escapes the dialect's quote character by doubling it. That escaping is
-/// what makes a hostile name safe: it stays one identifier instead of
-/// terminating the statement. So the only names rejected here are the ones
-/// quoting cannot rescue — an empty name, one longer than the database's
-/// identifier limit, and one carrying a NUL byte (which truncates the name
-/// in C-based clients).
-///
-/// A name that merely *needs* quoting — one with a space, a dash, a leading
-/// digit or SQL syntax in it — is not rejected. It is quoted and escaped.
 fn validate_identifier(name: &str) -> OrmResult<()> {
   if name.is_empty() {
     return Err(OrmError::InvalidInput(
@@ -37,11 +25,10 @@ fn validate_identifier(name: &str) -> OrmResult<()> {
 }
 
 impl SqlQueryBuilder {
-  /// Render `filter` as a SQL `WHERE` clause body.
-  ///
-  /// Every field name is emitted as a quoted identifier, escaped by the
-  /// dialect's quoting convention, so a field name carrying SQL syntax
-  /// stays one identifier. Values are emitted as SQL literals.
+  // Returns the filter as a literal SQL string. Kept for callers that only
+  // need to display or compare a statement (build_select, explain paths). The
+  // providers execute filter_to_sql_params instead; executing this form with
+  // untrusted values is unsafe.
   pub fn filter_to_sql(&self, filter: &Filter) -> OrmResult<String> {
     match filter {
       Filter::Eq(field, value) => {
@@ -196,6 +183,203 @@ impl SqlQueryBuilder {
         Ok(strs.join(" OR "))
       }
       Filter::Not(inner) => Ok(format!("NOT ({})", self.filter_to_sql(inner)?)),
+    }
+  }
+
+  // The bound form of filter_to_sql: placeholders in the statement and the
+  // values in the order the placeholders expect. This is what the SQL
+  // providers execute, so a filter value never becomes SQL text.
+  pub fn filter_to_sql_params(&self, filter: &Filter) -> OrmResult<(String, Vec<Value>)> {
+    let mut params = Vec::new();
+    let sql = self.filter_to_bound_sql(filter, &mut params)?;
+    Ok((sql, params))
+  }
+
+  fn push_param(&self, params: &mut Vec<Value>, value: Value) -> String {
+    let placeholder = self.dialect().parameter_placeholder(params.len());
+    params.push(value);
+    placeholder
+  }
+
+  fn filter_to_bound_sql(
+    &self,
+    filter: &Filter,
+    params: &mut Vec<Value>,
+  ) -> OrmResult<String> {
+    match filter {
+      Filter::Eq(field, value) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, value.clone());
+        Ok(format!(
+          "{} = {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::Ne(field, value) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, value.clone());
+        Ok(format!(
+          "{} <> {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::Gt(field, value) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, value.clone());
+        Ok(format!(
+          "{} > {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::Gte(field, value) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, value.clone());
+        Ok(format!(
+          "{} >= {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::Lt(field, value) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, value.clone());
+        Ok(format!(
+          "{} < {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::Lte(field, value) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, value.clone());
+        Ok(format!(
+          "{} <= {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::In(field, values) => {
+        validate_identifier(field)?;
+        if values.is_empty() {
+          // An empty IN list matches nothing; SQL has no valid empty ().
+          return Ok("1 = 0".to_string());
+        }
+        let placeholders: Vec<String> = values
+          .iter()
+          .map(|value| self.push_param(params, value.clone()))
+          .collect();
+        Ok(format!(
+          "{} IN ({})",
+          self.dialect().quote_identifier(field),
+          placeholders.join(", ")
+        ))
+      }
+      Filter::NotIn(field, values) => {
+        validate_identifier(field)?;
+        if values.is_empty() {
+          return Ok("1 = 1".to_string());
+        }
+        let placeholders: Vec<String> = values
+          .iter()
+          .map(|value| self.push_param(params, value.clone()))
+          .collect();
+        Ok(format!(
+          "{} NOT IN ({})",
+          self.dialect().quote_identifier(field),
+          placeholders.join(", ")
+        ))
+      }
+      Filter::ArrayContains(field, value) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, value.clone());
+        Ok(format!(
+          "JSON_CONTAINS({}, {})",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::Contains(field, value) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, Value::String(format!("%{}%", value)));
+        Ok(format!(
+          "{} LIKE {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::StartsWith(field, prefix) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, Value::String(format!("{}%", prefix)));
+        Ok(format!(
+          "{} LIKE {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::IsNull(field) => {
+        validate_identifier(field)?;
+        Ok(format!(
+          "{} IS NULL",
+          self.dialect().quote_identifier(field)
+        ))
+      }
+      Filter::IsNotNull(field) => {
+        validate_identifier(field)?;
+        Ok(format!(
+          "{} IS NOT NULL",
+          self.dialect().quote_identifier(field)
+        ))
+      }
+      Filter::Like(field, pattern) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, Value::String(pattern.clone()));
+        Ok(format!(
+          "{} LIKE {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::EndsWith(field, suffix) => {
+        validate_identifier(field)?;
+        let placeholder = self.push_param(params, Value::String(format!("%{}", suffix)));
+        Ok(format!(
+          "{} LIKE {}",
+          self.dialect().quote_identifier(field),
+          placeholder
+        ))
+      }
+      Filter::Between(field, min, max) => {
+        validate_identifier(field)?;
+        let min_placeholder = self.push_param(params, min.clone());
+        let max_placeholder = self.push_param(params, max.clone());
+        Ok(format!(
+          "{} BETWEEN {} AND {}",
+          self.dialect().quote_identifier(field),
+          min_placeholder,
+          max_placeholder
+        ))
+      }
+      Filter::And(filters) => {
+        let mut parts = Vec::new();
+        for filter in filters {
+          parts.push(format!("({})", self.filter_to_bound_sql(filter, params)?));
+        }
+        Ok(parts.join(" AND "))
+      }
+      Filter::Or(filters) => {
+        let mut parts = Vec::new();
+        for filter in filters {
+          parts.push(format!("({})", self.filter_to_bound_sql(filter, params)?));
+        }
+        Ok(parts.join(" OR "))
+      }
+      Filter::Not(inner) => Ok(format!(
+        "NOT ({})",
+        self.filter_to_bound_sql(inner, params)?
+      )),
     }
   }
 }

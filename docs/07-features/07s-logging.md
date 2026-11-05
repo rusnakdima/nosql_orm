@@ -16,7 +16,7 @@ pub trait LoggingStrategy {
     fn log_error(&self, operation: &str, collection: &str, error: &str);
 }
 
-// Generic wrapper that wraps any DatabaseProvider with any LoggingStrategy
+// Generic wrapper that wraps any Storage with any LoggingStrategy
 pub struct ProviderWrapper<P, L> {
     inner: P,
     logger: L,
@@ -47,7 +47,7 @@ pub trait LoggingStrategy: Send + Sync {
 
 ## ProviderWrapper
 
-Wraps any `DatabaseProvider` with logging:
+Wraps any `Storage` with logging:
 
 ```rust
 // Create base provider

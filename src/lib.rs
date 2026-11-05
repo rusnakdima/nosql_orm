@@ -1,73 +1,39 @@
-//! # nosql_orm
-//!
-//! A TypeORM-inspired ORM for NoSQL databases.
-#![allow(unexpected_cfgs)]
-//! Supports JSON file storage, MongoDB, and Redis with a unified, ergonomic API.
-//!
-//! ## Quick Start
-//!
-//! ```rust,no_run
-//! use nosql_orm::prelude::*;
-//! use serde::{Deserialize, Serialize};
-//!
-//! #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-//! pub struct User {
-//!     pub id: Option<String>,
-//!     pub name: String,
-//!     pub email: String,
-//! }
-//!
-//! impl Entity for User {
-//!     fn meta() -> EntityMeta { EntityMeta::new("users") }
-//!     fn get_id(&self) -> Option<String> { self.id.clone() }
-//!     fn set_id(&mut self, id: String) { self.id = Some(id); }
-//! }
-//!
-//! #[tokio::main]
-//! async fn main() -> OrmResult<()> {
-//!     let provider = JsonProvider::new("./data").await?;
-//!     let repo: Repository<User, _> = Repository::new(provider);
-//!     let user = User { id: None, name: "Alice".into(), email: "alice@example.com".into() };
-//!     let saved = repo.save(user).await?;
-//!     println!("Saved user: {:?}", saved);
-//!     Ok(())
-//! }
-//! ```
-
 pub mod admin_types;
 pub mod aggregation;
 pub mod cascade;
+#[cfg(feature = "cdc")]
 pub mod cdc;
 pub mod cli;
 pub mod constraints;
+#[cfg(feature = "embedded")]
 pub mod embedded;
 pub mod entity;
 pub mod error;
 pub mod events;
 pub mod field_meta;
+#[cfg(feature = "graphql")]
 pub mod graphql;
 pub mod id;
+#[cfg(feature = "inheritance")]
 pub mod inheritance;
+#[cfg(feature = "lazy")]
 pub mod lazy;
 pub mod macros;
 pub mod migrations;
 pub mod model_helper;
 pub mod nosql_index;
-pub mod observability;
-pub mod pool;
 pub mod provider;
 pub mod query;
 pub mod relations;
 pub mod repository;
 pub mod schema;
+#[cfg(feature = "search")]
 pub mod search;
-pub mod settings;
 pub mod soft_delete;
 pub mod sql;
-pub mod statistics;
+#[cfg(feature = "subscription")]
 pub mod subscription;
 pub mod timestamps;
-pub mod transaction;
 pub mod utils;
 pub mod validators;
 
@@ -90,12 +56,6 @@ pub use providers::FallbackProvider;
 #[cfg(feature = "query_cache")]
 pub mod cache;
 
-pub use observability::{
-  export_prometheus, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
-  MetricsExporter, PoolMetricsExporter, QueryMetrics, QueryMetricsExporter, RateLimiter,
-  RateLimiterConfig, RateLimiterMetrics, Telemetry, TelemetryConfig,
-};
-
 pub use nosql_orm_derive::Model;
 pub use nosql_orm_derive::ModelHelper;
 pub use nosql_orm_derive::OrmEntity;
@@ -106,26 +66,33 @@ pub use aggregation::{
   SortStage, Stage,
 };
 pub use cascade::CascadeManager;
+#[cfg(feature = "cdc")]
 pub use cdc::{AuditAction, AuditLog, CdcSync, Change, ChangeCapture, ChangeStream, ChangeType};
 pub use constraints::{
   CheckConstraintDef, ColumnConstraint, ColumnDef, ColumnType, IndexDef, IndexType,
   UniqueConstraintDef,
 };
+#[cfg(feature = "embedded")]
 pub use embedded::{EmbedExt, Embedded, EmbeddedMeta, Embedder};
 pub use events::{EntityEventListener, EntityEvents, Event, EventType};
+#[cfg(feature = "graphql")]
 pub use graphql::{
   GraphQLArg, GraphQLEntity, GraphQLField, GraphQLSchema, GraphQLTypeDef, MutationRoot, QueryRoot,
   SchemaBuilder,
 };
+#[cfg(feature = "inheritance")]
 pub use inheritance::{Discriminator, DiscriminatorValue, Inheritance, InheritanceType};
+#[cfg(feature = "lazy")]
 pub use lazy::{Lazy, LazyLoader, LazyMany, LazyRelation};
 pub use migrations::migration::{JsonMigration, Migration, MigrationMeta, SqlMigration};
 pub use migrations::runner::MigrationRunner;
 pub use schema::{PrefixConfig, PrefixHolder, Schema, SchemaManager};
+#[cfg(feature = "search")]
 pub use search::{
   FullTextIndex, FullTextQueryExt, FullTextSearch, SearchResult, SearchScore, TextSearch,
 };
 pub use soft_delete::{SoftDeletable, SoftDeleteExt};
+#[cfg(feature = "subscription")]
 pub use subscription::{Publisher, Subscription, SubscriptionHandler, SubscriptionManager, Topic};
 pub use validators::{
   EmailValidator, FieldValidator, LengthValidator, PatternValidator, RangeValidator,
@@ -137,7 +104,6 @@ pub use sql::{
   SqlQueryBuilder, SqlTableDef,
 };
 
-/// Re-exports everything you need for typical usage.
 pub mod prelude {
   pub use crate::admin_types::{
     CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, IndexInfo, PoolStats,
@@ -167,18 +133,12 @@ pub mod prelude {
   #[cfg(feature = "json")]
   pub use crate::providers::json_tree::JsonTreeProvider;
 
-  pub use crate::pool::{JsonPool, Pool, PoolConfig, Pooled};
-
-  #[cfg(feature = "mongo")]
-  pub use crate::pool::MongoPool;
-
-  pub use crate::transaction::{Transaction, TransactionState};
-
   pub use crate::validators::{
     EmailValidator, EntityValidator, EnumValidator, FieldValidator, LengthValidator,
     PatternValidator, RangeValidator, ValidationError, ValidationResult,
   };
 
+  #[cfg(feature = "graphql")]
   pub use crate::graphql::{
     GraphQLArg, GraphQLEntity, GraphQLField, GraphQLSchema, GraphQLTypeDef, MutationRoot,
     QueryRoot, SchemaBuilder,
@@ -190,6 +150,7 @@ pub mod prelude {
   #[cfg(feature = "redis")]
   pub use crate::providers::redis::RedisProvider;
 
+  #[cfg(feature = "cdc")]
   pub use crate::cdc::CdcSync;
   pub use crate::nosql_index::{IndexManager, NosqlIndex, NosqlIndexInfo, NosqlIndexType};
   pub use crate::timestamps::{apply_timestamps, Timestamps};
@@ -205,7 +166,7 @@ pub mod prelude {
   pub use crate::providers::sql::MySqlProvider;
 
   #[cfg(feature = "query_cache")]
-  pub use crate::cache::{CacheConfig, CacheStats, CachedResult, QueryCache};
+  pub use crate::cache::{CacheStats, CachedResult, QueryCache, QueryCacheConfig};
 
   pub use crate::macros::{
     and_filter, eq_filter, gt_filter, gte_filter, in_filter, is_not_null_filter, is_null_filter,

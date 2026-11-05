@@ -1,5 +1,3 @@
-//! NoSQL-specific index types and management.
-
 pub mod definition;
 pub mod manager;
 

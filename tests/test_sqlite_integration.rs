@@ -4,6 +4,7 @@ mod sqlite_integration_tests {
   use nosql_orm::providers::sql::SqliteProvider;
   use nosql_orm::relations::WithRelations;
   use nosql_orm::soft_delete::SoftDeletable;
+  use nosql_orm::sql::{SqlColumnDef, SqlColumnType};
   use nosql_orm::validators::Validate;
   use serde::{Deserialize, Serialize};
   use std::fs;
@@ -48,6 +49,18 @@ mod sqlite_integration_tests {
     }
     fn boolean_fields() -> Vec<&'static str> {
       vec!["completed"]
+    }
+    fn sql_columns() -> Vec<SqlColumnDef> {
+      vec![
+        SqlColumnDef::new("id", SqlColumnType::Text).primary_key(),
+        SqlColumnDef::new("title", SqlColumnType::Text),
+        SqlColumnDef::new("content", SqlColumnType::Text),
+        SqlColumnDef::new("priority", SqlColumnType::Integer).nullable(),
+        SqlColumnDef::new("completed", SqlColumnType::Boolean),
+        SqlColumnDef::new("tags", SqlColumnType::Json).nullable(),
+        SqlColumnDef::new("created_at", SqlColumnType::DateTime).nullable(),
+        SqlColumnDef::new("updated_at", SqlColumnType::DateTime).nullable(),
+      ]
     }
   }
 
@@ -383,6 +396,83 @@ mod sqlite_integration_tests {
     assert_eq!(remaining, 2);
 
     cleanup_notes(&repo).await?;
+
+    let _ = fs::remove_file(&db_path);
+
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn test_execute_raw_binds_parameters_and_reports_affected_rows() -> OrmResult<()> {
+    let db_path = get_db_path();
+    let repo = setup_repo(&db_path).await?;
+    let provider = repo.provider();
+
+    for (id, title, priority) in [("raw-1", "Raw One", 1), ("raw-2", "Raw Two", 3)] {
+      let inserted = AdminCommands::execute_raw(
+        provider,
+        "INSERT INTO test_notes (id, title, content, priority, completed) VALUES (?1, ?2, ?3, ?4, 0)",
+        vec![
+          serde_json::json!(id),
+          serde_json::json!(title),
+          serde_json::json!("bound content"),
+          serde_json::json!(priority),
+        ],
+      )
+      .await?;
+      assert_eq!(inserted.affected_rows, 1);
+      assert!(inserted.columns.is_empty());
+      assert!(inserted.rows.is_empty());
+    }
+
+    let selected = AdminCommands::execute_raw(
+      provider,
+      "SELECT id, title, priority FROM test_notes WHERE title = ?1",
+      vec![serde_json::json!("Raw Two")],
+    )
+    .await?;
+    assert_eq!(selected.columns, vec!["id", "title", "priority"]);
+    assert_eq!(selected.rows.len(), 1);
+    assert_eq!(selected.rows[0][0], serde_json::json!("raw-2"));
+    assert_eq!(selected.rows[0][1], serde_json::json!("Raw Two"));
+    assert_eq!(selected.rows[0][2], serde_json::json!(3));
+
+    let updated = AdminCommands::execute_raw(
+      provider,
+      "UPDATE test_notes SET completed = 1 WHERE priority >= ?1",
+      vec![serde_json::json!(1)],
+    )
+    .await?;
+    assert_eq!(updated.affected_rows, 2);
+
+    let _ = fs::remove_file(&db_path);
+
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn test_sync_schema_creates_the_table_or_reports_not_supported() -> OrmResult<()> {
+    let db_path = get_db_path();
+    let _ = fs::remove_file(&db_path);
+
+    let provider = SqliteProvider::connect(&db_path).await?;
+    let repo: Repository<TestNote, _> = Repository::new(provider);
+
+    match repo.sync_schema().await {
+      Ok(()) => {
+        assert_eq!(repo.count().await?, 0);
+        let saved = repo
+          .save(TestNote::new("Synced", "Created by sync_schema", Some(1)))
+          .await?;
+        assert!(saved.id.is_some());
+        assert_eq!(repo.count().await?, 1);
+      }
+      Err(OrmError::NotSupported(message)) => {
+        assert!(!message.is_empty());
+        assert!(repo.count().await.is_err());
+      }
+      Err(other) => return Err(other),
+    }
 
     let _ = fs::remove_file(&db_path);
 

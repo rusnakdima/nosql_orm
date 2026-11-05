@@ -8,21 +8,24 @@ use tokio::sync::RwLock;
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
-  IndexInfo, RawResult, SchemaIntrospection, Storage, TransactionControl, TransactionId,
+  AdminCommands, Capability, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  FieldInfo, IndexInfo, ProviderCapabilities, RawResult, SchemaIntrospection, Storage,
+  TransactionControl, TransactionId,
 };
 use crate::query::Filter;
 use crate::utils::{compare_values, generate_id, get_document_id_string};
 
 type Store = Arc<RwLock<HashMap<String, Vec<Value>>>>;
 
+// The JSON provider's own document cache. Named for the provider so it does
+// not collide with the query cache's QueryCacheConfig.
 #[derive(Clone)]
-pub struct CacheConfig {
+pub struct JsonCacheConfig {
   pub max_entries_per_collection: usize,
   pub ttl_seconds: Option<u64>,
 }
 
-impl Default for CacheConfig {
+impl Default for JsonCacheConfig {
   fn default() -> Self {
     Self {
       max_entries_per_collection: 10000,
@@ -34,7 +37,7 @@ impl Default for CacheConfig {
 #[derive(Clone)]
 pub struct JsonProviderConfig {
   pub base_dir: PathBuf,
-  pub cache_config: CacheConfig,
+  pub cache_config: JsonCacheConfig,
 }
 
 impl JsonProviderConfig {
@@ -49,11 +52,11 @@ impl JsonProviderConfig {
     };
     Self {
       base_dir: final_path,
-      cache_config: CacheConfig::default(),
+      cache_config: JsonCacheConfig::default(),
     }
   }
 
-  pub fn with_cache_config(mut self, config: CacheConfig) -> Self {
+  pub fn with_cache_config(mut self, config: JsonCacheConfig) -> Self {
     self.cache_config = config;
     self
   }
@@ -89,18 +92,12 @@ fn make_path(base_dir: &Path, collection: &str) -> OrmResult<PathBuf> {
   Ok(base_dir.join(format!("{}.json", collection)))
 }
 
-/// JSON file-backed provider.
-///
-/// Each collection is stored as a JSON array in `<base_dir>/<collection>.json`.
-/// All reads/writes go through an in-memory cache protected by an async `RwLock`,
-/// then flushed to disk.
 #[derive(Clone)]
 pub struct JsonProvider {
   base_dir: PathBuf,
   cache: Store,
-  cache_config: CacheConfig,
+  cache_config: JsonCacheConfig,
   access_order: Arc<RwLock<HashMap<String, VecDeque<String>>>>,
-  transaction_manager: Arc<tokio::sync::Mutex<Option<TransactionId>>>,
 }
 
 impl JsonProvider {
@@ -116,7 +113,6 @@ impl JsonProvider {
       cache: Arc::new(RwLock::new(HashMap::new())),
       cache_config: config.cache_config,
       access_order: Arc::new(RwLock::new(HashMap::new())),
-      transaction_manager: Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
@@ -478,15 +474,25 @@ impl Storage for JsonProvider {
   }
 
   async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
-    Ok(())
+    Err(OrmError::NotSupported(
+      "the JSON provider stores documents in files and has no index engine".to_string(),
+    ))
   }
 
   async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
-    Ok(())
+    Err(OrmError::NotSupported(
+      "the JSON provider stores documents in files and has no index engine".to_string(),
+    ))
   }
 
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+    Err(OrmError::NotSupported(
+      "the JSON provider stores documents in files and has no index engine".to_string(),
+    ))
+  }
+
+  fn capabilities(&self) -> ProviderCapabilities {
+    ProviderCapabilities::none().with(Capability::Aggregation)
   }
 
   async fn health_check(&self) -> OrmResult<bool> {
@@ -631,7 +637,9 @@ impl SchemaIntrospection for JsonProvider {
   }
 
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+    Err(OrmError::NotSupported(
+      "the JSON provider stores documents in files and has no index engine".to_string(),
+    ))
   }
 
   async fn get_database_name(&self) -> OrmResult<String> {
@@ -710,46 +718,31 @@ impl AdminCommands for JsonProvider {
   }
 }
 
+// The JSON provider writes each change straight to its files. Without a
+// write buffer there is nothing to roll back, so it reports NotSupported
+// rather than handing out a transaction id that cannot undo anything.
 #[async_trait]
 impl TransactionControl for JsonProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let mut guard = self.transaction_manager.lock().await;
-    if guard.is_some() {
-      return Err(OrmError::Transaction(
-        "Transaction already active".to_string(),
-      ));
-    }
-    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
-    *guard = Some(id.clone());
-    Ok(id)
+    Err(OrmError::NotSupported(
+      "the JSON provider cannot open a transaction: writes are persisted per call"
+        .to_string(),
+    ))
   }
 
-  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().await;
-    match guard.as_ref() {
-      Some(active_id) if active_id == &id => {
-        *guard = None;
-        Ok(())
-      }
-      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-      None => Err(OrmError::Transaction("No active transaction".to_string())),
-    }
+  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the JSON provider cannot commit a transaction".to_string(),
+    ))
   }
 
-  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().await;
-    match guard.as_ref() {
-      Some(active_id) if active_id == &id => {
-        *guard = None;
-        Ok(())
-      }
-      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-      None => Err(OrmError::Transaction("No active transaction".to_string())),
-    }
+  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the JSON provider cannot roll back a transaction".to_string(),
+    ))
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    let guard = self.transaction_manager.lock().await;
-    Ok(guard.is_some())
+    Ok(false)
   }
 }

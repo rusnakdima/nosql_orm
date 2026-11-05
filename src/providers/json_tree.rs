@@ -10,17 +10,14 @@ use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
-  IndexInfo, RawResult, SchemaIntrospection, Storage, TransactionControl, TransactionId,
+  IndexInfo, ProviderCapabilities, RawResult, SchemaIntrospection, Storage, TransactionControl,
+  TransactionId,
 };
 use crate::query::Filter;
 use crate::utils::{compare_values, get_document_id_string};
 
 type Store = Arc<RwLock<HashMap<String, Vec<Value>>>>;
 
-/// Validate a collection name for the tree provider.
-///
-/// A collection may contain `/` to express nesting (e.g. `actions/task`).
-/// Each segment must be non-empty, not `..`, and not start with `.`.
 fn validate_collection_name(name: &str) -> OrmResult<()> {
   if name.is_empty() {
     return Err(OrmError::InvalidInput(
@@ -77,10 +74,6 @@ fn id_of(doc: &Value) -> Option<String> {
     .map(|s| s.to_string())
 }
 
-/// JSON file-tree provider.
-///
-/// Each collection is a directory under `base_dir`; each document is one file
-/// inside it, named after the document's id (`.` becomes `/`).
 #[derive(Clone)]
 pub struct JsonTreeProvider {
   base_dir: PathBuf,
@@ -385,14 +378,25 @@ impl Storage for JsonTreeProvider {
   }
 
   async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
-    Ok(())
+    Err(OrmError::NotSupported(
+      "the JSON tree provider stores documents in files and has no index engine".to_string(),
+    ))
   }
   async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
-    Ok(())
+    Err(OrmError::NotSupported(
+      "the JSON tree provider stores documents in files and has no index engine".to_string(),
+    ))
   }
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+    Err(OrmError::NotSupported(
+      "the JSON tree provider stores documents in files and has no index engine".to_string(),
+    ))
   }
+
+  fn capabilities(&self) -> ProviderCapabilities {
+    ProviderCapabilities::none()
+  }
+
   async fn health_check(&self) -> OrmResult<bool> {
     Ok(true)
   }
@@ -485,7 +489,9 @@ impl SchemaIntrospection for JsonTreeProvider {
     Ok(self.base_dir.to_string_lossy().to_string())
   }
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+    Err(OrmError::NotSupported(
+      "the JSON tree provider stores documents in files and has no index engine".to_string(),
+    ))
   }
 }
 
@@ -548,17 +554,25 @@ impl AdminCommands for JsonTreeProvider {
   }
 }
 
-// TransactionControl (no-ops)
+// The JSON tree provider also persists per call; it has no write buffer to
+// commit or roll back.
 #[async_trait]
 impl TransactionControl for JsonTreeProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    Ok(TransactionId("noop".to_string()))
+    Err(OrmError::NotSupported(
+      "the JSON tree provider cannot open a transaction: writes are persisted per call"
+        .to_string(),
+    ))
   }
   async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
-    Ok(())
+    Err(OrmError::NotSupported(
+      "the JSON tree provider cannot commit a transaction".to_string(),
+    ))
   }
   async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
-    Ok(())
+    Err(OrmError::NotSupported(
+      "the JSON tree provider cannot roll back a transaction".to_string(),
+    ))
   }
   async fn is_transaction_active(&self) -> OrmResult<bool> {
     Ok(false)

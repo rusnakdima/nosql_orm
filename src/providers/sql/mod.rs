@@ -1,7 +1,3 @@
-//! SQL database providers for nosql_orm.
-//!
-//! Provides implementations for PostgreSQL, SQLite, and MySQL.
-
 pub mod common;
 pub mod row;
 pub mod utils;
@@ -45,3 +41,6 @@ pub fn dialect_from_connection(connection: &str) -> SqlDialect {
 pub fn create_query_builder(dialect: SqlDialect) -> SqlQueryBuilder {
   SqlQueryBuilder::new(dialect)
 }
+
+#[cfg(test)]
+mod tests;

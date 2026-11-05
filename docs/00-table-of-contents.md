@@ -5,7 +5,7 @@
 
 ## Core Concepts
 - [02-entity.md](02-entity.md) - Entity trait, EntityMeta, implementing entities
-- [03-provider.md](03-provider.md) - DatabaseProvider trait, providers (JSON, MongoDB, Redis, SQL)
+- [03-provider.md](03-provider.md) - Storage trait, providers (JSON, MongoDB, Redis, SQL)
 - [04-repository.md](04-repository.md) - Repository, RelationRepository pattern
 - [05-query-builder.md](05-query-builder.md) - QueryBuilder, Filter, Projection
 - [06-relations.md](06-relations.md) - RelationDef, loading, WithRelations

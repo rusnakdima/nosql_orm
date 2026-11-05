@@ -2,6 +2,9 @@
 
 Single-table inheritance pattern.
 
+Opt-in: compiled only with the `inheritance` feature. No code path in
+`Storage`, `Repository` or the providers calls this module yet.
+
 ---
 
 ## Inheritance

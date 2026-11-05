@@ -13,7 +13,7 @@ fn derive_model_helper(item: &syn::DeriveInput) -> Result<proc_macro::TokenStrea
     
     Ok(quote::quote! {
         impl #impl_generics model_helper::ModelHelper for #name #ty_generics #where_clause {
-            fn validate(&self) -> Vec<model_helper::ValidationError> {
+            fn validate(&self) -> Vec<model_helper::ModelValidationError> {
                 Vec::new()
             }
             

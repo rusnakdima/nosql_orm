@@ -3,7 +3,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Type alias for the compute function signature used by `ComputedField`.
 type ComputeFn<E> = Arc<dyn Fn(&E) -> OrmResult<Value> + Send + Sync>;
 
 pub struct ComputedField<E> {

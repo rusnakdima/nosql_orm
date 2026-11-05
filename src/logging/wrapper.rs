@@ -417,4 +417,8 @@ impl<P: Storage, L: LoggingStrategy + Clone + 'static> Storage for ProviderWrapp
 
     result
   }
+
+  fn capabilities(&self) -> crate::provider::ProviderCapabilities {
+    self.inner.capabilities()
+  }
 }

@@ -7,7 +7,6 @@ use super::migration::{Migration, MigrationMeta};
 
 const MIGRATIONS_COLLECTION: &str = "_migrations";
 
-/// Runs migrations against a provider
 pub struct MigrationRunner<P: Storage> {
   provider: P,
   migrations: Vec<Box<dyn Migration<P>>>,

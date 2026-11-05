@@ -1,13 +1,6 @@
-//! Shared row conversion utilities for SQL providers.
-
 use crate::providers::sql::utils::base64_encode;
 use serde_json::Value;
 
-/// Convert a SQLite row to JSON value.
-///
-/// The keys are the row's own column names: a record that comes back from a
-/// database must carry the fields the table has, or nothing that reads it —
-/// a filter, an update, a table in the app — can address a column.
 #[cfg(feature = "sql-sqlite")]
 pub fn row_to_json_sqlite(row: &rusqlite::Row) -> Result<Value, rusqlite::Error> {
   use rusqlite::types::ValueRef;
@@ -35,7 +28,6 @@ pub fn row_to_json_sqlite(row: &rusqlite::Row) -> Result<Value, rusqlite::Error>
   Ok(serde_json::Value::Object(map))
 }
 
-/// Convert a MySQL row to JSON value.
 #[cfg(feature = "sql-mysql")]
 pub fn row_to_json_mysql(row: mysql_async::Row) -> Value {
   let mut map = serde_json::Map::new();
@@ -72,7 +64,6 @@ pub fn row_to_json_mysql(row: mysql_async::Row) -> Value {
   serde_json::Value::Object(map)
 }
 
-/// Convert a PostgreSQL row to JSON value.
 #[cfg(feature = "sql-postgres")]
 pub fn row_to_json_postgres(row: &tokio_postgres::Row) -> Value {
   use tokio_postgres::types::Type;

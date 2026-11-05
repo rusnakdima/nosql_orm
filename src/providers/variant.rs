@@ -1,6 +1,3 @@
-//! A concrete enum wrapper that implements `Storage` for both JsonProvider and
-//! MongoProvider, enabling runtime backend switching without trait objects.
-
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
@@ -31,7 +28,6 @@ impl StorageVariant {
     Self::Mongo(provider)
   }
 
-  /// Return the name of the active backend.
   pub fn backend_name(&self) -> &'static str {
     match self {
       Self::Json(_) => "json",
@@ -163,6 +159,14 @@ impl Storage for StorageVariant {
       Self::Json(p) => p.list_indexes(collection).await,
       #[cfg(feature = "mongo")]
       Self::Mongo(p) => p.list_indexes(collection).await,
+    }
+  }
+
+  fn capabilities(&self) -> crate::provider::ProviderCapabilities {
+    match self {
+      Self::Json(p) => p.capabilities(),
+      #[cfg(feature = "mongo")]
+      Self::Mongo(p) => p.capabilities(),
     }
   }
 }

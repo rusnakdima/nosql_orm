@@ -80,13 +80,6 @@ pub fn get_relation_def(collection: &str, relation_name: &str) -> Option<Relatio
   })
 }
 
-/// Clear the relation registry.
-///
-/// The registry has two halves: the relation definitions and the set of
-/// collections that have been registered. Registration keeps the first entry
-/// for a collection, so the two halves have to be cleared together — clearing
-/// only the definitions would leave the collection marked as registered and
-/// every later registration for it would be silently dropped.
 pub fn clear_relation_registry() {
   if let Ok(mut guard) = RELATION_REGISTRY.write() {
     *guard = None;

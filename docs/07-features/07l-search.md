@@ -2,6 +2,9 @@
 
 Text search with scoring.
 
+Opt-in: compiled only with the `search` feature. No code path in `Storage`,
+`Repository` or the providers calls this module yet.
+
 ---
 
 ## FullTextSearch

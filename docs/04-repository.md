@@ -32,7 +32,7 @@ let repo = Repository::<User, _>::new(provider);
 pub struct Repository<E, P>
 where
     E: Entity,
-    P: DatabaseProvider,
+    P: Storage,
 {
     pub(crate) provider: P,
     _phantom: PhantomData<E>,

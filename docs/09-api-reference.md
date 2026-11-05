@@ -51,11 +51,11 @@ pub trait Validate {
 }
 ```
 
-### DatabaseProvider
+### Storage
 
 ```rust
 #[async_trait]
-pub trait DatabaseProvider: Send + Sync + Clone + 'static {
+pub trait Storage: Send + Sync + Clone + 'static {
     async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value>;
     async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>>;
     async fn find_many(&self, collection: &str, filter: Option<&Filter>, skip: Option<u64>, limit: Option<u64>, sort_by: Option<&str>, sort_asc: bool) -> OrmResult<Vec<Value>>;

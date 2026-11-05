@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::error::OrmResult;
 use crate::provider::Storage;
 
-/// Migration metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationMeta {
   pub version: i64,
@@ -13,23 +12,17 @@ pub struct MigrationMeta {
   pub applied_at: Option<DateTime<Utc>>,
 }
 
-/// A single migration (up and down)
 #[async_trait]
 pub trait Migration<P: Storage>: Send + Sync {
-  /// Migration version (e.g., 1, 2, 20240101000000)
   fn version(&self) -> i64;
 
-  /// Human-readable name
   fn name(&self) -> &str;
 
-  /// Apply the migration (up)
   async fn up(&self, provider: &P) -> OrmResult<()>;
 
-  /// Revert the migration (down)
   async fn down(&self, provider: &P) -> OrmResult<()>;
 }
 
-/// SQL-based migration for SQL databases
 pub struct SqlMigration {
   pub version: i64,
   pub name: String,
@@ -67,7 +60,6 @@ impl<P: Storage> Migration<P> for SqlMigration {
   }
 }
 
-/// JSON-based migration for document databases
 pub struct JsonMigration {
   pub version: i64,
   pub name: String,

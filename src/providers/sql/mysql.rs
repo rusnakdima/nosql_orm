@@ -1,11 +1,9 @@
-//! MySQL provider for nosql_orm.
-
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
-  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
-  TransactionId,
+  AdminCommands, Capability, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  FieldInfo, IndexInfo, ProviderCapabilities, ProviderConfig, RawResult, SchemaIntrospection,
+  Storage, TransactionControl, TransactionId,
 };
 use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::row;
@@ -17,15 +15,13 @@ use async_trait::async_trait;
 use mysql_async::prelude::*;
 use mysql_async::{Opts, Pool, Row};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone)]
 pub struct MySqlProvider {
   pool: Pool,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
-  transaction_manager: Arc<tokio::sync::Mutex<Option<TransactionId>>>,
 }
 
 impl MySqlProvider {
@@ -40,12 +36,68 @@ impl MySqlProvider {
       pool,
       dialect: SqlDialect::MySQL,
       query_builder: SqlQueryBuilder::new(SqlDialect::MySQL),
-      transaction_manager: Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
   pub async fn from_config(config: &ProviderConfig) -> OrmResult<Self> {
     Self::connect(&config.connection).await
+  }
+
+  pub async fn list_mysql_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    let sql = format!(
+      "SHOW INDEX FROM {}",
+      self.dialect.quote_identifier(collection)
+    );
+
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let rows: Vec<Row> = map_err_query(
+      map_err_query(conn.exec_iter(&sql, ()).await)?
+        .collect()
+        .await,
+    )?;
+
+    // SHOW INDEX returns one row per indexed column; group them by Key_name
+    // so a compound index is one IndexInfo with all of its fields.
+    let mut indexes: BTreeMap<String, IndexInfo> = BTreeMap::new();
+    for row in rows {
+      let json = row::row_to_json_mysql(row);
+      let name = json
+        .get("Key_name")
+        .or_else(|| json.get("key_name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+      if name.is_empty() {
+        continue;
+      }
+      let column = json
+        .get("Column_name")
+        .or_else(|| json.get("column_name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+      let non_unique = json.get("Non_unique").or_else(|| json.get("non_unique"));
+      let index_type = json
+        .get("Index_type")
+        .or_else(|| json.get("index_type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("btree")
+        .to_lowercase();
+
+      let entry = indexes.entry(name.clone()).or_insert_with(|| IndexInfo {
+        name,
+        collection: collection.to_string(),
+        fields: Vec::new(),
+        index_type,
+        unique: is_zero(non_unique),
+        sparse: false,
+      });
+      if !column.is_empty() {
+        entry.fields.push(column);
+      }
+    }
+
+    Ok(indexes.into_values().collect())
   }
 
   pub async fn health_check(&self) -> OrmResult<bool> {
@@ -58,11 +110,6 @@ impl MySqlProvider {
     &self.query_builder
   }
 
-  /// Builds a `SELECT` statement for `table`.
-  ///
-  /// An exclude projection names the fields to drop, so the table's real
-  /// columns are read from the database first and the statement names what
-  /// is left.
   pub async fn build_select(
     &self,
     table: &str,
@@ -123,6 +170,17 @@ impl TableIntrospector for MySqlProvider {
       }
     }
     Ok(columns)
+  }
+}
+
+// SHOW INDEX reports Non_unique as 0 or 1; row_to_json_mysql may hand it back
+// as a number, boolean or string depending on the driver conversion.
+fn is_zero(value: Option<&JsonValue>) -> bool {
+  match value {
+    Some(JsonValue::Number(n)) => n.as_i64() == Some(0),
+    Some(JsonValue::Bool(b)) => !*b,
+    Some(JsonValue::String(s)) => s == "0",
+    _ => false,
   }
 }
 
@@ -223,8 +281,13 @@ impl Storage for MySqlProvider {
       self.dialect.quote_identifier(collection)
     );
 
+    let mut params: Vec<JsonValue> = Vec::new();
+
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
+      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(&clause);
+      params = values;
     }
 
     if let Some(sort) = sort_by {
@@ -246,15 +309,16 @@ impl Storage for MySqlProvider {
     }
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let values = convert_params(params);
 
-    let result: Vec<Row> = map_err_query(
+    let mut result = if values.is_empty() {
       map_err_query(conn.exec_iter(&sql, ()).await)?
-        .collect()
-        .await,
-    )?;
-
+    } else {
+      map_err_query(conn.exec_iter(&sql, &values).await)?
+    };
+    let rows: Vec<Row> = map_err_query(result.collect().await)?;
     let mut results = Vec::new();
-    for row in result {
+    for row in rows {
       results.push(row::row_to_json_mysql(row));
     }
 
@@ -307,15 +371,24 @@ impl Storage for MySqlProvider {
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
     let mut sql = self.build_count_sql(collection);
+    let mut params: Vec<JsonValue> = Vec::new();
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
+      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(&clause);
+      params = values;
     }
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let values = convert_params(params);
 
-    let (count,): (i64,) = map_err_query(conn.exec_first(&sql, ()).await)?
-      .ok_or_else(|| OrmError::Query("No result".to_string()))?;
+    let result: Option<(i64,)> = if values.is_empty() {
+      map_err_query(conn.exec_first(&sql, ()).await)?
+    } else {
+      map_err_query(conn.exec_first(&sql, &values).await)?
+    };
+    let (count,) = result.ok_or_else(|| OrmError::Query("No result".to_string()))?;
 
     Ok(count as u64)
   }
@@ -329,28 +402,46 @@ impl Storage for MySqlProvider {
     let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
 
     let mut sql = self.build_update_sql(collection, &set_clauses);
+    let mut params: Vec<JsonValue> = Vec::new();
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
+      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(&clause);
+      params = values;
     }
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let values = convert_params(params);
 
-    map_err_query(conn.exec_drop(&sql, ()).await)?;
+    if values.is_empty() {
+      map_err_query(conn.exec_drop(&sql, ()).await)?;
+    } else {
+      map_err_query(conn.exec_drop(&sql, &values).await)?;
+    }
 
     Ok(conn.affected_rows() as usize)
   }
 
   async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
     let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
+    let mut params: Vec<JsonValue> = Vec::new();
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(&f)?));
+      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(&clause);
+      params = values;
     }
 
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let values = convert_params(params);
 
-    map_err_query(conn.exec_drop(&sql, ()).await)?;
+    if values.is_empty() {
+      map_err_query(conn.exec_drop(&sql, ()).await)?;
+    } else {
+      map_err_query(conn.exec_drop(&sql, &values).await)?;
+    }
 
     Ok(conn.affected_rows() as usize)
   }
@@ -389,8 +480,14 @@ impl Storage for MySqlProvider {
     Ok(())
   }
 
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    self.list_mysql_indexes(collection).await
+  }
+
+  fn capabilities(&self) -> ProviderCapabilities {
+    ProviderCapabilities::none()
+      .with(Capability::Indexes)
+      .with(Capability::RawQueries)
   }
 }
 
@@ -511,8 +608,8 @@ impl SchemaIntrospection for MySqlProvider {
     })
   }
 
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    self.list_mysql_indexes(collection).await
   }
 
   async fn get_database_name(&self) -> OrmResult<String> {
@@ -551,76 +648,51 @@ impl SchemaIntrospection for MySqlProvider {
 impl AdminCommands for MySqlProvider {
   async fn execute_raw(&self, query: &str, params: Vec<JsonValue>) -> OrmResult<RawResult> {
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
-
-    let is_select = query.trim().to_uppercase().starts_with("SELECT");
-
     let params_tuple = convert_params(params);
 
-    if is_select {
-      let rows: Vec<Row> = if params_tuple.is_empty() {
-        map_err_query(
-          map_err_query(conn.exec_iter(query, ()).await)?
-            .collect()
-            .await,
-        )?
-      } else {
-        map_err_query(
-          map_err_query(conn.exec_iter(query, &params_tuple).await)?
-            .collect()
-            .await,
-        )?
-      };
-
-      if rows.is_empty() {
-        return Ok(RawResult {
-          columns: vec![],
-          rows: vec![],
-          affected_rows: 0,
-          last_insert_id: None,
-        });
-      }
-
-      let columns: Vec<String> = rows[0]
-        .columns()
-        .iter()
-        .map(|c| c.name_str().as_ref().to_string())
-        .collect();
-
-      let rows_data: Vec<Vec<JsonValue>> = rows
-        .iter()
-        .map(|row: &Row| {
-          columns
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-              row::row_to_json_mysql(row.clone())
-                .get(i)
-                .cloned()
-                .unwrap_or(JsonValue::Null)
-            })
-            .collect()
-        })
-        .collect();
-
-      Ok(RawResult {
-        columns,
-        rows: rows_data,
-        affected_rows: 0,
-        last_insert_id: None,
-      })
+    let mut result = if params_tuple.is_empty() {
+      map_err_query(conn.exec_iter(query, ()).await)?
     } else {
-      if params_tuple.is_empty() {
-        map_err_query(conn.exec_drop(query, ()).await)?;
-      } else {
-        map_err_query(conn.exec_drop(query, &params_tuple).await)?;
-      }
-      Ok(RawResult {
+      map_err_query(conn.exec_iter(query, &params_tuple).await)?
+    };
+
+    let columns: Vec<String> = result
+      .columns_ref()
+      .iter()
+      .map(|c| c.name_str().as_ref().to_string())
+      .collect();
+
+    if columns.is_empty() {
+      let affected_rows = result.affected_rows();
+      let last_insert_id = result.last_insert_id();
+      map_err_query(result.drop_result().await)?;
+      return Ok(RawResult {
         columns: vec![],
         rows: vec![],
-        affected_rows: 0,
-        last_insert_id: None,
-      })
+        affected_rows,
+        last_insert_id,
+      });
     }
+
+    let rows: Vec<Row> = map_err_query(result.collect().await)?;
+
+    let rows_data: Vec<Vec<JsonValue>> = rows
+      .iter()
+      .map(|row: &Row| {
+        let json = row::row_to_json_mysql(row.clone());
+        columns
+          .iter()
+          .map(|name| json.get(name).cloned().unwrap_or(JsonValue::Null))
+          .collect()
+      })
+      .collect();
+
+    Ok(RawResult {
+      affected_rows: rows_data.len() as u64,
+      columns,
+      rows: rows_data,
+      last_insert_id: None,
+    })
   }
 
   async fn create_collection(
@@ -669,61 +741,31 @@ impl AdminCommands for MySqlProvider {
   }
 }
 
+// MySQL operations each take a pool connection, so START TRANSACTION and
+// COMMIT land on different connections. The pooled provider reports
+// NotSupported instead of pretending otherwise.
 #[async_trait]
 impl TransactionControl for MySqlProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let id = {
-      let mut guard = self.transaction_manager.lock().await;
-      if guard.is_some() {
-        return Err(OrmError::Transaction(
-          "Transaction already active".to_string(),
-        ));
-      }
-      let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
-      *guard = Some(id.clone());
-      id
-    };
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-    map_err_query(conn.exec_drop("START TRANSACTION", ()).await)?;
-    Ok(id)
+    Err(OrmError::NotSupported(
+      "the MySQL provider uses a connection pool: a transaction needs one dedicated connection"
+        .to_string(),
+    ))
   }
 
-  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    {
-      let mut guard = self.transaction_manager.lock().await;
-      match guard.as_ref() {
-        Some(active_id) if active_id == &id => {
-          *guard = None;
-        }
-        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-        None => return Err(OrmError::Transaction("No active transaction".to_string())),
-      }
-    }
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-    map_err_query(conn.exec_drop("COMMIT", ()).await)?;
-    Ok(())
+  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the MySQL provider cannot commit a transaction".to_string(),
+    ))
   }
 
-  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    {
-      let mut guard = self.transaction_manager.lock().await;
-      match guard.as_ref() {
-        Some(active_id) if active_id == &id => {
-          *guard = None;
-        }
-        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-        None => return Err(OrmError::Transaction("No active transaction".to_string())),
-      }
-    }
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-    map_err_query(conn.exec_drop("ROLLBACK", ()).await)?;
-    Ok(())
+  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the MySQL provider cannot roll back a transaction".to_string(),
+    ))
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(self.transaction_manager.lock().await.is_some())
+    Ok(false)
   }
 }

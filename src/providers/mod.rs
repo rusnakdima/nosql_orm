@@ -79,9 +79,13 @@ impl<P1: Storage + Send + Sync, P2: Storage + Send + Sync> FallbackProvider<P1, 
   }
 }
 
+#[cfg(feature = "json")]
 pub mod json;
+#[cfg(feature = "json")]
 pub mod json_tree;
 pub mod sync;
+// The variant enum only has meaning when both of its arms exist.
+#[cfg(all(feature = "json", feature = "mongo"))]
 pub mod variant;
 
 pub mod backend;
@@ -122,17 +126,3 @@ pub use sql::SqliteProvider;
 
 #[cfg(feature = "sql-mysql")]
 pub use sql::MySqlProvider;
-
-#[cfg(feature = "clickhouse")]
-pub mod clickhouse;
-#[cfg(feature = "cockroach")]
-pub mod cockroach;
-#[cfg(feature = "dynamodb")]
-pub mod dynamo;
-
-#[cfg(feature = "clickhouse")]
-pub use clickhouse::ClickHouseProvider;
-#[cfg(feature = "cockroach")]
-pub use cockroach::CockroachProvider;
-#[cfg(feature = "dynamodb")]
-pub use dynamo::DynamoProvider;

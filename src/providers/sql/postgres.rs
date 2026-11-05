@@ -1,14 +1,13 @@
-//! PostgreSQL provider for nosql_orm.
-
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
-  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
-  TransactionId,
+  AdminCommands, Capability, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  FieldInfo, IndexInfo, ProviderCapabilities, ProviderConfig, RawResult, SchemaIntrospection,
+  Storage, TransactionControl, TransactionId,
 };
 use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::row;
+use crate::providers::sql::utils::{statement_kind, StatementKind};
 use crate::query::{Filter, OrderBy, Projection};
 use crate::sql::introspection::TableIntrospector;
 use crate::sql::types::SqlDialect;
@@ -17,15 +16,12 @@ use async_trait::async_trait;
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
 
-/// PostgreSQL-backed provider.
 #[derive(Clone)]
 pub struct PostgresProvider {
   pool: Pool,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
-  transaction_manager: Arc<tokio::sync::Mutex<Option<TransactionId>>>,
 }
 
 impl PostgresProvider {
@@ -49,7 +45,6 @@ impl PostgresProvider {
       pool,
       dialect: SqlDialect::PostgreSQL,
       query_builder: SqlQueryBuilder::new(SqlDialect::PostgreSQL),
-      transaction_manager: Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
@@ -61,16 +56,10 @@ impl PostgresProvider {
     self.dialect
   }
 
-  /// The query builder this provider renders statements with.
   pub fn query_builder(&self) -> &SqlQueryBuilder {
     &self.query_builder
   }
 
-  /// Builds a `SELECT` statement for `table`.
-  ///
-  /// An exclude projection names the fields to drop, so the table's real
-  /// columns are read from the database first and the statement names what
-  /// is left.
   pub async fn build_select(
     &self,
     table: &str,
@@ -185,12 +174,13 @@ impl Storage for PostgresProvider {
       "SELECT * FROM {}",
       self.dialect.quote_identifier(collection)
     );
-
-    let _params: Vec<String> = Vec::new();
-    let _param_idx = 0;
+    let mut params: Vec<Value> = Vec::new();
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
+      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(&clause);
+      params = values;
     }
 
     if let Some(sort) = sort_by {
@@ -214,7 +204,13 @@ impl Storage for PostgresProvider {
 
     let client = map_err_connection(self.pool.get().await)?;
 
-    let rows = map_err_query(client.query(&sql, &[]).await)?;
+    let owned_params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+      params.iter().map(to_postgres_param).collect();
+    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned_params
+      .iter()
+      .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
+      .collect();
+    let rows = map_err_query(client.query(&sql, &param_refs).await)?;
 
     Ok(rows.iter().map(row::row_to_json_postgres).collect())
   }
@@ -255,16 +251,24 @@ impl Storage for PostgresProvider {
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
     let mut sql = self.build_count_sql(collection);
+    let mut params: Vec<Value> = Vec::new();
 
     if let Some(f) = filter {
-      let clause = self.query_builder.filter_to_sql(f)?;
+      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
       sql.push_str(" WHERE ");
-      sql.push_str(clause.as_str());
+      sql.push_str(&clause);
+      params = values;
     }
 
     let client = map_err_connection(self.pool.get().await)?;
 
-    let row = map_err_query(client.query_one(&sql, &[]).await)?;
+    let owned_params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+      params.iter().map(to_postgres_param).collect();
+    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned_params
+      .iter()
+      .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
+      .collect();
+    let row = map_err_query(client.query_one(&sql, &param_refs).await)?;
 
     let count: i64 = row.get(0);
     Ok(count as u64)
@@ -279,32 +283,48 @@ impl Storage for PostgresProvider {
     let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
 
     let mut sql = self.build_update_sql(collection, &set_clauses);
+    let mut params: Vec<Value> = Vec::new();
 
     if let Some(f) = filter {
-      let clause = self.query_builder.filter_to_sql(&f)?;
+      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
       sql.push_str(" WHERE ");
-      sql.push_str(clause.as_str());
+      sql.push_str(&clause);
+      params = values;
     }
 
     let client = map_err_connection(self.pool.get().await)?;
 
-    let rows = map_err_query(client.execute(&sql, &[]).await)?;
+    let owned_params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+      params.iter().map(to_postgres_param).collect();
+    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned_params
+      .iter()
+      .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
+      .collect();
+    let rows = map_err_query(client.execute(&sql, &param_refs).await)?;
 
     Ok(rows as usize)
   }
 
   async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
     let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
+    let mut params: Vec<Value> = Vec::new();
 
     if let Some(f) = filter {
-      let clause = self.query_builder.filter_to_sql(&f)?;
+      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
       sql.push_str(" WHERE ");
-      sql.push_str(clause.as_str());
+      sql.push_str(&clause);
+      params = values;
     }
 
     let client = map_err_connection(self.pool.get().await)?;
 
-    let rows = map_err_query(client.execute(&sql, &[]).await)?;
+    let owned_params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+      params.iter().map(to_postgres_param).collect();
+    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned_params
+      .iter()
+      .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
+      .collect();
+    let rows = map_err_query(client.execute(&sql, &param_refs).await)?;
 
     Ok(rows as usize)
   }
@@ -372,6 +392,12 @@ impl Storage for PostgresProvider {
       .collect();
 
     Ok(indexes)
+  }
+
+  fn capabilities(&self) -> ProviderCapabilities {
+    ProviderCapabilities::none()
+      .with(Capability::Indexes)
+      .with(Capability::RawQueries)
   }
 }
 
@@ -535,24 +561,25 @@ impl SchemaIntrospection for PostgresProvider {
   }
 }
 
-fn to_postgres_param(value: &Value) -> Box<dyn tokio_postgres::types::ToSql + Sync> {
+fn to_postgres_param(value: &Value) -> Box<dyn tokio_postgres::types::ToSql + Sync + Send> {
   match value {
-    Value::Null => Box::new(String::new()) as Box<dyn tokio_postgres::types::ToSql + Sync>,
-    Value::Bool(b) => Box::new(*b) as Box<dyn tokio_postgres::types::ToSql + Sync>,
+    // NULL must bind as NULL; an empty string is a value, not the absence of one.
+    Value::Null => Box::new(Option::<String>::None) as Box<dyn tokio_postgres::types::ToSql + Sync + Send>,
+    Value::Bool(b) => Box::new(*b) as Box<dyn tokio_postgres::types::ToSql + Sync + Send>,
     Value::Number(n) => {
       if let Some(i) = n.as_i64() {
-        Box::new(i) as Box<dyn tokio_postgres::types::ToSql + Sync>
+        Box::new(i) as Box<dyn tokio_postgres::types::ToSql + Sync + Send>
       } else if let Some(f) = n.as_f64() {
-        Box::new(f) as Box<dyn tokio_postgres::types::ToSql + Sync>
+        Box::new(f) as Box<dyn tokio_postgres::types::ToSql + Sync + Send>
       } else {
-        Box::new(n.to_string()) as Box<dyn tokio_postgres::types::ToSql + Sync>
+        Box::new(n.to_string()) as Box<dyn tokio_postgres::types::ToSql + Sync + Send>
       }
     }
-    Value::String(s) => Box::new(s.clone()) as Box<dyn tokio_postgres::types::ToSql + Sync>,
+    Value::String(s) => Box::new(s.clone()) as Box<dyn tokio_postgres::types::ToSql + Sync + Send>,
     Value::Array(arr) => Box::new(serde_json::to_string(arr).unwrap_or_default())
-      as Box<dyn tokio_postgres::types::ToSql + Sync>,
+      as Box<dyn tokio_postgres::types::ToSql + Sync + Send>,
     Value::Object(obj) => Box::new(serde_json::to_string(obj).unwrap_or_default())
-      as Box<dyn tokio_postgres::types::ToSql + Sync>,
+      as Box<dyn tokio_postgres::types::ToSql + Sync + Send>,
   }
 }
 
@@ -561,52 +588,47 @@ impl AdminCommands for PostgresProvider {
   async fn execute_raw(&self, query: &str, params: Vec<Value>) -> OrmResult<RawResult> {
     let client = map_err_connection(self.pool.get().await)?;
 
-    let params_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+    // The boxed parameters own the values; the references borrow from them
+    // for the duration of the call. Nothing is leaked.
+    let owned_params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+      params.iter().map(to_postgres_param).collect();
+    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned_params
       .iter()
-      .map(|v| {
-        let b = to_postgres_param(v);
-        let leaked: &mut (dyn tokio_postgres::types::ToSql + Sync) = Box::leak(b);
-        leaked as &(dyn tokio_postgres::types::ToSql + Sync)
-      })
+      .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
       .collect();
 
-    let rows = map_err_query(client.query(query, &params_refs).await)?;
-
-    if rows.is_empty() {
+    if statement_kind(query) == StatementKind::Write {
+      let affected_rows = map_err_query(client.execute(query, &param_refs).await)?;
       return Ok(RawResult {
         columns: vec![],
         rows: vec![],
-        affected_rows: 0,
+        affected_rows,
         last_insert_id: None,
       });
     }
 
-    let columns: Vec<String> = rows[0]
-      .columns()
-      .iter()
-      .map(|c| c.name().to_string())
-      .collect();
+    let rows = map_err_query(client.query(query, &param_refs).await)?;
+
+    let columns: Vec<String> = rows
+      .first()
+      .map(|row| row.columns().iter().map(|c| c.name().to_string()).collect())
+      .unwrap_or_default();
 
     let rows_data: Vec<Vec<Value>> = rows
       .iter()
       .map(|row| {
+        let json = row::row_to_json_postgres(row);
         columns
           .iter()
-          .enumerate()
-          .map(|(i, _)| {
-            row::row_to_json_postgres(row)
-              .get(i)
-              .cloned()
-              .unwrap_or(Value::Null)
-          })
+          .map(|name| json.get(name).cloned().unwrap_or(Value::Null))
           .collect()
       })
       .collect();
 
     Ok(RawResult {
+      affected_rows: rows_data.len() as u64,
       columns,
       rows: rows_data,
-      affected_rows: 0,
       last_insert_id: None,
     })
   }
@@ -657,61 +679,32 @@ impl AdminCommands for PostgresProvider {
   }
 }
 
+// Every operation takes a fresh connection from the pool, so BEGIN and COMMIT
+// would land on different clients and no statement would actually be inside
+// the transaction. A real implementation has to hand back a transaction-scoped
+// provider; until then this is NotSupported rather than a false promise.
 #[async_trait]
 impl TransactionControl for PostgresProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let id = {
-      let mut guard = self.transaction_manager.lock().await;
-      if guard.is_some() {
-        return Err(OrmError::Transaction(
-          "Transaction already active".to_string(),
-        ));
-      }
-      let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
-      *guard = Some(id.clone());
-      id
-    };
-
-    let client = map_err_connection(self.pool.get().await)?;
-    map_err_query(client.execute("BEGIN", &[]).await)?;
-    Ok(id)
+    Err(OrmError::NotSupported(
+      "the PostgreSQL provider uses a connection pool: a transaction needs one dedicated connection"
+        .to_string(),
+    ))
   }
 
-  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    {
-      let mut guard = self.transaction_manager.lock().await;
-      match guard.as_ref() {
-        Some(active_id) if active_id == &id => {
-          *guard = None;
-        }
-        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-        None => return Err(OrmError::Transaction("No active transaction".to_string())),
-      }
-    }
-
-    let client = map_err_connection(self.pool.get().await)?;
-    map_err_query(client.execute("COMMIT", &[]).await)?;
-    Ok(())
+  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the PostgreSQL provider cannot commit a transaction".to_string(),
+    ))
   }
 
-  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    {
-      let mut guard = self.transaction_manager.lock().await;
-      match guard.as_ref() {
-        Some(active_id) if active_id == &id => {
-          *guard = None;
-        }
-        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-        None => return Err(OrmError::Transaction("No active transaction".to_string())),
-      }
-    }
-
-    let client = map_err_connection(self.pool.get().await)?;
-    map_err_query(client.execute("ROLLBACK", &[]).await)?;
-    Ok(())
+  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the PostgreSQL provider cannot roll back a transaction".to_string(),
+    ))
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(self.transaction_manager.lock().await.is_some())
+    Ok(false)
   }
 }

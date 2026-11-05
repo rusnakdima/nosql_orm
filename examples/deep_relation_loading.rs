@@ -264,7 +264,7 @@ impl DeepLoader {
   ) -> OrmResult<serde_json::Value> {
     let provider = self.get_provider(table);
 
-    let doc = match provider.find_by_id(table, id).await? {
+    let doc = match Storage::find_by_id(provider, table, id).await? {
       Some(d) => d,
       None => return Ok(serde_json::Value::Null),
     };
@@ -327,7 +327,7 @@ impl DeepLoader {
           current_id = fk_id;
           is_first = false;
         } else if let Some(id) = &current_id {
-          let doc = provider.find_by_id(table, id).await?;
+          let doc = Storage::find_by_id(provider, table, id).await?;
           if let Some(d) = doc {
             let fk_id = d
               .get(fk_field.as_str())

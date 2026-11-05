@@ -4,11 +4,11 @@ use std::fmt::{self, Display, Formatter};
 use std::sync::RwLock;
 
 pub struct QueryStatistics {
-  by_collection: RwLock<HashMap<String, CollectionStats>>,
+  by_collection: RwLock<HashMap<String, QueryCollectionStats>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CollectionStats {
+pub struct QueryCollectionStats {
   pub total_queries: u64,
   pub slow_queries: u64,
   pub avg_duration_ms: f64,
@@ -21,7 +21,7 @@ pub struct FilterPattern {
   pub count: u64,
 }
 
-impl CollectionStats {
+impl QueryCollectionStats {
   pub fn new() -> Self {
     Self {
       total_queries: 0,
@@ -32,7 +32,7 @@ impl CollectionStats {
   }
 }
 
-impl Default for CollectionStats {
+impl Default for QueryCollectionStats {
   fn default() -> Self {
     Self::new()
   }
@@ -82,7 +82,7 @@ impl QueryStatistics {
     }
   }
 
-  pub fn get_stats(&self, collection: &str) -> Option<CollectionStats> {
+  pub fn get_stats(&self, collection: &str) -> Option<QueryCollectionStats> {
     self
       .by_collection
       .read()

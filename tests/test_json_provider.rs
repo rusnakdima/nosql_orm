@@ -3,7 +3,7 @@ use tokio::fs;
 
 use nosql_orm::error::OrmError;
 use nosql_orm::provider::Storage;
-use nosql_orm::providers::json::{CacheConfig, JsonProvider, JsonProviderConfig};
+use nosql_orm::providers::json::{JsonCacheConfig, JsonProvider, JsonProviderConfig};
 
 async fn create_test_provider() -> (JsonProvider, TempDir) {
   let temp_dir = TempDir::new().unwrap();
@@ -16,7 +16,7 @@ async fn create_provider_with_cache(
   ttl_seconds: Option<u64>,
 ) -> (JsonProvider, TempDir) {
   let temp_dir = TempDir::new().unwrap();
-  let config = JsonProviderConfig::new(temp_dir.path()).with_cache_config(CacheConfig {
+  let config = JsonProviderConfig::new(temp_dir.path()).with_cache_config(JsonCacheConfig {
     max_entries_per_collection: max_entries,
     ttl_seconds,
   });
@@ -35,7 +35,7 @@ async fn test_json_provider_config_default() {
 #[tokio::test]
 async fn test_json_provider_config_custom_cache() {
   let temp_dir = TempDir::new().unwrap();
-  let config = JsonProviderConfig::new(temp_dir.path()).with_cache_config(CacheConfig {
+  let config = JsonProviderConfig::new(temp_dir.path()).with_cache_config(JsonCacheConfig {
     max_entries_per_collection: 500,
     ttl_seconds: None,
   });

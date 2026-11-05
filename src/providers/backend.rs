@@ -1,35 +1,18 @@
-//! Connecting to a storage backend by name.
-//!
-//! An application stores a connection as a *kind* (`postgres`, `sqlite`, …)
-//! and a *url*, and asks the library to open it. This module owns that
-//! mapping, so the application never names a provider type.
-
 use crate::error::{OrmError, OrmResult};
 use crate::provider::StorageBackend;
 use std::sync::Arc;
 
-/// The backends a connection may address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
-  /// A directory of JSON files.
   Json,
-  /// A SQLite database file.
   Sqlite,
-  /// A PostgreSQL server.
   Postgres,
-  /// A MySQL server.
   MySql,
-  /// A MongoDB server.
   Mongo,
-  /// A Redis server.
   Redis,
 }
 
 impl BackendKind {
-  /// Parse a backend name.
-  ///
-  /// The names are the ones an application stores; the aliases cover the
-  /// spellings the same backend is known by.
   pub fn parse(name: &str) -> Option<Self> {
     match name.trim().to_ascii_lowercase().as_str() {
       "json" | "file" | "local" => Some(Self::Json),
@@ -42,7 +25,6 @@ impl BackendKind {
     }
   }
 
-  /// The canonical name of the backend.
   pub fn name(self) -> &'static str {
     match self {
       Self::Json => "json",
@@ -55,26 +37,15 @@ impl BackendKind {
   }
 }
 
-/// The parts of a connection, as a form collects them.
-///
-/// A form that asks for a host, a port, a database and a user gives the
-/// library the pieces; the library knows how to fold them into the address
-/// its backend expects.
 #[derive(Debug, Clone, Default)]
 pub struct ConnectionParts {
-  /// The host the server runs on.
   pub host: String,
-  /// The port the server listens on.
   pub port: Option<u16>,
-  /// The database (or file) to work on.
   pub database: String,
-  /// The user to authenticate as.
   pub user: String,
-  /// The password to authenticate with.
   pub password: String,
 }
 
-/// The parts of an address, in the order a URL writes them.
 fn split_user_password(parts: &ConnectionParts) -> Option<String> {
   if parts.user.is_empty() {
     return None;
@@ -88,7 +59,6 @@ fn split_user_password(parts: &ConnectionParts) -> Option<String> {
 }
 
 impl BackendKind {
-  /// The scheme a connection of this kind is written with.
   pub fn scheme(self) -> &'static str {
     match self {
       Self::Json => "",
@@ -100,7 +70,6 @@ impl BackendKind {
     }
   }
 
-  /// The port a connection of this kind uses when the form leaves it out.
   pub fn default_port(self) -> Option<u16> {
     match self {
       Self::Postgres => Some(5432),
@@ -111,7 +80,6 @@ impl BackendKind {
     }
   }
 
-  /// Fold the parts of a connection into the address its backend expects.
   pub fn address(self, parts: &ConnectionParts) -> String {
     match self {
       // A file-backed backend is addressed by the path itself.
@@ -149,10 +117,9 @@ impl BackendKind {
   }
 }
 
-/// Open a backend and return it as a uniform handle.
-///
-/// The `url` is the address the backend is reached at: a directory for
-/// `json`, a file path for `sqlite`, and a connection string for the servers.
+// url is read only by the cfg branch for the chosen backend; without any
+// backend feature every branch returns missing_feature and never touches it.
+#[allow(unused_variables)]
 pub async fn connect_backend(kind: BackendKind, url: &str) -> OrmResult<Arc<dyn StorageBackend>> {
   match kind {
     BackendKind::Json => {
@@ -226,7 +193,6 @@ pub async fn connect_backend(kind: BackendKind, url: &str) -> OrmResult<Arc<dyn 
   }
 }
 
-/// The error a backend reports when the library was built without it.
 #[allow(dead_code)]
 fn missing_feature(kind: &str) -> OrmError {
   OrmError::NotSupported(format!(
@@ -235,30 +201,17 @@ fn missing_feature(kind: &str) -> OrmError {
   ))
 }
 
-/// Open a backend by name.
-///
-/// An unknown name is an error, not a silent fallback: a connection that
-/// points at a backend the library cannot open must not look like it works.
 pub async fn connect_by_name(name: &str, url: &str) -> OrmResult<Arc<dyn StorageBackend>> {
   let kind = BackendKind::parse(name)
     .ok_or_else(|| OrmError::InvalidInput(format!("unknown backend: {}", name)))?;
   connect_backend(kind, url).await
 }
 
-/// Remove a scheme prefix from an address.
-///
-/// Only the SQLite address carries a scheme, so the helper lives with the
-/// feature that uses it.
 #[cfg(any(feature = "sql-sqlite", test))]
 fn strip_scheme<'a>(url: &'a str, scheme: &'a str) -> &'a str {
   url.strip_prefix(scheme).unwrap_or(url)
 }
 
-/// Read the database name out of a connection string.
-///
-/// The name is the first segment of the path: `mongodb://host/orders` names
-/// the database `orders`. Only the Mongo address names a database, so the
-/// helper lives with the feature that uses it.
 #[cfg(any(feature = "mongo", test))]
 fn database_from_url(url: &str) -> Option<String> {
   let path = url.split_once("://").map(|(_, rest)| rest)?;
@@ -271,32 +224,4 @@ fn database_from_url(url: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn a_backend_name_parses_to_its_kind() {
-    assert_eq!(
-      BackendKind::parse("PostgreSQL"),
-      Some(BackendKind::Postgres)
-    );
-    assert_eq!(BackendKind::parse("mongo"), Some(BackendKind::Mongo));
-    assert_eq!(BackendKind::parse("sqlite"), Some(BackendKind::Sqlite));
-    assert_eq!(BackendKind::parse("memcached"), None);
-  }
-
-  #[test]
-  fn the_database_name_comes_from_the_path() {
-    assert_eq!(
-      database_from_url("mongodb://localhost:27017/orders"),
-      Some("orders".to_string())
-    );
-    assert_eq!(database_from_url("mongodb://localhost:27017"), None);
-  }
-
-  #[test]
-  fn a_sqlite_scheme_is_stripped() {
-    assert_eq!(strip_scheme("sqlite:///tmp/a.db", "sqlite://"), "/tmp/a.db");
-    assert_eq!(strip_scheme("/tmp/a.db", "sqlite://"), "/tmp/a.db");
-  }
-}
+mod tests;

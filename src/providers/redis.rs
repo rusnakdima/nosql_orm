@@ -2,21 +2,61 @@ use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, IndexInfo,
-  RawResult, SchemaIntrospection, Storage, TransactionControl, TransactionId,
+  ProviderCapabilities, RawResult, SchemaIntrospection, Storage, TransactionControl, TransactionId,
 };
 use crate::query::Filter;
+use crate::utils::{compare_values, generate_id};
 use async_trait::async_trait;
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
+
+fn document_id(doc: &Value) -> Option<String> {
+  doc
+    .get("id")
+    .and_then(Value::as_str)
+    .filter(|id| !id.is_empty())
+    .map(str::to_string)
+}
+
+fn document_id_or_new(doc: &Value) -> String {
+  document_id(doc).unwrap_or_else(generate_id)
+}
+
+fn select_documents(
+  documents: Vec<Value>,
+  filter: Option<&Filter>,
+  skip: Option<u64>,
+  limit: Option<u64>,
+  sort_by: Option<&str>,
+  sort_asc: bool,
+) -> Vec<Value> {
+  let mut results: Vec<Value> = documents
+    .into_iter()
+    .filter(|doc| filter.is_none_or(|f| f.matches(doc)))
+    .collect();
+
+  if let Some(field) = sort_by {
+    results.sort_by(|a, b| {
+      let ordering = compare_values(a.get(field), b.get(field));
+      if sort_asc {
+        ordering
+      } else {
+        ordering.reverse()
+      }
+    });
+  }
+
+  let skip = skip.unwrap_or(0) as usize;
+  let take = limit.map_or(usize::MAX, |n| n as usize);
+  results.into_iter().skip(skip).take(take).collect()
+}
 
 #[derive(Clone)]
 pub struct RedisProvider {
   conn: ConnectionManager,
   prefix: String,
-  transaction_manager: Arc<tokio::sync::Mutex<Option<TransactionId>>>,
 }
 
 impl RedisProvider {
@@ -26,7 +66,6 @@ impl RedisProvider {
     Ok(Self {
       conn,
       prefix: "nosql_orm:".to_string(),
-      transaction_manager: Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
@@ -47,7 +86,7 @@ impl RedisProvider {
 #[async_trait]
 impl Storage for RedisProvider {
   async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = document_id_or_new(&doc);
     let mut doc_with_id = doc.clone();
     if let Some(obj) = doc_with_id.as_object_mut() {
       obj.insert("id".to_string(), Value::String(id.clone()));
@@ -78,38 +117,24 @@ impl Storage for RedisProvider {
     filter: Option<&Filter>,
     skip: Option<u64>,
     limit: Option<u64>,
-    _sort_by: Option<&str>,
-    _sort_asc: bool,
+    sort_by: Option<&str>,
+    sort_asc: bool,
   ) -> OrmResult<Vec<Value>> {
     let collection_key = self.collection_key(collection);
     let mut conn = self.conn.clone();
 
     let ids: Vec<String> = conn.smembers(&collection_key).await?;
 
-    let mut results = Vec::new();
-    let skip_usize = skip.unwrap_or(0) as usize;
-    let limit_usize = limit.unwrap_or(u64::MAX) as usize;
-
-    for (i, id) in ids.iter().enumerate() {
-      if i < skip_usize {
-        continue;
-      }
-      if results.len() >= limit_usize {
-        break;
-      }
-
+    let mut documents = Vec::new();
+    for id in &ids {
       if let Some(doc) = self.find_by_id(collection, id).await? {
-        if let Some(f) = filter {
-          if f.matches(&doc) {
-            results.push(doc);
-          }
-        } else {
-          results.push(doc);
-        }
+        documents.push(doc);
       }
     }
 
-    Ok(results)
+    Ok(select_documents(
+      documents, filter, skip, limit, sort_by, sort_asc,
+    ))
   }
 
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
@@ -159,11 +184,24 @@ impl Storage for RedisProvider {
     }
   }
 
-  async fn count(&self, collection: &str, _filter: Option<&Filter>) -> OrmResult<u64> {
+  async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
     let collection_key = self.collection_key(collection);
     let mut conn = self.conn.clone();
 
-    let count: u64 = conn.scard(&collection_key).await?;
+    let Some(filter) = filter else {
+      let count: u64 = conn.scard(&collection_key).await?;
+      return Ok(count);
+    };
+
+    let ids: Vec<String> = conn.smembers(&collection_key).await?;
+    let mut count = 0u64;
+    for id in &ids {
+      if let Some(doc) = self.find_by_id(collection, id).await? {
+        if filter.matches(&doc) {
+          count += 1;
+        }
+      }
+    }
     Ok(count)
   }
 
@@ -193,13 +231,15 @@ impl Storage for RedisProvider {
       return Ok(0);
     }
 
-    let mut keys: Vec<String> = to_delete
+    // Delete the documents themselves, then unlink their ids from the
+    // collection's id set. The id-set key must survive: deleting it would
+    // orphan every document the filter did not match.
+    let keys: Vec<String> = to_delete
       .iter()
       .map(|id| self.key(collection, id))
       .collect();
-    keys.push(collection_key.clone());
-
     let _: () = redis::cmd("DEL").arg(&keys).query_async(&mut conn).await?;
+    let _: () = conn.srem(&collection_key, &to_delete).await?;
 
     let count = to_delete.len();
     Ok(count)
@@ -248,15 +288,25 @@ impl Storage for RedisProvider {
   }
 
   async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
-    Ok(())
+    Err(OrmError::NotSupported(
+      "the Redis provider stores documents as plain keys and has no index engine".to_string(),
+    ))
   }
 
   async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
-    Ok(())
+    Err(OrmError::NotSupported(
+      "the Redis provider stores documents as plain keys and has no index engine".to_string(),
+    ))
   }
 
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+    Err(OrmError::NotSupported(
+      "the Redis provider stores documents as plain keys and has no index engine".to_string(),
+    ))
+  }
+
+  fn capabilities(&self) -> ProviderCapabilities {
+    ProviderCapabilities::none()
   }
 }
 
@@ -346,7 +396,9 @@ impl SchemaIntrospection for RedisProvider {
   }
 
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+    Err(OrmError::NotSupported(
+      "the Redis provider stores documents as plain keys and has no index engine".to_string(),
+    ))
   }
 
   async fn get_database_name(&self) -> OrmResult<String> {
@@ -424,70 +476,33 @@ impl AdminCommands for RedisProvider {
   }
 }
 
+// The Redis provider writes each operation on its own. MULTI/EXEC would be a
+// different API (commands are queued, not executed through the provider), so
+// this reports NotSupported instead of promising atomicity.
 #[async_trait]
 impl TransactionControl for RedisProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let mut guard = self.transaction_manager.lock().await;
-    if guard.is_some() {
-      return Err(OrmError::Transaction(
-        "Transaction already active".to_string(),
-      ));
-    }
-    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
-    *guard = Some(id.clone());
-    Ok(id)
+    Err(OrmError::NotSupported(
+      "the Redis provider cannot open a transaction".to_string(),
+    ))
   }
 
-  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().await;
-    match guard.as_ref() {
-      Some(active_id) if active_id == &id => {
-        *guard = None;
-        Ok(())
-      }
-      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-      None => Err(OrmError::Transaction("No active transaction".to_string())),
-    }
+  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the Redis provider cannot commit a transaction".to_string(),
+    ))
   }
 
-  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().await;
-    match guard.as_ref() {
-      Some(active_id) if active_id == &id => {
-        *guard = None;
-        Ok(())
-      }
-      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-      None => Err(OrmError::Transaction("No active transaction".to_string())),
-    }
+  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the Redis provider cannot roll back a transaction".to_string(),
+    ))
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(self.transaction_manager.lock().await.is_some())
+    Ok(false)
   }
 }
 
 #[cfg(test)]
-mod tests {
-  use crate::error::{OrmError, OrmResult};
-
-  #[ignore]
-  #[tokio::test]
-  async fn redis_insert_requires_live_server() -> OrmResult<()> {
-    // Needs a live Redis server, so there is nothing to assert offline.
-    // Report the missing capability as an error instead of panicking.
-    Err(OrmError::NotSupported(
-      "redis insert needs a live Redis server".to_string(),
-    ))
-  }
-
-  #[ignore]
-  #[tokio::test]
-  async fn redis_find_by_id_requires_live_server() -> OrmResult<()> {
-    // Needs a live Redis server, so there is nothing to assert offline.
-    // Report the missing capability as an error instead of panicking.
-    Err(OrmError::NotSupported(
-      "redis find_by_id needs a live Redis server".to_string(),
-    ))
-  }
-}
+mod tests;

@@ -15,7 +15,7 @@ Database schema migration system.
 ## Migration Trait
 
 ```rust
-pub trait Migration<P: DatabaseProvider>: Send + Sync {
+pub trait Migration<P: Storage>: Send + Sync {
     fn version(&self) -> i64;
     fn name(&self) -> &str;
     async fn up(&self, provider: &P) -> OrmResult<()>;
@@ -28,7 +28,7 @@ pub trait Migration<P: DatabaseProvider>: Send + Sync {
 ## MigrationRunner
 
 ```rust
-pub struct MigrationRunner<P: DatabaseProvider> {
+pub struct MigrationRunner<P: Storage> {
     provider: P,
     migrations: Vec<Box<dyn Migration<P>>>,
 }
@@ -37,7 +37,7 @@ pub struct MigrationRunner<P: DatabaseProvider> {
 ### Methods
 
 ```rust
-impl<P: DatabaseProvider> MigrationRunner<P> {
+impl<P: Storage> MigrationRunner<P> {
     pub fn new(provider: P) -> Self;
     pub fn add_migration<M: Migration<P> + 'static>(&mut self, migration: M);
     pub async fn run_all_pending(&self) -> OrmResult<Vec<MigrationMeta>>;
@@ -74,7 +74,7 @@ impl SqlMigration {
     pub fn new(version: i64, name: &str, up_sql: &str, down_sql: &str) -> Self;
 }
 
-impl<P: DatabaseProvider> Migration<P> for SqlMigration { ... }
+impl<P: Storage> Migration<P> for SqlMigration { ... }
 ```
 
 ### JsonMigration
@@ -91,7 +91,7 @@ impl JsonMigration {
     pub fn new(version: i64, name: &str, up_json: Value, down_json: Value) -> Self;
 }
 
-impl<P: DatabaseProvider> Migration<P> for JsonMigration { ... }
+impl<P: Storage> Migration<P> for JsonMigration { ... }
 ```
 
 ---

@@ -1,5 +1,3 @@
-//! SQL query builder for generating SQL statements.
-
 mod builder;
 mod ddl;
 mod dml;

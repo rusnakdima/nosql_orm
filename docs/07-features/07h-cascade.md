@@ -7,11 +7,11 @@ Automatic deletion of related entities.
 ## CascadeManager
 
 ```rust
-pub struct CascadeManager<P: DatabaseProvider> {
+pub struct CascadeManager<P: Storage> {
     provider: P,
 }
 
-impl<P: DatabaseProvider> CascadeManager<P> {
+impl<P: Storage> CascadeManager<P> {
     pub fn new(provider: P) -> Self;
     pub async fn hard_delete_cascade<E: WithRelations>(
         &self, id: &str, relations: &[RelationDef], deleted: &mut HashSet<String>

@@ -2,6 +2,9 @@
 
 Publish-subscribe functionality.
 
+Opt-in: compiled only with the `subscription` feature. No code path in
+`Storage`, `Repository` or the providers calls this module yet.
+
 ---
 
 ## Publisher

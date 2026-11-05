@@ -2,6 +2,9 @@
 
 Deferred loading of relations on demand.
 
+Opt-in: compiled only with the `lazy` feature. No code path in `Storage`,
+`Repository` or the providers calls this module yet.
+
 ---
 
 ## Lazy Types
@@ -10,7 +13,7 @@ Deferred loading of relations on demand.
 pub struct Lazy<T: Entity>(Option<T>);
 pub struct LazyMany<T: Entity>(Vec<T>);
 pub struct LazyRelation;
-pub struct LazyLoader<P: DatabaseProvider> { provider: P }
+pub struct LazyLoader<P: Storage> { provider: P }
 ```
 
 ## Usage

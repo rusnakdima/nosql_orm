@@ -9,15 +9,17 @@ In-memory query result caching.
 ```rust
 pub struct QueryCache { ... }
 
-pub struct CacheConfig {
-    pub ttl_seconds: u64,
-    pub max_entries: usize,
+pub struct QueryCacheConfig {
+    pub max_size: usize,
+    pub ttl_secs: Option<u64>,
+    pub key_prefix: String,
 }
 
 pub struct CacheStats {
     pub hits: u64,
     pub misses: u64,
     pub evictions: u64,
+    pub entries: usize,
 }
 ```
 
@@ -26,8 +28,15 @@ pub struct CacheStats {
 ## Usage
 
 ```rust
-let cache = QueryCache::new(CacheConfig { ttl_seconds: 300, max_entries: 1000 });
-let results = cache.get("users:age:18").await?;
-cache.set("users:age:18", results).await?;
-let stats = cache.stats().await?;
+use nosql_orm::cache::{QueryCache, QueryCacheConfig};
+
+let cache = QueryCache::new(QueryCacheConfig {
+    max_size: 1000,
+    ttl_secs: Some(300),
+    ..QueryCacheConfig::default()
+});
+let results = cache.get::<Vec<User>>("users:age:18").await?;
+cache.set("users:age:18".to_string(), &results).await?;
+let stats = cache.stats().await;
+println!("{} hits, {} misses", stats.hits, stats.misses);
 ```

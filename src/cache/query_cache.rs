@@ -6,14 +6,17 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+// The query cache's configuration. The JSON provider has its own document
+// cache settings under JsonCacheConfig; the two are different concepts and
+// must not share a name.
 #[derive(Debug, Clone)]
-pub struct CacheConfig {
+pub struct QueryCacheConfig {
   pub max_size: usize,
   pub ttl_secs: Option<u64>,
   pub key_prefix: String,
 }
 
-impl Default for CacheConfig {
+impl Default for QueryCacheConfig {
   fn default() -> Self {
     Self {
       max_size: 1000,
@@ -85,12 +88,12 @@ impl Default for CacheState {
 
 #[derive(Debug, Clone)]
 pub struct QueryCache {
-  config: CacheConfig,
+  config: QueryCacheConfig,
   state: Arc<RwLock<CacheState>>,
 }
 
 impl QueryCache {
-  pub fn new(config: CacheConfig) -> Self {
+  pub fn new(config: QueryCacheConfig) -> Self {
     Self {
       config,
       state: Arc::new(RwLock::new(CacheState::default())),

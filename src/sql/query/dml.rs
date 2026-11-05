@@ -60,10 +60,7 @@ impl SqlQueryBuilder {
               table
             ))
           })?;
-          let remaining: Vec<&String> = all_cols
-            .iter()
-            .filter(|c| !fields.contains(c))
-            .collect();
+          let remaining: Vec<&String> = all_cols.iter().filter(|c| !fields.contains(c)).collect();
           if remaining.is_empty() {
             return Err(OrmError::InvalidQuery(format!(
               "the exclude projection on '{}' leaves no column to select",

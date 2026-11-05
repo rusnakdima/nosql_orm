@@ -9,15 +9,17 @@ Conventions:
 
 ## 1. Provider Trait Layer
 
-### `provider.rs` (158) — `src/provider.rs`
+### `provider.rs` — `src/provider.rs`
 
-The four-trait core that everything else conforms to.
+The provider traits that everything else conforms to.
 
 ```text
 ProviderConfig       → connection string + db name + option bag
-DatabaseProvider     → insert / find_by_id / find_many / update / patch /
+Capability           → Transactions / Indexes / Aggregation / RawQueries
+Storage              → insert / find_by_id / find_many / update / patch /
                        delete / delete_many / update_many / count / aggregate
-                       / health_check / index ops
+                       / health_check / index ops (generic, Clone)
+StorageBackend       → the object-safe subset of Storage (dyn-safe)
 SchemaIntrospection  → list_collections / describe_collection / stats /
                        list_indexes / get_database_name / list_databases
 AdminCommands        → execute_raw / create_collection / drop_collection /
@@ -29,8 +31,10 @@ TransactionControl   → begin_transaction / commit_transaction /
 
 Key items:
 
-- `pub trait DatabaseProvider: Send + Sync + Clone + 'static` (`src/provider.rs:30`) — the unified contract. Default impls provided for `exists` (`:67`), `find_all` (`:73`), `find_all_typed<T>` (`:81`), `index_exists` (`:104`), `aggregate` (`:110`, defaults to `NotSupported`), `health_check` (`:117`, defaults `true`), and `insert_many` (`:123`, loops `insert`).
-- `ProviderConfig` (`src/provider.rs:9`) — connection string + optional database name + `options: HashMap<String, String>`.
+- `pub trait Storage: Send + Sync + Clone + 'static` (`src/provider.rs`) — the unified generic contract. Default impls provided for `exists`, `find_all`, `find_all_typed<T>`, `index_exists`, `aggregate` (defaults to `NotSupported`), `health_check` (defaults `true`) and `insert_many` (loops `insert`).
+- `pub trait StorageBackend: Send + Sync` — the dyn-safe contract returned by `connect_backend`. A blanket impl forwards it to any provider that is also `SchemaIntrospection + AdminCommands`, and `impl Storage for Arc<dyn StorageBackend>` bridges it back to `Repository`.
+- `ProviderCapabilities` — `none()` is the conservative default: a provider that says nothing supports nothing.
+- `ProviderConfig` — connection string + optional database name + `options: HashMap<String, String>`.
 
 ### `admin_types.rs` (95) — `src/admin_types.rs`
 
@@ -57,8 +61,8 @@ Re-exported from `provider.rs:8-13` and from `prelude`.
 The default backend (`json` feature, also included in `default = ["json"]` in `Cargo.toml:14`).
 
 ```text
-CacheConfig                 → max_entries_per_collection + ttl_seconds
-JsonProviderConfig          → base_dir + CacheConfig (env-overridable)
+JsonCacheConfig             → max_entries_per_collection + ttl_seconds
+JsonProviderConfig          → base_dir + JsonCacheConfig (env-overridable)
 JsonProvider (Cache + Disk) → Arc<RwLock<HashMap<collection, Vec<Value>>>>
                               backed by <base>/<collection>.json files
 ```
@@ -90,7 +94,7 @@ Highlights:
 
 ### `providers/sql/{postgres,mysql,sqlite}.rs` (681 / 700 / 744) — SQL backends
 
-All three implement `DatabaseProvider` plus `SchemaIntrospection` and `TransactionControl`. Each has its own dialect handling, prepared-statement cache, and JSON⇄row mapping in `providers/sql/common.rs`, `row.rs`, `utils.rs`.
+All three implement `Storage` plus `SchemaIntrospection` and `TransactionControl`. Each has its own dialect handling, prepared-statement cache, and JSON⇄row mapping in `providers/sql/common.rs`, `row.rs`, `utils.rs`.
 
 | Backend | Feature | Notes |
 | --- | --- | --- |
@@ -123,7 +127,7 @@ compiled.rs (269)          → compiled SQL-ish form
 optimizer.rs (79)          → QueryOptimizer → OptimizedQuery
 hints.rs (184)             → OptimizationHint, QueryAnalyzer, QueryHint
 index_recommender.rs (85)  → IndexRecommendation, IndexRecommender, QueryStats
-stats.rs (128)             → CollectionStats, FilterPattern, QueryStatistics
+stats.rs (128)             → QueryCollectionStats, FilterPattern, QueryStatistics
 profiling.rs (209)         → runtime query profiling
 types.rs (70)              → Cursor, OrderBy, PaginatedResult, SortDirection
 zero_copy.rs (171)         → DirectDeserializer, LazyValue, TypedArrayDeserializer,
@@ -156,7 +160,7 @@ fast_path.rs              → hot-path optimization for known queries
 
 Highlights:
 
-- `Repository<E, P>` is generic over the entity and provider. Both bounds are required (`where E: Entity, P: DatabaseProvider`).
+- `Repository<E, P>` is generic over the entity and provider. Both bounds are required (`where E: Entity, P: Storage`).
 - `save` (`crud.rs:53`) does upsert: inserts if `id` is `None`, otherwise updates.
 - `delete` (`delete.rs:18`) consults relations and dispatches to `CascadeManager` when hard cascade is configured.
 - `soft_delete` / `restore` (`delete.rs:57-86`) patch `deleted_at`.
@@ -223,27 +227,19 @@ helpers.rs                → cascade_value, insert_cascade_id,
                              CascadeEntityRef
 ```
 
-`CascadeManager<P: DatabaseProvider>` (`src/cascade/mod.rs:11`) wraps a provider and orchestrates cascading. Public methods:
+`CascadeManager<P: Storage>` (`src/cascade/mod.rs:11`) wraps a provider and orchestrates cascading. Public methods:
 
 - `soft_delete` / `restore` / `toggle_delete` (`:74, 76, 78`) — single-collection operations.
 - `check_restrict` (`:24`) — true if the entity has at least one relation with restrict-on-delete policy.
 - `hard_delete_cascade` (`hard_delete.rs:23`) — recursive hard delete with visited-id set.
 - `should_cascade_*` / `should_restrict` — helpers delegating to `RelationDef`.
 
-## 8. Pool Layer — `pool/`
+## 8. Pool Layer — removed
 
-```text
-mod.rs (13)               → re-exports
-pool_impl.rs              → Pool trait, PoolConfig, Pooled, JsonPool
-adaptive.rs               → AdaptivePool, AdaptivePoolProvider, AdaptivePooled
-auto_scaling.rs           → AutoScaler, AutoScalerConfig
-health.rs                 → HealthCheckable, HealthStatus
-lifecycle.rs              → ConnectionLifecycle, ConnectionHealth (re-export)
-metrics.rs                → PoolMetrics
-replica.rs                → ReplicaConfig, ReplicaPool, ReadSelection
-```
-
-The pool subsystem is backend-aware (`JsonPool`, `MongoPool`) and supports adaptive scaling, health checking, metrics, and replica selection. Public exports live in `src/lib.rs:96`.
+There is no `pool/` module. It was deleted in Phase 4: nothing in `Repository`,
+`Storage` or the providers constructed a `JsonPool`/`MongoPool`, and the SQL
+providers use their drivers' own pools (`deadpool-postgres`, `mysql_async`).
+`PoolStats` survives in `admin_types.rs` because `ConnectionHealth` carries it.
 
 ## 9. SQL Layer — `sql/`
 
@@ -273,7 +269,7 @@ runner.rs (101)           → MigrationRunner
 source.rs (67)            → source loader
 ```
 
-`Migration<P: DatabaseProvider>` (`src/migrations/migration.rs:17`) has `version()`, `name()`, `async up(&P)`, `async down(&P)`. Concrete `SqlMigration` and `JsonMigration` adapt raw SQL / JSON to the same contract.
+`Migration<P: Storage>` (`src/migrations/migration.rs:17`) has `version()`, `name()`, `async up(&P)`, `async down(&P)`. Concrete `SqlMigration` and `JsonMigration` adapt raw SQL / JSON to the same contract.
 
 ## 11. Error Layer — `error.rs` (96)
 
@@ -294,33 +290,30 @@ Deadlock
 | Module | Path | Purpose |
 | --- | --- | --- |
 | `logging/` | `src/logging/mod.rs` | Query logger, file-backed query logger, wrapper. |
-| `observability/` (309, 136, 284, 214, 13) | `src/observability/` | `CircuitBreaker`, `RateLimiter`, `MetricsExporter`, `Telemetry`. |
-| `security/` (165, 78, 222, 112, 8) | `src/security/` | `audit`, `encryption`, `query_allowlist`, `row_level_security`. |
-| `cdc/` (64, 248, …) | `src/cdc/` | Change data capture, change stream, audit, sync. |
 | `cli/` | `src/cli/` | `commands`, `migrator`, `seeder` — optional CLI front-end. |
-| `data_engineering/` (156, 344, 215, 140, 10) | `src/data_engineering/` | ETL (`etl.rs`), `import_export.rs` (JSON/CSV roundtrip), replication, schema evolution. |
-| `graphql/` (10, 100, 147, 49) | `src/graphql/` | `GraphQLSchema`, `SchemaBuilder`, `resolver`, `types`. |
-| `subscription/` | `src/subscription/` | `Publisher`, `Subscription`, `Topic`. |
-| `embedded/` | `src/embedded/` | `Embedded`, `EmbeddedMeta`, `Embedder`, `EmbedExt`. |
-| `inheritance/` | `src/inheritance/` | `Discriminator`, `DiscriminatorValue`, `Inheritance`, `InheritanceType`. |
-| `lazy/` | `src/lazy/` | `Lazy`, `LazyLoader`, `LazyMany`, `LazyRelation`. |
-| `aggregation/` (7, 570, 126, 66) | `src/aggregation/` | `AggregationPipeline`, `GroupStage`, `MatchStage`, `ProjectStage`, `SortStage`, `LimitStage`, `SkipStage`, `accumulators`. |
-| `search/` | `src/search/` | `FullTextSearch`, `FullTextIndex`, `TextSearch`, `SearchResult`, `SearchScore`. |
+| `aggregation/` | `src/aggregation/` | `AggregationPipeline`, `GroupStage`, `MatchStage`, `ProjectStage`, `SortStage`, `LimitStage`, `SkipStage`, `accumulators`. |
 | `constraints/` | `src/constraints/` | `ColumnConstraint`, `CheckConstraintDef`, `UniqueConstraintDef`, `IndexDef`, `IndexType`. |
 | `events/` | `src/events/` | `EntityEvents`, `EntityEventListener`, `Event`, `EventType`. |
 | `validators/` | `src/validators/` | `FieldValidator`, `EmailValidator`, `LengthValidator`, `PatternValidator`, `RangeValidator`, `ValidationError`, `ValidationResult`. |
-| `model_helper.rs` (31) | `src/model_helper.rs` | `ModelHelper` derive macro re-export + `WithValidation`. |
-| `soft_delete.rs` (39) | `src/soft_delete.rs` | `SoftDeletable` + `SoftDeleteExt`. |
-| `timestamps.rs` (119) | `src/timestamps.rs` | `Timestamps` trait + `apply_timestamps`. |
-| `transaction.rs` (100) | `src/transaction.rs` | `Transaction`, `TransactionState`. |
-| `field_meta.rs` (159) | `src/field_meta.rs` | `FieldMeta`, `FieldType`, `RelationFieldType`, `RelationMeta`, `EntityFields`, `ValidateMeta`, `ValidatorType`. |
-| `macros.rs` (98) | `src/macros.rs` | Filter helper constructors. |
-| `utils.rs` (60) | `src/utils.rs` | `compare_values`, `generate_id`, `get_document_id`. |
+| `model_helper.rs` | `src/model_helper.rs` | `ModelHelper` derive macro re-export, `WithValidation`, `ModelValidationError`. |
+| `soft_delete.rs` | `src/soft_delete.rs` | `SoftDeletable` + `SoftDeleteExt`. |
+| `timestamps.rs` | `src/timestamps.rs` | `Timestamps` trait + `apply_timestamps`. |
+| `field_meta.rs` | `src/field_meta.rs` | `FieldMeta`, `FieldType`, `RelationFieldType`, `RelationMeta`, `EntityFields`, `ValidateMeta`, `ValidatorType`. |
+| `macros.rs` | `src/macros.rs` | Filter helper constructors. |
+| `utils.rs` | `src/utils.rs` | `compare_values`, `generate_id`, `get_document_id`. |
+
+### Opt-in extension modules (feature-gated, unreferenced)
+
+`cdc/`, `graphql/`, `subscription/`, `embedded/`, `inheritance/`, `lazy/` and
+`search/` are compiled only under their own feature (`cdc`, `graphql`, …).
+Nothing in `Storage`, `Repository` or the providers calls them. The
+`observability/`, `security/`, `data_engineering/` and `transaction.rs` entries
+that older revisions of this file listed do not exist on disk.
 
 ## 13. Plan Coverage Notes
 
 This file is the canonical reference for the nosql_orm slice of `library-quality-and-conductor-tests-plan.md`. Concretely:
 
-- **B3** adds unit tests for `sql/postgres.rs`, `sql/mysql.rs`, `sql/sqlite.rs`, `redis.rs`, `mongo/mod.rs`, `data_engineering/import_export.rs`. The trait is `DatabaseProvider` (post-rename); the trait-conformance pattern is `insert → find_by_id → delete`. Live-server tests use `#[ignore]` with a "requires live server" comment.
-- The `Storage` → `DatabaseProvider` rename is referenced throughout — historical `Storage` callers (none remain in the workspace after consolidation) are documented here for traceability.
-- Library passes `cargo check` and 21 unit tests; 15 warnings are unused imports.
+- **B3** adds unit tests for `sql/postgres.rs`, `sql/mysql.rs`, `sql/sqlite.rs`, `redis.rs`, `mongo/mod.rs`. The trait is `Storage`; the trait-conformance pattern is `insert → find_by_id → delete`. Live-server tests use `#[ignore]` with a "requires live server" comment.
+- There is no trait rename: `Storage` is the generic trait and `StorageBackend` is its dyn-safe counterpart. Older documents that name `DatabaseProvider` are describing a trait that never existed.
+- Library passes `cargo check`; run `cargo test -p nosql_orm --features json,sql-sqlite --lib` for the current unit-test count.

@@ -1,8 +1,3 @@
-//! SQL types and abstractions for nosql_orm.
-//!
-//! This module provides SQL-specific types that work alongside the
-//! existing `Storage` trait to enable SQL database support.
-
 pub mod introspection;
 pub mod prepared;
 pub mod query;

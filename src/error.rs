@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-/// Central error type for all ORM operations.
 #[derive(Debug, Error)]
 pub enum OrmError {
   #[error("Record not found: {0}")]
@@ -92,5 +91,4 @@ pub fn map_err_query<E: std::error::Error, T>(result: Result<T, E>) -> OrmResult
   result.map_err(OrmError::query)
 }
 
-/// Convenience alias for `Result<T, OrmError>`.
 pub type OrmResult<T> = Result<T, OrmError>;

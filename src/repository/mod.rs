@@ -2,6 +2,12 @@ use crate::entity::Entity;
 use crate::error::OrmResult;
 use crate::events::listener::EntityEvents;
 use crate::provider::{AdminCommands, Storage};
+#[cfg(any(
+  feature = "sql-postgres",
+  feature = "sql-sqlite",
+  feature = "sql-mysql"
+))]
+use crate::providers::sql::common::SqlProviderHelpers;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -59,7 +65,6 @@ impl Default for SyncResult {
   }
 }
 
-/// Generic repository providing full CRUD for any `Entity`.
 #[derive(Clone)]
 pub struct Repository<E, P>
 where
@@ -119,33 +124,44 @@ where
     crate::nosql_index::IndexManager::new(self.provider.clone())
   }
 
-  pub async fn sync_schema(&self) -> OrmResult<()> {
-    let columns = E::sql_columns();
-    if columns.is_empty() {
-      return Ok(());
-    }
-
-    let table_name = Self::collection();
-
-    let _create_sql = format!(
-      "CREATE TABLE IF NOT EXISTS {} ({})",
-      table_name,
-      columns
-        .iter()
-        .map(|c| c.to_sql(crate::sql::SqlDialect::PostgreSQL))
-        .collect::<Vec<_>>()
-        .join(", ")
-    );
-
-    Ok(())
-  }
-
   pub async fn execute_sql(&self, sql: &str) -> OrmResult<usize>
   where
     P: AdminCommands,
   {
     let result = self.provider.execute_raw(sql, vec![]).await?;
     Ok(result.affected_rows as usize)
+  }
+}
+
+#[cfg(any(
+  feature = "sql-postgres",
+  feature = "sql-sqlite",
+  feature = "sql-mysql"
+))]
+impl<E, P> Repository<E, P>
+where
+  E: Entity,
+  P: Storage + AdminCommands + SqlProviderHelpers,
+{
+  pub async fn sync_schema(&self) -> OrmResult<()> {
+    let columns = E::sql_columns();
+    if columns.is_empty() {
+      return Ok(());
+    }
+
+    let dialect = self.provider.dialect();
+    let create_sql = format!(
+      "CREATE TABLE IF NOT EXISTS {} ({})",
+      dialect.quote_identifier(&Self::collection()),
+      columns
+        .iter()
+        .map(|column| column.to_sql(dialect))
+        .collect::<Vec<_>>()
+        .join(", ")
+    );
+
+    self.provider.execute_raw(&create_sql, Vec::new()).await?;
+    Ok(())
   }
 }
 

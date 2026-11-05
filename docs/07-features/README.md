@@ -45,16 +45,18 @@ This directory contains detailed documentation for all nosql_orm features.
 ### Advanced Features
 - **Relations** - Relation loading (see [06-relations.md](../06-relations.md))
 - **Cascade** - Cascade delete
-- **Lazy** - Lazy loading
-- **Embedded** - Embedded entities
-- **Inheritance** - Table inheritance
+
+### Opt-in extension features (feature-gated, not wired into `Repository`)
+
+These are implemented but no code path in `Storage`, `Repository` or the
+providers reaches them; each is off by default and enabled by its own feature.
+
+- **Lazy** - Lazy loading (`lazy`)
+- **Embedded** - Embedded entities (`embedded`)
+- **Inheritance** - Table inheritance (`inheritance`)
 
 ### Integrated Features
-- **Search** - Full-text search
 - **Aggregation** - Aggregation pipeline
-- **CDC** - Change Data Capture
-- **GraphQL** - GraphQL integration
-- **Subscription** - Pub/Sub
 - **Cache** - Query caching
 - **Events** - Event listeners
 - **SQL** - SQL utilities
@@ -85,9 +87,7 @@ Entity Trait
      └── Providers (JSON, MongoDB, Redis, SQL)
           │
           ├── Indexes
-          ├── Search
           ├── Aggregation
-          ├── CDC
           │
           └── Logging
 ```
@@ -113,18 +113,28 @@ Features are enabled via Cargo feature flags in `Cargo.toml`:
 ```toml
 [features]
 default = ["json"]
-json = []                           # JSON provider
-mongo = ["dep:mongodb", ...]       # MongoDB provider
+json = []                           # JSON provider (JsonProvider, JsonTreeProvider)
+mongo = ["dep:mongodb", ...]        # MongoDB provider
 redis = ["dep:redis"]               # Redis provider
-full = ["json", "mongo", "redis"]   # All NoSQL providers
+sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
+full = ["json", "mongo", "redis", "sql"]   # every storage backend
 
 query_cache = []                    # Query caching
 
-# SQL Providers
+# One SQL provider each
 sql-postgres = [...]
 sql-sqlite = [...]
 sql-mysql = [...]
-sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
+
+# Opt-in extension modules: implemented, but no code path in Storage,
+# Repository or the providers reaches them
+graphql = []
+cdc = []
+subscription = []
+inheritance = []
+search = []
+embedded = []
+lazy = []
 ```
 
 ---

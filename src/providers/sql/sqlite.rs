@@ -1,11 +1,9 @@
-//! SQLite provider for nosql_orm.
-
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
-  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
-  TransactionId,
+  AdminCommands, Capability, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  FieldInfo, IndexInfo, ProviderCapabilities, ProviderConfig, RawResult, SchemaIntrospection,
+  Storage, TransactionControl, TransactionId,
 };
 use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::row;
@@ -67,16 +65,10 @@ impl SqliteProvider {
     self.dialect
   }
 
-  /// The query builder this provider renders statements with.
   pub fn query_builder(&self) -> &SqlQueryBuilder {
     &self.query_builder
   }
 
-  /// Builds a `SELECT` statement for `table`.
-  ///
-  /// An exclude projection names the fields to drop, so the table's real
-  /// columns are read from the database first and the statement names what
-  /// is left.
   pub async fn build_select(
     &self,
     table: &str,
@@ -112,6 +104,74 @@ impl SqliteProvider {
     .await
     .map_err(|e| OrmError::Connection(format!("Task join error: {}", e)))?;
     result.map_err(|e| OrmError::Connection(format!("SQLite error: {}", e)))
+  }
+
+  async fn list_sqlite_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    let dialect = self.dialect;
+    let table = collection.to_string();
+    self
+      .with_connection(move |conn_guard| {
+        let mut stmt = conn_guard.prepare(&format!(
+          "PRAGMA index_list({})",
+          dialect.quote_identifier(&table)
+        ))?;
+        let mut rows = stmt.query([])?;
+        let mut names: Vec<(String, bool)> = Vec::new();
+        while let Some(row) = rows.next()? {
+          let name: String = row.get(1)?;
+          let unique: i64 = row.get(2)?;
+          // sqlite_autoindex_* backs a PRIMARY KEY or UNIQUE constraint: no
+          // CREATE INDEX statement created it and DROP INDEX cannot remove it.
+          if name.starts_with("sqlite_autoindex_") {
+            continue;
+          }
+          names.push((name, unique != 0));
+        }
+
+        let mut indexes = Vec::new();
+        for (name, unique) in names {
+          let mut info_stmt = conn_guard.prepare(&format!(
+            "PRAGMA index_info({})",
+            dialect.quote_identifier(&name)
+          ))?;
+          let mut info_rows = info_stmt.query([])?;
+          let mut fields = Vec::new();
+          while let Some(info) = info_rows.next()? {
+            let field: String = info.get(2)?;
+            fields.push(field);
+          }
+          indexes.push(IndexInfo {
+            name,
+            collection: table.clone(),
+            fields,
+            index_type: "btree".to_string(),
+            unique,
+            sparse: false,
+          });
+        }
+        Ok(indexes)
+      })
+      .await
+  }
+}
+
+fn to_sqlite_param(value: &Value) -> rusqlite::types::Value {
+  match value {
+    Value::Null => rusqlite::types::Value::Null,
+    Value::Bool(b) => rusqlite::types::Value::Integer(i64::from(*b)),
+    Value::Number(n) => {
+      if let Some(i) = n.as_i64() {
+        rusqlite::types::Value::Integer(i)
+      } else if let Some(f) = n.as_f64() {
+        rusqlite::types::Value::Real(f)
+      } else {
+        rusqlite::types::Value::Text(n.to_string())
+      }
+    }
+    Value::String(s) => rusqlite::types::Value::Text(s.clone()),
+    Value::Array(_) | Value::Object(_) => {
+      rusqlite::types::Value::Text(serde_json::to_string(value).unwrap_or_default())
+    }
   }
 }
 
@@ -229,9 +289,13 @@ impl Storage for SqliteProvider {
       "SELECT * FROM {}",
       self.dialect.quote_identifier(collection)
     );
+    let mut params: Vec<Value> = Vec::new();
 
     if let Some(f) = filter {
-      sql.push_str(&format!(" WHERE {}", self.query_builder.filter_to_sql(f)?));
+      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
+      sql.push_str(" WHERE ");
+      sql.push_str(&clause);
+      params = values;
     }
 
     if let Some(sort) = sort_by {
@@ -256,7 +320,9 @@ impl Storage for SqliteProvider {
       .with_connection(move |conn_guard| {
         let mut stmt = conn_guard.prepare(&sql)?;
         let mut results = Vec::new();
-        let mut rows = stmt.query([])?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(
+          params.iter().map(to_sqlite_param),
+        ))?;
         while let Some(row) = rows.next()? {
           if let Ok(value) = row::row_to_json_sqlite(row) {
             results.push(value);
@@ -337,16 +403,22 @@ impl Storage for SqliteProvider {
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
     let mut sql = self.build_count_sql(collection);
+    let mut params: Vec<Value> = Vec::new();
 
     if let Some(f) = filter {
-      let clause = self.query_builder.filter_to_sql(f)?;
+      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
       sql.push_str(" WHERE ");
-      sql.push_str(clause.as_str());
+      sql.push_str(&clause);
+      params = values;
     }
 
     self
       .with_connection(move |conn_guard| {
-        let count: i64 = conn_guard.query_row(&sql, [], |row| row.get(0))?;
+        let count: i64 = conn_guard.query_row(
+          &sql,
+          rusqlite::params_from_iter(params.iter().map(to_sqlite_param)),
+          |row| row.get(0),
+        )?;
         Ok(count as u64)
       })
       .await
@@ -361,16 +433,21 @@ impl Storage for SqliteProvider {
     let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
 
     let mut sql = self.build_update_sql(collection, &set_clauses);
+    let mut params: Vec<Value> = Vec::new();
 
     if let Some(f) = filter {
-      let clause = self.query_builder.filter_to_sql(&f)?;
+      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
       sql.push_str(" WHERE ");
-      sql.push_str(clause.as_str());
+      sql.push_str(&clause);
+      params = values;
     }
 
     self
       .with_connection(move |conn_guard| {
-        let rows = conn_guard.execute(&sql, [])?;
+        let rows = conn_guard.execute(
+          &sql,
+          rusqlite::params_from_iter(params.iter().map(to_sqlite_param)),
+        )?;
         Ok(rows)
       })
       .await
@@ -378,16 +455,21 @@ impl Storage for SqliteProvider {
 
   async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
     let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
+    let mut params: Vec<Value> = Vec::new();
 
     if let Some(f) = filter {
-      let clause = self.query_builder.filter_to_sql(&f)?;
+      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
       sql.push_str(" WHERE ");
-      sql.push_str(clause.as_str());
+      sql.push_str(&clause);
+      params = values;
     }
 
     self
       .with_connection(move |conn_guard| {
-        let rows = conn_guard.execute(&sql, [])?;
+        let rows = conn_guard.execute(
+          &sql,
+          rusqlite::params_from_iter(params.iter().map(to_sqlite_param)),
+        )?;
         Ok(rows)
       })
       .await
@@ -428,8 +510,15 @@ impl Storage for SqliteProvider {
       .await
   }
 
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    self.list_sqlite_indexes(collection).await
+  }
+
+  fn capabilities(&self) -> ProviderCapabilities {
+    ProviderCapabilities::none()
+      .with(Capability::Indexes)
+      .with(Capability::Transactions)
+      .with(Capability::RawQueries)
   }
 }
 
@@ -532,8 +621,8 @@ impl SchemaIntrospection for SqliteProvider {
       .await
   }
 
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(vec![])
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    self.list_sqlite_indexes(collection).await
   }
 
   async fn get_database_name(&self) -> OrmResult<String> {
@@ -547,17 +636,32 @@ impl SchemaIntrospection for SqliteProvider {
 
 #[async_trait]
 impl AdminCommands for SqliteProvider {
-  async fn execute_raw(&self, query: &str, _params: Vec<Value>) -> OrmResult<RawResult> {
+  async fn execute_raw(&self, query: &str, params: Vec<Value>) -> OrmResult<RawResult> {
     let query = query.to_string();
     self
       .with_connection(move |conn_guard| {
         let mut stmt = conn_guard.prepare(&query)?;
         let column_count = stmt.column_count();
+
+        if column_count == 0 {
+          let affected_rows = stmt.execute(rusqlite::params_from_iter(
+            params.iter().map(to_sqlite_param),
+          ))?;
+          return Ok(RawResult {
+            columns: vec![],
+            rows: vec![],
+            affected_rows: affected_rows as u64,
+            last_insert_id: None,
+          });
+        }
+
         let columns: Vec<String> = (0..column_count)
           .map(|i| stmt.column_name(i).unwrap_or("?").to_string())
           .collect();
 
-        let mut rows = stmt.query([])?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(
+          params.iter().map(to_sqlite_param),
+        ))?;
         let mut rows_data = Vec::new();
         while let Some(row) = rows.next()? {
           let mut row_values = Vec::new();
@@ -567,7 +671,7 @@ impl AdminCommands for SqliteProvider {
               rusqlite::types::Value::Null => Value::Null,
               rusqlite::types::Value::Integer(i) => Value::Number(i.into()),
               rusqlite::types::Value::Real(f) => Value::Number(
-                serde_json::Number::from_f64(f).unwrap_or(serde_json::Number::from(0)),
+                serde_json::Number::from_f64(f).unwrap_or_else(|| serde_json::Number::from(0)),
               ),
               rusqlite::types::Value::Text(s) => Value::String(s),
               rusqlite::types::Value::Blob(b) => Value::String(format!("<blob {} bytes>", b.len())),
@@ -576,14 +680,8 @@ impl AdminCommands for SqliteProvider {
           }
           rows_data.push(row_values);
         }
-        // A statement that writes reports what it changed; a statement that
-        // reads reports nothing — `changes` still holds the count of the
-        // last write, which is not this statement's.
-        let affected_rows = if columns.is_empty() {
-          conn_guard.changes()
-        } else {
-          0
-        };
+
+        let affected_rows = rows_data.len() as u64;
 
         Ok(RawResult {
           columns,
@@ -651,64 +749,75 @@ impl AdminCommands for SqliteProvider {
   }
 }
 
+// SQLite is the one SQL provider that can honour this trait: it owns a single
+// connection for the provider's whole lifetime, so BEGIN, every operation and
+// COMMIT/ROLLBACK run on that same connection. The pooled Postgres and MySQL
+// providers cannot, and report NotSupported.
 #[async_trait]
 impl TransactionControl for SqliteProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let mut guard = self.transaction_manager.lock().await;
-    if guard.is_some() {
-      return Err(OrmError::Transaction(
-        "Transaction already active".to_string(),
-      ));
-    }
     let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
-    *guard = Some(id.clone());
-    drop(guard);
+    {
+      let mut guard = self.transaction_manager.lock().await;
+      if guard.is_some() {
+        return Err(OrmError::Transaction(
+          "Transaction already active".to_string(),
+        ));
+      }
+      *guard = Some(id.clone());
+    }
 
-    self
+    let result = self
       .with_connection(move |conn_guard| {
         conn_guard.execute("BEGIN", [])?;
         Ok(())
       })
-      .await?;
+      .await;
+    if result.is_err() {
+      *self.transaction_manager.lock().await = None;
+    }
+    result?;
     Ok(id)
   }
 
   async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().await;
-    match guard.as_ref() {
-      Some(active_id) if active_id == &id => {
-        *guard = None;
-        drop(guard);
-
-        self
-          .with_connection(move |conn_guard| {
-            conn_guard.execute("COMMIT", [])?;
-            Ok(())
-          })
-          .await
+    {
+      let guard = self.transaction_manager.lock().await;
+      match guard.as_ref() {
+        Some(active_id) if active_id == &id => {}
+        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+        None => return Err(OrmError::Transaction("No active transaction".to_string())),
       }
-      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-      None => Err(OrmError::Transaction("No active transaction".to_string())),
     }
+
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute("COMMIT", [])?;
+        Ok(())
+      })
+      .await?;
+    *self.transaction_manager.lock().await = None;
+    Ok(())
   }
 
   async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().await;
-    match guard.as_ref() {
-      Some(active_id) if active_id == &id => {
-        *guard = None;
-        drop(guard);
-
-        self
-          .with_connection(move |conn_guard| {
-            conn_guard.execute("ROLLBACK", [])?;
-            Ok(())
-          })
-          .await
+    {
+      let guard = self.transaction_manager.lock().await;
+      match guard.as_ref() {
+        Some(active_id) if active_id == &id => {}
+        Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+        None => return Err(OrmError::Transaction("No active transaction".to_string())),
       }
-      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-      None => Err(OrmError::Transaction("No active transaction".to_string())),
     }
+
+    self
+      .with_connection(move |conn_guard| {
+        conn_guard.execute("ROLLBACK", [])?;
+        Ok(())
+      })
+      .await?;
+    *self.transaction_manager.lock().await = None;
+    Ok(())
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
@@ -717,156 +826,4 @@ impl TransactionControl for SqliteProvider {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-  use tempfile::tempdir;
-
-  /// Create the table a test writes to.
-  ///
-  /// The provider writes to the tables the database already has — it does
-  /// not create them. A test that inserts must therefore make its table
-  /// first, exactly as a user of the library would.
-  async fn make_table(provider: &SqliteProvider, columns: &[(&str, &str)]) -> OrmResult<()> {
-    let columns = columns
-      .iter()
-      .map(|(name, kind)| format!("{} {}", name, kind))
-      .collect::<Vec<_>>()
-      .join(", ");
-    let sql = format!("CREATE TABLE users ({})", columns);
-    provider.execute_raw(&sql, Vec::new()).await?;
-    Ok(())
-  }
-
-  #[tokio::test]
-  async fn sqlite_insert_find_by_id() -> OrmResult<()> {
-    let temp = tempdir()?;
-    let db_path = temp.path().join("test.db");
-    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
-    make_table(
-      &provider,
-      &[("id", "TEXT"), ("name", "TEXT"), ("email", "TEXT")],
-    )
-    .await?;
-
-    let doc = serde_json::json!({
-      "id": "test-id-1",
-      "name": "Alice",
-      "email": "alice@example.com"
-    });
-    let inserted = provider.insert("users", doc.clone()).await?;
-    assert_eq!(inserted["id"], "test-id-1");
-    assert_eq!(inserted["name"], "Alice");
-
-    let found = provider.find_by_id("users", "test-id-1").await?;
-    assert!(found.is_some());
-    assert_eq!(found.unwrap()["name"], "Alice");
-
-    Ok(())
-  }
-
-  #[tokio::test]
-  async fn sqlite_insert_delete() -> OrmResult<()> {
-    let temp = tempdir()?;
-    let db_path = temp.path().join("test.db");
-    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
-    make_table(&provider, &[("id", "TEXT"), ("name", "TEXT")]).await?;
-
-    let doc = serde_json::json!({"id": "delete-me", "name": "Bob"});
-    provider.insert("users", doc).await?;
-
-    let found_before = provider.find_by_id("users", "delete-me").await?;
-    assert!(found_before.is_some());
-
-    provider.delete("users", "delete-me").await?;
-
-    let found_after = provider.find_by_id("users", "delete-me").await?;
-    assert!(found_after.is_none());
-
-    Ok(())
-  }
-
-  #[tokio::test]
-  async fn sqlite_update() -> OrmResult<()> {
-    let temp = tempdir()?;
-    let db_path = temp.path().join("test.db");
-    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
-    make_table(
-      &provider,
-      &[("id", "TEXT"), ("name", "TEXT"), ("age", "INTEGER")],
-    )
-    .await?;
-
-    let doc = serde_json::json!({"id": "update-me", "name": "Charlie", "age": 30});
-    provider.insert("users", doc).await?;
-
-    let updated = provider
-      .update(
-        "users",
-        "update-me",
-        serde_json::json!({"name": "Charles", "age": 31}),
-      )
-      .await?;
-    assert_eq!(updated["name"], "Charles");
-    assert_eq!(updated["age"], 31);
-
-    let found = provider.find_by_id("users", "update-me").await?;
-    assert!(found.is_some());
-    assert_eq!(found.unwrap()["name"], "Charles");
-
-    Ok(())
-  }
-
-  #[tokio::test]
-  async fn sqlite_find_many_pages_and_sorts() -> OrmResult<()> {
-    let temp = tempdir()?;
-    let db_path = temp.path().join("test.db");
-    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
-    make_table(&provider, &[("id", "TEXT"), ("name", "TEXT")]).await?;
-
-    for (id, name) in [("a", "Ann"), ("b", "Bob"), ("c", "Cid")] {
-      provider
-        .insert("users", serde_json::json!({"id": id, "name": name}))
-        .await?;
-    }
-
-    let all = provider
-      .find_many("users", None, Some(0), Some(10), None, true)
-      .await?;
-    assert_eq!(all.len(), 3);
-
-    let page = provider
-      .find_many("users", None, Some(0), Some(2), None, true)
-      .await?;
-    assert_eq!(page.len(), 2);
-
-    let sorted = provider
-      .find_many("users", None, Some(0), Some(10), Some("name"), false)
-      .await?;
-    assert_eq!(sorted[0]["name"], "Cid");
-
-    let counted = provider.count("users", None).await?;
-    assert_eq!(counted, 3);
-
-    Ok(())
-  }
-
-  #[tokio::test]
-  async fn sqlite_list_collections_counts_the_rows() -> OrmResult<()> {
-    let temp = tempdir()?;
-    let db_path = temp.path().join("test.db");
-    let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
-    make_table(&provider, &[("id", "TEXT"), ("name", "TEXT")]).await?;
-    provider
-      .insert("users", serde_json::json!({"id": "u1", "name": "Ann"}))
-      .await?;
-
-    let collections = provider.list_collections().await?;
-    let users = collections
-      .iter()
-      .find(|c| c.name == "users")
-      .expect("the users table is listed");
-    assert_eq!(users.document_count, 1);
-
-    Ok(())
-  }
-}
+mod tests;

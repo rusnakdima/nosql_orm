@@ -1,5 +1,3 @@
-//! SQL query builder for generating SQL statements.
-
 use crate::error::{OrmError, OrmResult};
 use crate::sql::types::SqlDialect;
 
@@ -53,7 +51,7 @@ impl SqlQueryBuilder {
       }
       serde_json::Value::Number(n) => n.to_string(),
       serde_json::Value::String(s) => {
-        format!("'{}'", s.replace('\'', "''"))
+        format!("'{}'", self.escape_string_literal(s))
       }
       serde_json::Value::Array(arr) => {
         let items = arr
@@ -73,6 +71,36 @@ impl SqlQueryBuilder {
       }
     }
   }
+
+  // Writes values that are not bound parameters (INSERT/SET clauses). MySQL
+  // treats a backslash inside a string literal as an escape, so it must be
+  // doubled there; PostgreSQL and SQLite use standard-conforming strings,
+  // where a backslash is literal and only the quote needs doubling. The bound
+  // filter path (filter_to_sql_params) is the remaining place free of literal
+  // interpolation; INSERT/SET should move to bound columns next.
+  pub fn escape_string_literal(&self, value: &str) -> String {
+    match self.dialect {
+      SqlDialect::MySQL => {
+        let mut escaped = String::with_capacity(value.len());
+        for ch in value.chars() {
+          match ch {
+            '\'' => escaped.push_str("''"),
+            '\\' => escaped.push_str("\\\\"),
+            '\0' => escaped.push_str("\\0"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\x1a' => escaped.push_str("\\Z"),
+            _ => escaped.push(ch),
+          }
+        }
+        escaped
+      }
+      // A NUL byte has no representation in a PostgreSQL or SQLite text
+      // literal; it is left in place so the statement is rejected loudly
+      // instead of silently storing a different value.
+      SqlDialect::PostgreSQL | SqlDialect::SQLite => value.replace('\'', "''"),
+    }
+  }
 }
 
 impl Default for SqlQueryBuilder {
@@ -82,61 +110,4 @@ impl Default for SqlQueryBuilder {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-  use crate::query::Projection;
-  use crate::sql::types::SqlDialect;
-
-  #[test]
-  fn test_simple_filter() {
-    let builder = SqlQueryBuilder::new(SqlDialect::PostgreSQL);
-    let filter = crate::query::Filter::Eq("name".to_string(), serde_json::json!("Alice"));
-    let sql = builder
-      .filter_to_sql(&filter)
-      .expect("filter_to_sql failed");
-    assert_eq!(sql, "\"name\" = 'Alice'");
-  }
-
-  #[test]
-  fn test_compound_filter() {
-    let builder = SqlQueryBuilder::new(SqlDialect::PostgreSQL);
-    let filter = crate::query::Filter::And(vec![
-      crate::query::Filter::Eq("age".to_string(), serde_json::json!(25)),
-      crate::query::Filter::Gt("balance".to_string(), serde_json::json!(100)),
-    ]);
-    let sql = builder
-      .filter_to_sql(&filter)
-      .expect("filter_to_sql failed");
-    assert!(sql.contains("\"age\" = 25"));
-    assert!(sql.contains("\"balance\" > 100"));
-  }
-
-  #[test]
-  fn test_insert_sql() {
-    let builder = SqlQueryBuilder::new(SqlDialect::PostgreSQL);
-    let sql = builder.build_insert("users", &["name", "email"], 2);
-    assert_eq!(
-      sql,
-      "INSERT INTO \"users\" (\"name\", \"email\") VALUES ($1, $2)"
-    );
-  }
-
-  #[test]
-  fn test_select_with_projection() {
-    let builder = SqlQueryBuilder::new(SqlDialect::MySQL);
-    let projection = Projection {
-      select: Some(vec!["id".to_string(), "name".to_string()]),
-      exclude: None,
-    };
-    let sql = builder
-      .build_select("users", None, Some(&projection), None, None, None, None)
-      .expect("build_select failed");
-    assert_eq!(sql, "SELECT `id`, `name` FROM `users`");
-  }
-
-  #[test]
-  fn test_mysql_quote() {
-    let builder = SqlQueryBuilder::new(SqlDialect::MySQL);
-    assert_eq!(builder.dialect().quote_identifier("name"), "`name`");
-  }
-}
+mod tests;

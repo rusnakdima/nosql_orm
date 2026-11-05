@@ -402,4 +402,8 @@ impl<P: Storage + Clone> Storage for FileQueryLogger<P> {
     self.write_log(&format!("[Query] LIST_INDEXES '{}'", collection));
     self.inner.list_indexes(collection).await
   }
+
+  fn capabilities(&self) -> crate::provider::ProviderCapabilities {
+    self.inner.capabilities()
+  }
 }

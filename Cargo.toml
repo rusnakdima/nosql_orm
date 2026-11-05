@@ -3,10 +3,10 @@ name = "nosql_orm"
 version = "0.9.0"
 edition = "2021"
 authors = ["Dmitriy303"]
-description = "A TypeORM-inspired ORM for NoSQL databases (JSON files, MongoDB, Redis)"
+description = "A TypeORM-inspired async ORM with one Storage API over JSON files, MongoDB, Redis and SQL (Postgres, MySQL, SQLite)"
 license = "MIT"
 repository = "https://github.com/rusnakdima/nosql_orm"
-keywords = ["orm", "mongodb", "json", "nosql", "database", "redis"]
+keywords = ["orm", "mongodb", "json", "nosql", "database"]
 categories = ["database", "data-structures"]
 
 [lib]
@@ -18,22 +18,25 @@ default = ["json"]
 json = []
 mongo = ["dep:mongodb", "dep:futures-util", "dep:futures"]
 redis = ["dep:redis"]
-full = ["json", "mongo", "redis"]
+full = ["json", "mongo", "redis", "sql"]
 sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
 sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres"]
 sql-sqlite = ["dep:rusqlite"]
 sql-mysql = ["dep:mysql_async"]
 query_cache = []
-clickhouse = []
-cockroach = []
-dynamodb = []
 
-
-validators = []
-opentelemetry = ["dep:opentelemetry"]
+# Extension modules that no code path in Storage, Repository or the providers
+# reaches yet. They are opt-in so the default build carries only the storage
+# surface the crate actually integrates; each is documented in docs/07-features.
+cdc = []
+embedded = []
+graphql = []
+inheritance = []
+lazy = []
+search = []
+subscription = []
 
 [dependencies]
-opentelemetry = { version = "0.21", optional = true }
 tracing = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

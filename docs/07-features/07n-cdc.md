@@ -2,6 +2,9 @@
 
 Track and stream data changes.
 
+Opt-in: compiled only with the `cdc` feature. No code path in `Storage`,
+`Repository` or the providers calls this module yet.
+
 ---
 
 ## ChangeType

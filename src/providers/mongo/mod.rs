@@ -1,9 +1,9 @@
 use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::{NosqlIndex, NosqlIndexInfo};
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
-  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
-  TransactionId,
+  AdminCommands, Capability, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
+  FieldInfo, IndexInfo, ProviderCapabilities, ProviderConfig, RawResult, SchemaIntrospection,
+  Storage, TransactionControl, TransactionId,
 };
 use crate::query::Filter;
 use crate::utils::generate_id;
@@ -15,8 +15,6 @@ use mongodb::{
 };
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 mod convert;
 mod filter;
@@ -30,7 +28,6 @@ use crate::providers::mongo::indexes::{build_index_keys, build_index_options};
 #[derive(Clone)]
 pub struct MongoProvider {
   db: Database,
-  transaction_manager: Arc<Mutex<Option<TransactionId>>>,
 }
 
 impl MongoProvider {
@@ -40,7 +37,6 @@ impl MongoProvider {
 
     Ok(Self {
       db: client.database(db_name.as_ref()),
-      transaction_manager: Arc::new(Mutex::new(None)),
     })
   }
 
@@ -286,6 +282,12 @@ impl Storage for MongoProvider {
       .map_err(Into::into)
   }
 
+  fn capabilities(&self) -> ProviderCapabilities {
+    ProviderCapabilities::none()
+      .with(Capability::Indexes)
+      .with(Capability::Aggregation)
+  }
+
   async fn insert_many(&self, collection: &str, docs: Vec<Value>) -> OrmResult<usize> {
     let coll = self.db.collection::<Document>(collection);
     let mut bson_docs = Vec::new();
@@ -481,71 +483,33 @@ impl AdminCommands for MongoProvider {
   }
 }
 
+// MongoDB transactions need a session passed to every operation. The provider
+// holds a Database, not a session, so it reports NotSupported instead of
+// pretending a flag is a transaction.
 #[async_trait]
 impl TransactionControl for MongoProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    let mut guard = self.transaction_manager.lock().await;
-    if guard.is_some() {
-      return Err(OrmError::Transaction(
-        "Transaction already active".to_string(),
-      ));
-    }
-    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
-    *guard = Some(id.clone());
-    Ok(id)
+    Err(OrmError::NotSupported(
+      "the MongoDB provider cannot open a transaction without a session".to_string(),
+    ))
   }
 
-  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().await;
-    match guard.as_ref() {
-      Some(active_id) if active_id == &id => {
-        *guard = None;
-        Ok(())
-      }
-      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-      None => Err(OrmError::Transaction("No active transaction".to_string())),
-    }
+  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the MongoDB provider cannot commit a transaction".to_string(),
+    ))
   }
 
-  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
-    let mut guard = self.transaction_manager.lock().await;
-    match guard.as_ref() {
-      Some(active_id) if active_id == &id => {
-        *guard = None;
-        Ok(())
-      }
-      Some(_) => Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
-      None => Err(OrmError::Transaction("No active transaction".to_string())),
-    }
+  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
+    Err(OrmError::NotSupported(
+      "the MongoDB provider cannot roll back a transaction".to_string(),
+    ))
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    let guard = self.transaction_manager.lock().await;
-    Ok(guard.is_some())
+    Ok(false)
   }
 }
 
 #[cfg(test)]
-mod tests {
-  use crate::error::{OrmError, OrmResult};
-
-  #[ignore]
-  #[tokio::test]
-  async fn mongo_insert_requires_live_server() -> OrmResult<()> {
-    // Needs a live MongoDB server, so there is nothing to assert offline.
-    // Report the missing capability as an error instead of panicking.
-    Err(OrmError::NotSupported(
-      "mongo insert needs a live MongoDB server".to_string(),
-    ))
-  }
-
-  #[ignore]
-  #[tokio::test]
-  async fn mongo_find_by_id_requires_live_server() -> OrmResult<()> {
-    // Needs a live MongoDB server, so there is nothing to assert offline.
-    // Report the missing capability as an error instead of panicking.
-    Err(OrmError::NotSupported(
-      "mongo find_by_id needs a live MongoDB server".to_string(),
-    ))
-  }
-}
+mod tests;

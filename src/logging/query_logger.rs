@@ -154,4 +154,8 @@ impl<P: Storage> Storage for QueryLogger<P> {
   async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
     self.inner.list_indexes(collection).await
   }
+
+  fn capabilities(&self) -> crate::provider::ProviderCapabilities {
+    self.inner.capabilities()
+  }
 }

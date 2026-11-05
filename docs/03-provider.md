@@ -16,11 +16,11 @@ Providers abstract database operations, allowing the same ORM logic to work with
 
 ## Provider Interface
 
-### DatabaseProvider Trait
+### Storage Trait
 
 ```rust
 #[async_trait]
-pub trait DatabaseProvider: Send + Sync + Clone + 'static {
+pub trait Storage: Send + Sync + Clone + 'static {
     async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value>;
     async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>>;
     async fn find_many(&self, collection: &str, filter: Option<&Filter>, skip: Option<u64>, limit: Option<u64>, sort_by: Option<&str>, sort_asc: bool) -> OrmResult<Vec<Value>>;
@@ -319,7 +319,7 @@ let provider = MySqlProvider::connect(
 The same code works with any provider:
 
 ```rust
-async fn create_user<P: DatabaseProvider>(provider: P) -> OrmResult<()> {
+async fn create_user<P: Storage>(provider: P) -> OrmResult<()> {
     let repo: Repository<User, P> = Repository::new(provider);
     let user = repo.save(User {
         id: None,

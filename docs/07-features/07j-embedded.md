@@ -2,6 +2,9 @@
 
 Embedded value objects within entities.
 
+Opt-in: compiled only with the `embedded` feature. No code path in `Storage`,
+`Repository` or the providers calls this module yet.
+
 ---
 
 ## Embedded

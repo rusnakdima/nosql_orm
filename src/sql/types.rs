@@ -1,9 +1,6 @@
-//! SQL type definitions for nosql_orm.
-
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-/// SQL dialect enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SqlDialect {
   PostgreSQL,
@@ -12,13 +9,6 @@ pub enum SqlDialect {
 }
 
 impl SqlDialect {
-  /// Quote `name` as an SQL identifier for this dialect.
-  ///
-  /// The dialect's quote character is escaped by doubling it, which is the
-  /// standard SQL escape: a `"` inside a `"…"` identifier and a `` ` `` inside
-  /// a `` `…` `` identifier. Doubling is what makes the quoting safe — a
-  /// name carrying SQL syntax stays one identifier instead of terminating
-  /// the statement.
   pub fn quote_identifier(&self, name: &str) -> String {
     match self {
       SqlDialect::PostgreSQL => format!("\"{}\"", name.replace('"', "\"\"")),
@@ -54,7 +44,6 @@ impl Display for SqlDialect {
   }
 }
 
-/// SQL column data types.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SqlColumnType {
   Integer,
@@ -134,7 +123,6 @@ impl Display for SqlColumnType {
   }
 }
 
-/// SQL index types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SqlIndexType {
   BTree,
@@ -158,7 +146,6 @@ impl SqlIndexType {
   }
 }
 
-/// Primary key definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqlPrimaryKey {
   pub columns: Vec<String>,
@@ -181,7 +168,6 @@ impl SqlPrimaryKey {
   }
 }
 
-/// SQL column definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqlColumnDef {
   pub name: String,
@@ -274,7 +260,6 @@ impl SqlColumnDef {
   }
 }
 
-/// SQL index definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqlIndexDef {
   pub name: String,
@@ -350,7 +335,6 @@ impl SqlIndexDef {
   }
 }
 
-/// SQL table definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqlTableDef {
   pub name: String,
@@ -428,7 +412,6 @@ impl SqlTableDef {
   }
 }
 
-/// SQL foreign key definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqlForeignKey {
   pub columns: Vec<String>,
@@ -497,7 +480,6 @@ impl SqlForeignKey {
   }
 }
 
-/// ON DELETE action for foreign keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SqlOnDelete {
   Cascade,
@@ -519,7 +501,6 @@ impl Display for SqlOnDelete {
   }
 }
 
-/// ON UPDATE action for foreign keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SqlOnUpdate {
   Cascade,

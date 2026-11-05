@@ -14,6 +14,6 @@ pub use hints::{OptimizationHint, QueryAnalyzer, QueryHint};
 pub use index_recommender::{IndexRecommendation, IndexRecommender, QueryStats};
 pub use optimizer::{OptimizedQuery, QueryOptimizer};
 pub use projection::Projection;
-pub use stats::{CollectionStats, FilterPattern, QueryStatistics};
+pub use stats::{FilterPattern, QueryCollectionStats, QueryStatistics};
 pub use types::{Cursor, OrderBy, PaginatedResult, SortDirection};
 pub use zero_copy::{DirectDeserializer, LazyValue, TypedArrayDeserializer, ZeroCopyDeserialize};

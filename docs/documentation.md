@@ -34,7 +34,7 @@ The library follows a **repository pattern** with a **provider abstraction** tha
 ├─────────────────────────────────────────────────────────────────┤
 │                        Entity                             │
 ├─────────────────────────────────────────────────────────────────┤
-│                    DatabaseProvider                      │
+│                    Storage                      │
 ├──────────────┬──────────────┬──────────────┬─────────────┤
 │  JsonProvider│ MongoProvider│ RedisProvider│ SQL Providers│
 └──────────────┴──────────────┴──────────────┴─────────────┘
@@ -78,13 +78,13 @@ pub struct EntityMeta {
 }
 ```
 
-### DatabaseProvider
+### Storage
 
 The low-level abstraction for database operations. All providers implement:
 
 ```rust
 #[async_trait]
-pub trait DatabaseProvider: Send + Sync + Clone + 'static {
+pub trait Storage: Send + Sync + Clone + 'static {
     async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value>;
     async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>>;
     async fn find_many(&self, collection: &str, filter: Option<&Filter>, skip, limit, sort_by, sort_asc) -> OrmResult<Vec<Value>>;
@@ -118,7 +118,7 @@ Repository::save(entity)
    │◄── Entity::from_value()      ◄─── JSON Value
    │
    ▼
-DatabaseProvider::insert(collection, doc)
+Storage::insert(collection, doc)
    │
    ▼
 Provider-Specific Implementation (JSON/Mongo/SQL)
@@ -146,7 +146,7 @@ QueryBuilder (fluent API)
 QueryBuilder::build_filter() ──► Option<Filter>
    │
    ▼
-DatabaseProvider::find_many(collection, filter, skip, limit, sort_by, sort_asc)
+Storage::find_many(collection, filter, skip, limit, sort_by, sort_asc)
    │
    ▼
 Provider Implementation
@@ -192,7 +192,7 @@ WithLoaded<Entity>
 | Module | File | Description |
 |--------|------|-------------|
 | `entity` | `src/entity.rs` | `Entity` trait, `EntityMeta`, `FrontendProjection` |
-| `provider` | `src/provider.rs` | `DatabaseProvider` trait, `ProviderConfig` |
+| `provider` | `src/provider.rs` | `Storage` trait, `ProviderConfig` |
 | `repository` | `src/repository/` | `Repository`, `RelationRepository`, `RepositoryQuery` |
 
 | `query` | `src/query/` | `QueryBuilder`, `Filter`, `Projection`, `SortDirection` |
@@ -328,7 +328,7 @@ pub trait Validate {
 Generic CRUD operations:
 
 ```rust
-pub struct Repository<E, P> where E: Entity, P: DatabaseProvider {
+pub struct Repository<E, P> where E: Entity, P: Storage {
     provider: P,
     _phantom: PhantomData<E>,
 }
@@ -355,7 +355,7 @@ Methods:
 Extends Repository with relation loading:
 
 ```rust
-pub struct RelationRepository<E, P> where E: WithRelations, P: DatabaseProvider {
+pub struct RelationRepository<E, P> where E: WithRelations, P: Storage {
     inner: Repository<E, P>,
     loader: RelationLoader<P>,
 }
@@ -483,7 +483,7 @@ pub enum RelationType {
 Batch loads relations efficiently:
 
 ```rust
-pub struct RelationLoader<P: DatabaseProvider> {
+pub struct RelationLoader<P: Storage> {
     provider: P,
 }
 ```
@@ -536,7 +536,7 @@ pub enum ValidatorType {
 ### Migrations
 
 ```rust
-pub struct MigrationRunner<P: DatabaseProvider> {
+pub struct MigrationRunner<P: Storage> {
     provider: P,
     migrations: Vec<Box<dyn Migration<P>>>,
 }
@@ -574,7 +574,7 @@ apply_timestamps(&mut doc, is_insert);
 ### Cascade Delete
 
 ```rust
-pub struct CascadeManager<P: DatabaseProvider> {
+pub struct CascadeManager<P: Storage> {
     provider: P,
 }
 ```

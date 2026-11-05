@@ -139,7 +139,7 @@ impl TodoFullLoader {
     for sid in subtask_ids {
       let sub_val = if let Some(subtask) = self.subtasks_cache.get(sid).cloned() {
         subtask
-      } else if let Some(found) = self.provider.find_by_id("subtasks", sid).await? {
+      } else if let Some(found) = Storage::find_by_id(&self.provider, "subtasks", sid).await? {
         let sub: Subtask =
           serde_json::from_value(found.clone()).map_err(OrmError::Serialization)?;
         self.subtasks_cache.insert(sid.clone(), sub.clone());
@@ -160,7 +160,7 @@ impl TodoFullLoader {
     for tid in task_ids {
       let task_val = if let Some(task) = self.tasks_cache.get(tid).cloned() {
         task
-      } else if let Some(found) = self.provider.find_by_id("tasks", tid).await? {
+      } else if let Some(found) = Storage::find_by_id(&self.provider, "tasks", tid).await? {
         let task: Task = serde_json::from_value(found.clone()).map_err(OrmError::Serialization)?;
         self.tasks_cache.insert(tid.clone(), task.clone());
         task
@@ -178,7 +178,7 @@ impl TodoFullLoader {
     &mut self,
     todo_id: &str,
   ) -> OrmResult<Option<(Todo, Vec<(Task, Vec<Subtask>)>)>> {
-    let todo_val = match self.provider.find_by_id("todos", todo_id).await? {
+    let todo_val = match Storage::find_by_id(&self.provider, "todos", todo_id).await? {
       Some(v) => v,
       None => return Ok(None),
     };

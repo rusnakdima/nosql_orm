@@ -1,22 +1,27 @@
 # nosql_orm
 
-A **TypeORM-inspired ORM for Rust** that works with both **JSON files** and **MongoDB** behind a single, unified API. Inspired by TypeORM's design philosophy: repositories, typed entities, fluent queries, and eager relation loading — all in idiomatic async Rust.
+A **TypeORM-inspired async ORM for Rust** with one `Storage` API in front of six backends: **JSON files**, **MongoDB**, **Redis**, and **SQL** (PostgreSQL, MySQL, SQLite). Inspired by TypeORM's design philosophy: repositories, typed entities, fluent queries, and eager relation loading — all in idiomatic async Rust.
 
 ---
 
 ## Features
 
-| Feature | JSON | MongoDB |
-|---------|------|---------|
-| Full CRUD | ✅ | ✅ |
-| Fluent query builder | ✅ | ✅ |
-| Sorting & pagination | ✅ | ✅ |
-| Dot-notation field access | ✅ | — |
-| OneToOne / ManyToOne | ✅ | ✅ |
-| OneToMany | ✅ | ✅ |
-| ManyToMany (embedded ids) | ✅ | ✅ |
-| Partial update (`patch`) | ✅ | ✅ |
-| Auto-generated UUIDs | ✅ | ✅ |
+| Feature | JSON / JsonTree | MongoDB | Redis | SQL (Postgres / MySQL / SQLite) |
+|---------|-----------------|---------|-------|----------------------------------|
+| Full CRUD | ✅ | ✅ | ✅ | ✅ |
+| Fluent query builder + filters | ✅ | ✅ | ✅ | ✅ |
+| Sorting & pagination | ✅ | ✅ | ✅ | ✅ |
+| Dot-notation field access | ✅ | ✅ | — | — |
+| OneToOne / ManyToOne | ✅ | ✅ | ✅ | ✅ |
+| OneToMany | ✅ | ✅ | ✅ | ✅ |
+| ManyToMany (embedded ids) | ✅ | ✅ | ✅ | ✅ |
+| Partial update (`patch`) | ✅ | ✅ | ✅ | ✅ |
+| Auto-generated UUIDs | ✅ | ✅ | ✅ | ✅ |
+| Index management | NotSupported | ✅ | NotSupported | ✅ |
+| Raw SQL (`execute_raw`) | NotSupported | NotSupported | NotSupported | ✅ |
+
+`NotSupported` means the provider returns `OrmError::NotSupported` rather than
+reporting a success it did not perform.
 
 ---
 
@@ -25,13 +30,13 @@ A **TypeORM-inspired ORM for Rust** that works with both **JSON files** and **Mo
 ```toml
 [dependencies]
 # JSON only (default):
-nosql_orm = { version = "0.1", git = "https://github.com/rusnakdima/nosql_orm" }
+nosql_orm = { version = "0.9", git = "https://github.com/rusnakdima/nosql_orm" }
 
 # MongoDB only:
-nosql_orm = { version = "0.1", git = "...", default-features = false, features = ["mongo"] }
+nosql_orm = { version = "0.9", git = "...", default-features = false, features = ["mongo"] }
 
-# Both:
-nosql_orm = { version = "0.1", git = "...", features = ["full"] }
+# MongoDB + Redis + all SQL backends:
+nosql_orm = { version = "0.9", git = "...", features = ["full"] }
 ```
 
 ---
@@ -195,6 +200,12 @@ let provider = JsonProvider::new("/path/to/data").await?;
 let config = ProviderConfig::new("mongodb://localhost:27017")
     .with_database("myapp");
 let provider = MongoProvider::from_config(&config).await?;
+
+// Redis
+let provider = RedisProvider::new("redis://127.0.0.1:6379").await?;
+
+// SQL: each provider takes a connection string
+let provider = SqliteProvider::connect("app.db").await?;
 ```
 
 ---
@@ -202,17 +213,32 @@ let provider = MongoProvider::from_config(&config).await?;
 ## Swap providers without changing business logic
 
 ```rust
-async fn run<P: DatabaseProvider>(provider: P) -> OrmResult<()> {
+async fn run<P: Storage>(provider: P) -> OrmResult<()> {
     let users: Repository<User, P> = Repository::new(provider);
     let user = users.save(User { id: None, name: "Test".into(), email: "t@t.com".into(), age: 20 }).await?;
     println!("{:?}", user);
     Ok(())
 }
 
-// Works with both:
+// Works with every backend:
 run(JsonProvider::new("./data").await?).await?;
 run(MongoProvider::connect("mongodb://localhost:27017", "mydb").await?).await?;
 ```
+
+---
+
+## Feature flags
+
+| Feature | Enables |
+|---------|---------|
+| `json` (default) | `JsonProvider` and `JsonTreeProvider` |
+| `mongo` | `MongoProvider` |
+| `redis` | `RedisProvider` |
+| `sql` | `PostgresProvider`, `MySqlProvider`, `SqliteProvider` (equals the three `sql-*` features) |
+| `sql-postgres`, `sql-mysql`, `sql-sqlite` | one SQL backend each |
+| `full` | `json` + `mongo` + `redis` + `sql` |
+| `query_cache` | `cache::QueryCache` |
+| `graphql`, `cdc`, `subscription`, `inheritance`, `search`, `embedded`, `lazy` | the extension modules, off by default; no code path in `Storage`, `Repository` or the providers reaches them yet |
 
 ---
 
@@ -232,14 +258,33 @@ cargo run --example mongo_example --features mongo
 
 ```
 src/
-├── lib.rs            — public API / re-exports
-├── entity.rs         — Entity trait + EntityMeta
-├── provider.rs       — DatabaseProvider trait
-├── repository.rs     — Repository<E, P> + RelationRepository<E, P>
-├── query.rs          — QueryBuilder + Filter
-├── relations.rs      — RelationDef, WithRelations, RelationLoader, WithLoaded
-├── utils.rs          — UUID generation
+├── lib.rs            — module declarations, root re-exports, prelude
+├── provider.rs       — Storage, StorageBackend, SchemaIntrospection,
+│                       AdminCommands, TransactionControl, Capability
+├── admin_types.rs    — DTOs: CollectionMeta, CollectionSchema, CollectionStats,
+│                       ConnectionHealth, IndexInfo, RawResult, TransactionId
+├── entity/           — Entity trait, EntityMeta, accessors, mutators
+├── repository/       — Repository<E, P>, RelationRepository, indexes, fast path
+├── query/            — QueryBuilder, Filter, projection, optimizer, statistics
+├── relations/        — RelationDef, relation loaders, registry, wrappers
+├── cascade/          — cascade delete and restore across relations
+├── nosql_index/      — index definitions and IndexManager
+├── migrations/       — Migration trait, SqlMigration/JsonMigration, MigrationRunner
+├── soft_delete.rs    — SoftDeletable + SoftDeleteExt
+├── validators/       — field validators and ValidationError
+├── logging/          — query loggers
+├── sql/              — dialect-agnostic SQL types and query builder
+├── cli/              — command parsing, migration and seeder commands
 └── providers/
     ├── json.rs       — JSON file provider (feature = "json")
-    └── mongo.rs      — MongoDB provider  (feature = "mongo")
+    ├── json_tree.rs  — one-file-per-document JSON provider (feature = "json")
+    ├── mongo/        — MongoDB provider (feature = "mongo")
+    ├── redis.rs      — Redis provider (feature = "redis")
+    ├── sql/          — PostgreSQL, MySQL and SQLite providers (feature = "sql-*")
+    ├── backend.rs    — dyn-safe connect_backend / BackendKind
+    ├── sync.rs       — provider-to-provider sync
+    └── variant.rs    — provider hand-off (only when json and mongo are both on)
 ```
+
+Extension modules (`graphql`, `cdc`, `subscription`, `inheritance`, `search`,
+`embedded`, `lazy`) are feature-gated and documented in `docs/07-features/`.
