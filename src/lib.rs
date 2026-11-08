@@ -1,9 +1,6 @@
 pub mod admin_types;
 pub mod aggregation;
 pub mod cascade;
-#[cfg(feature = "cdc")]
-pub mod cdc;
-pub mod cli;
 pub mod constraints;
 #[cfg(feature = "embedded")]
 pub mod embedded;
@@ -11,8 +8,6 @@ pub mod entity;
 pub mod error;
 pub mod events;
 pub mod field_meta;
-#[cfg(feature = "graphql")]
-pub mod graphql;
 pub mod id;
 #[cfg(feature = "inheritance")]
 pub mod inheritance;
@@ -27,12 +22,8 @@ pub mod query;
 pub mod relations;
 pub mod repository;
 pub mod schema;
-#[cfg(feature = "search")]
-pub mod search;
 pub mod soft_delete;
 pub mod sql;
-#[cfg(feature = "subscription")]
-pub mod subscription;
 pub mod timestamps;
 pub mod utils;
 pub mod validators;
@@ -66,8 +57,6 @@ pub use aggregation::{
   SortStage, Stage,
 };
 pub use cascade::CascadeManager;
-#[cfg(feature = "cdc")]
-pub use cdc::{AuditAction, AuditLog, CdcSync, Change, ChangeCapture, ChangeStream, ChangeType};
 pub use constraints::{
   CheckConstraintDef, ColumnConstraint, ColumnDef, ColumnType, IndexDef, IndexType,
   UniqueConstraintDef,
@@ -75,11 +64,6 @@ pub use constraints::{
 #[cfg(feature = "embedded")]
 pub use embedded::{EmbedExt, Embedded, EmbeddedMeta, Embedder};
 pub use events::{EntityEventListener, EntityEvents, Event, EventType};
-#[cfg(feature = "graphql")]
-pub use graphql::{
-  GraphQLArg, GraphQLEntity, GraphQLField, GraphQLSchema, GraphQLTypeDef, MutationRoot, QueryRoot,
-  SchemaBuilder,
-};
 #[cfg(feature = "inheritance")]
 pub use inheritance::{Discriminator, DiscriminatorValue, Inheritance, InheritanceType};
 #[cfg(feature = "lazy")]
@@ -87,13 +71,7 @@ pub use lazy::{Lazy, LazyLoader, LazyMany, LazyRelation};
 pub use migrations::migration::{JsonMigration, Migration, MigrationMeta, SqlMigration};
 pub use migrations::runner::MigrationRunner;
 pub use schema::{PrefixConfig, PrefixHolder, Schema, SchemaManager};
-#[cfg(feature = "search")]
-pub use search::{
-  FullTextIndex, FullTextQueryExt, FullTextSearch, SearchResult, SearchScore, TextSearch,
-};
 pub use soft_delete::{SoftDeletable, SoftDeleteExt};
-#[cfg(feature = "subscription")]
-pub use subscription::{Publisher, Subscription, SubscriptionHandler, SubscriptionManager, Topic};
 pub use validators::{
   EmailValidator, FieldValidator, LengthValidator, PatternValidator, RangeValidator,
   ValidationError, ValidationResult,
@@ -138,20 +116,11 @@ pub mod prelude {
     PatternValidator, RangeValidator, ValidationError, ValidationResult,
   };
 
-  #[cfg(feature = "graphql")]
-  pub use crate::graphql::{
-    GraphQLArg, GraphQLEntity, GraphQLField, GraphQLSchema, GraphQLTypeDef, MutationRoot,
-    QueryRoot, SchemaBuilder,
-  };
-
-  pub use crate::cli;
   pub use crate::logging;
 
   #[cfg(feature = "redis")]
   pub use crate::providers::redis::RedisProvider;
 
-  #[cfg(feature = "cdc")]
-  pub use crate::cdc::CdcSync;
   pub use crate::nosql_index::{IndexManager, NosqlIndex, NosqlIndexInfo, NosqlIndexType};
   pub use crate::timestamps::{apply_timestamps, Timestamps};
   pub use crate::Validate;

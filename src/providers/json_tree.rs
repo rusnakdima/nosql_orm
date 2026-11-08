@@ -560,8 +560,7 @@ impl AdminCommands for JsonTreeProvider {
 impl TransactionControl for JsonTreeProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
     Err(OrmError::NotSupported(
-      "the JSON tree provider cannot open a transaction: writes are persisted per call"
-        .to_string(),
+      "the JSON tree provider cannot open a transaction: writes are persisted per call".to_string(),
     ))
   }
   async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {

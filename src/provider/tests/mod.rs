@@ -155,23 +155,19 @@ mod sqlite {
       .expect("created index is listed");
     assert_eq!(listed.fields, vec!["name".to_string()]);
     assert!(!listed.unique);
-    assert!(
-      provider
-        .index_exists("test_records", "idx_test_records_name")
-        .await
-        .expect("index exists")
-    );
+    assert!(provider
+      .index_exists("test_records", "idx_test_records_name")
+      .await
+      .expect("index exists"));
 
     provider
       .drop_index("test_records", "idx_test_records_name")
       .await
       .expect("drop index");
-    assert!(
-      !provider
-        .index_exists("test_records", "idx_test_records_name")
-        .await
-        .expect("index gone")
-    );
+    assert!(!provider
+      .index_exists("test_records", "idx_test_records_name")
+      .await
+      .expect("index gone"));
   }
 
   #[tokio::test]
@@ -188,17 +184,12 @@ mod sqlite {
       .expect("insert in transaction");
     provider.rollback_transaction(id).await.expect("rollback");
 
-    assert!(
-      provider
-        .find_by_id("test_records", "rolled-back")
-        .await
-        .expect("find")
-        .is_none()
-    );
-    assert!(!provider
-      .is_transaction_active()
+    assert!(provider
+      .find_by_id("test_records", "rolled-back")
       .await
-      .expect("active flag"));
+      .expect("find")
+      .is_none());
+    assert!(!provider.is_transaction_active().await.expect("active flag"));
   }
 
   #[tokio::test]
@@ -215,16 +206,11 @@ mod sqlite {
       .expect("insert in transaction");
     provider.commit_transaction(id).await.expect("commit");
 
-    assert!(
-      provider
-        .find_by_id("test_records", "committed")
-        .await
-        .expect("find")
-        .is_some()
-    );
-    assert!(!provider
-      .is_transaction_active()
+    assert!(provider
+      .find_by_id("test_records", "committed")
       .await
-      .expect("active flag"));
+      .expect("find")
+      .is_some());
+    assert!(!provider.is_transaction_active().await.expect("active flag"));
   }
 }

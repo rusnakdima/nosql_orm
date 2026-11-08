@@ -1,5 +1,4 @@
 use crate::error::{OrmError, OrmResult};
-use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, Capability, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
   FieldInfo, IndexInfo, ProviderCapabilities, ProviderConfig, RawResult, SchemaIntrospection,
@@ -209,113 +208,22 @@ impl TableIntrospector for SqliteProvider {
 }
 
 #[async_trait]
-impl Storage for SqliteProvider {
-  async fn insert(&self, collection: &str, mut doc: Value) -> OrmResult<Value> {
-    let id = match doc["id"].as_str() {
-      Some(s) => s.to_string(),
-      None => uuid::Uuid::new_v4().to_string(),
-    };
-    doc["id"] = serde_json::json!(id);
-
-    let columns: Vec<&str> = doc
-      .as_object()
-      .map(|m| m.keys().map(|k| k.as_str()).collect())
-      .unwrap_or_default();
-
-    let values: Vec<String> = columns
-      .iter()
-      .map(|c| {
-        doc
-          .get(*c)
-          .map(|v| self.query_builder.value_to_sql(v))
-          .unwrap_or_else(|| "NULL".to_string())
-      })
-      .collect();
-
-    let sql_with_values = self.build_insert_sql(collection, &columns, &values);
-
-    let _conn = self.conn.clone();
-    let collection = collection.to_string();
-    let id_clone = id.clone();
-    let dialect = self.dialect;
+impl crate::providers::sql::SqlExecutor for SqliteProvider {
+  async fn execute(&self, sql: &str, params: Vec<Value>) -> OrmResult<u64> {
+    let sql = sql.to_string();
     self
       .with_connection(move |conn_guard| {
-        conn_guard.execute(&sql_with_values, [])?;
-
-        let sql = format!(
-          "SELECT * FROM {} WHERE id = ?",
-          dialect.quote_identifier(&collection)
-        );
-        let mut stmt = conn_guard.prepare(&sql)?;
-        let result = stmt.query_row([id_clone], row::row_to_json_sqlite);
-
-        match result {
-          Ok(value) => Ok(value),
-          Err(rusqlite::Error::QueryReturnedNoRows) => Err(rusqlite::Error::QueryReturnedNoRows),
-          Err(e) => Err(e),
-        }
+        let rows = conn_guard.execute(
+          &sql,
+          rusqlite::params_from_iter(params.iter().map(to_sqlite_param)),
+        )?;
+        Ok(rows as u64)
       })
       .await
   }
 
-  async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
-    let sql = self.build_select_by_id_sql(collection);
-
-    let id_owned = id.to_string();
-    self
-      .with_connection(move |conn_guard| {
-        let mut stmt = conn_guard.prepare(&sql)?;
-        let result = stmt.query_row([id_owned], row::row_to_json_sqlite);
-
-        match result {
-          Ok(value) => Ok(Some(value)),
-          Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-          Err(e) => Err(e),
-        }
-      })
-      .await
-  }
-
-  async fn find_many(
-    &self,
-    collection: &str,
-    filter: Option<&Filter>,
-    skip: Option<u64>,
-    limit: Option<u64>,
-    sort_by: Option<&str>,
-    sort_asc: bool,
-  ) -> OrmResult<Vec<Value>> {
-    let mut sql = format!(
-      "SELECT * FROM {}",
-      self.dialect.quote_identifier(collection)
-    );
-    let mut params: Vec<Value> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    if let Some(sort) = sort_by {
-      let dir = if sort_asc { "ASC" } else { "DESC" };
-      sql.push_str(&format!(
-        " ORDER BY {} {}",
-        self.dialect.quote_identifier(sort),
-        dir
-      ));
-    }
-
-    // SQL reads "LIMIT n OFFSET m" — the other order is a syntax error.
-    if let Some(l) = limit {
-      sql.push_str(&format!(" LIMIT {}", l));
-    }
-
-    if let Some(s) = skip {
-      sql.push_str(&format!(" OFFSET {}", s));
-    }
-
+  async fn query(&self, sql: &str, params: Vec<Value>) -> OrmResult<Vec<Value>> {
+    let sql = sql.to_string();
     self
       .with_connection(move |conn_guard| {
         let mut stmt = conn_guard.prepare(&sql)?;
@@ -333,188 +241,11 @@ impl Storage for SqliteProvider {
       .await
   }
 
-  async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
-    let set_clauses = self.query_builder.build_set_clause(&doc, &["id"])?;
-
-    let sql = self.build_update_by_id_sql(collection, &set_clauses);
-
-    let id_owned = id.to_string();
-    let collection = collection.to_string();
-    let dialect = self.dialect;
-    self
-      .with_connection(move |conn_guard| {
-        conn_guard.execute(&sql, [id_owned.as_str()])?;
-
-        let sql = format!(
-          "SELECT * FROM {} WHERE id = ?",
-          dialect.quote_identifier(&collection)
-        );
-        let mut stmt = conn_guard.prepare(&sql)?;
-        let result = stmt.query_row([id_owned.as_str()], row::row_to_json_sqlite);
-
-        match result {
-          Ok(value) => Ok(value),
-          Err(rusqlite::Error::QueryReturnedNoRows) => Err(rusqlite::Error::QueryReturnedNoRows),
-          Err(e) => Err(e),
-        }
-      })
-      .await
-  }
-
-  async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
-    let set_clauses = self.query_builder.build_set_clause(&patch, &[])?;
-
-    let sql = self.build_update_by_id_sql(collection, &set_clauses);
-
-    let id_owned = id.to_string();
-    let collection = collection.to_string();
-    let dialect = self.dialect;
-    self
-      .with_connection(move |conn_guard| {
-        conn_guard.execute(&sql, [id_owned.as_str()])?;
-
-        let sql = format!(
-          "SELECT * FROM {} WHERE id = ?",
-          dialect.quote_identifier(&collection)
-        );
-        let mut stmt = conn_guard.prepare(&sql)?;
-        let result = stmt.query_row([id_owned.as_str()], row::row_to_json_sqlite);
-
-        match result {
-          Ok(value) => Ok(value),
-          Err(rusqlite::Error::QueryReturnedNoRows) => Err(rusqlite::Error::QueryReturnedNoRows),
-          Err(e) => Err(e),
-        }
-      })
-      .await
-  }
-
-  async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    let sql = self.build_delete_by_id_sql(collection);
-
-    let id_owned = id.to_string();
-    self
-      .with_connection(move |conn_guard| {
-        let rows = conn_guard.execute(&sql, [id_owned.as_str()])?;
-        Ok(rows > 0)
-      })
-      .await
-  }
-
-  async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
-    let mut sql = self.build_count_sql(collection);
-    let mut params: Vec<Value> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    self
-      .with_connection(move |conn_guard| {
-        let count: i64 = conn_guard.query_row(
-          &sql,
-          rusqlite::params_from_iter(params.iter().map(to_sqlite_param)),
-          |row| row.get(0),
-        )?;
-        Ok(count as u64)
-      })
-      .await
-  }
-
-  async fn update_many(
-    &self,
-    collection: &str,
-    filter: Option<Filter>,
-    updates: Value,
-  ) -> OrmResult<usize> {
-    let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
-
-    let mut sql = self.build_update_sql(collection, &set_clauses);
-    let mut params: Vec<Value> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    self
-      .with_connection(move |conn_guard| {
-        let rows = conn_guard.execute(
-          &sql,
-          rusqlite::params_from_iter(params.iter().map(to_sqlite_param)),
-        )?;
-        Ok(rows)
-      })
-      .await
-  }
-
-  async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
-    let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
-    let mut params: Vec<Value> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    self
-      .with_connection(move |conn_guard| {
-        let rows = conn_guard.execute(
-          &sql,
-          rusqlite::params_from_iter(params.iter().map(to_sqlite_param)),
-        )?;
-        Ok(rows)
-      })
-      .await
-  }
-
-  async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
-    let mut index_def = crate::sql::types::SqlIndexDef::new(
-      index.get_name().unwrap_or("idx_default"),
-      collection,
-      index.get_fields().iter().map(|(f, _)| f.clone()).collect(),
-    );
-
-    if index.is_unique() {
-      index_def = index_def.unique();
-    }
-
-    let sql = self.query_builder.build_create_index(&index_def);
-
-    self
-      .with_connection(move |conn_guard| {
-        conn_guard.execute(&sql, [])?;
-        Ok(())
-      })
-      .await
-  }
-
-  async fn drop_index(&self, _collection: &str, index_name: &str) -> OrmResult<()> {
-    let sql = format!(
-      "DROP INDEX IF EXISTS {}",
-      self.dialect.quote_identifier(index_name)
-    );
-
-    self
-      .with_connection(move |conn_guard| {
-        conn_guard.execute(&sql, [])?;
-        Ok(())
-      })
-      .await
-  }
-
-  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+  async fn list_indexes_for(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
     self.list_sqlite_indexes(collection).await
   }
 
-  fn capabilities(&self) -> ProviderCapabilities {
+  fn sql_capabilities(&self) -> ProviderCapabilities {
     ProviderCapabilities::none()
       .with(Capability::Indexes)
       .with(Capability::Transactions)

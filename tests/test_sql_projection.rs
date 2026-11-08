@@ -39,8 +39,7 @@ async fn exclude_projection_renders_the_remaining_columns() -> OrmResult<()> {
     .await?;
 
   assert_eq!(
-    sql,
-    r#"SELECT "id", "name", "email" FROM "users""#,
+    sql, r#"SELECT "id", "name", "email" FROM "users""#,
     "the excluded column must be dropped and the rest named"
   );
   Ok(())

@@ -1,9 +1,8 @@
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
-use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, Capability, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
   FieldInfo, IndexInfo, ProviderCapabilities, ProviderConfig, RawResult, SchemaIntrospection,
-  Storage, TransactionControl, TransactionId,
+  TransactionControl, TransactionId,
 };
 use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::row;
@@ -211,280 +210,37 @@ fn convert_params(params: Vec<JsonValue>) -> Vec<mysql_async::Value> {
 }
 
 #[async_trait]
-impl Storage for MySqlProvider {
-  async fn insert(&self, collection: &str, mut doc: JsonValue) -> OrmResult<JsonValue> {
-    let id = if doc.get("id").is_none() {
-      uuid::Uuid::new_v4().to_string()
-    } else {
-      doc["id"]
-        .as_str()
-        .map(String::from)
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
-    };
-    doc["id"] = serde_json::json!(id);
-
-    let columns: Vec<&str> = doc
-      .as_object()
-      .map(|m| m.keys().map(|k| k.as_str()).collect())
-      .unwrap_or_default();
-
-    let values: Vec<String> = columns
-      .iter()
-      .map(|c| {
-        doc
-          .get(*c)
-          .map(|v| self.query_builder.value_to_sql(v))
-          .unwrap_or_else(|| "NULL".to_string())
-      })
-      .collect();
-
-    let sql = self.build_insert_sql(collection, &columns, &values);
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-
-    map_err_query(conn.exec_drop(&sql, ()).await)?;
-
-    self
-      .find_by_id(collection, &id)
-      .await?
-      .ok_or_else(|| OrmError::NotFound(format!("Inserted document not found: {}", id)))
-  }
-
-  async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<JsonValue>> {
-    let sql = self.build_select_by_id_sql(collection);
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-
-    let result: Option<Row> = map_err_query(
-      map_err_query(conn.exec_iter(&sql, (id,)).await)?
-        .next()
-        .await,
-    )?;
-
-    match result {
-      Some(r) => Ok(Some(row::row_to_json_mysql(r))),
-      None => Ok(None),
-    }
-  }
-
-  async fn find_many(
-    &self,
-    collection: &str,
-    filter: Option<&Filter>,
-    skip: Option<u64>,
-    limit: Option<u64>,
-    sort_by: Option<&str>,
-    sort_asc: bool,
-  ) -> OrmResult<Vec<JsonValue>> {
-    let mut sql = format!(
-      "SELECT * FROM {}",
-      self.dialect.quote_identifier(collection)
-    );
-
-    let mut params: Vec<JsonValue> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    if let Some(sort) = sort_by {
-      let dir = if sort_asc { "ASC" } else { "DESC" };
-      sql.push_str(&format!(
-        " ORDER BY {} {}",
-        self.dialect.quote_identifier(sort),
-        dir
-      ));
-    }
-
-    // SQL reads "LIMIT n OFFSET m" — two LIMIT clauses are a syntax error.
-    if let Some(l) = limit {
-      sql.push_str(&format!(" LIMIT {}", l));
-    }
-
-    if let Some(s) = skip {
-      sql.push_str(&format!(" OFFSET {}", s));
-    }
-
+impl crate::providers::sql::SqlExecutor for MySqlProvider {
+  async fn execute(&self, sql: &str, params: Vec<JsonValue>) -> OrmResult<u64> {
     let mut conn = map_err_connection(self.pool.get_conn().await)?;
     let values = convert_params(params);
-
-    let mut result = if values.is_empty() {
-      map_err_query(conn.exec_iter(&sql, ()).await)?
+    // The affected-row count is read off the connection after the drop —
+    // the same pattern the old per-provider delete/update_many used.
+    if values.is_empty() {
+      map_err_query(conn.exec_drop(sql, ()).await)?;
     } else {
-      map_err_query(conn.exec_iter(&sql, &values).await)?
+      map_err_query(conn.exec_drop(sql, &values).await)?;
+    }
+    Ok(conn.affected_rows())
+  }
+
+  async fn query(&self, sql: &str, params: Vec<JsonValue>) -> OrmResult<Vec<JsonValue>> {
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    let values = convert_params(params);
+    let mut result = if values.is_empty() {
+      map_err_query(conn.exec_iter(sql, ()).await)?
+    } else {
+      map_err_query(conn.exec_iter(sql, &values).await)?
     };
     let rows: Vec<Row> = map_err_query(result.collect().await)?;
-    let mut results = Vec::new();
-    for row in rows {
-      results.push(row::row_to_json_mysql(row));
-    }
-
-    Ok(results)
+    Ok(rows.into_iter().map(row::row_to_json_mysql).collect())
   }
 
-  async fn update(&self, collection: &str, id: &str, doc: JsonValue) -> OrmResult<JsonValue> {
-    let set_clauses = self.query_builder.build_set_clause(&doc, &["id"])?;
-
-    let sql = self.build_update_by_id_sql(collection, &set_clauses);
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-
-    map_err_query(conn.exec_drop(&sql, (id,)).await)?;
-
-    self
-      .find_by_id(collection, id)
-      .await?
-      .ok_or_else(|| OrmError::NotFound(format!("Document not found: {}", id)))
-  }
-
-  async fn patch(&self, collection: &str, id: &str, patch: JsonValue) -> OrmResult<JsonValue> {
-    let set_clauses = self.query_builder.build_set_clause(&patch, &[])?;
-
-    let sql = format!(
-      "UPDATE {} SET {} WHERE id = ?",
-      self.dialect.quote_identifier(collection),
-      set_clauses.join(", ")
-    );
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-
-    map_err_query(conn.exec_drop(&sql, (id,)).await)?;
-
-    self
-      .find_by_id(collection, id)
-      .await?
-      .ok_or_else(|| OrmError::NotFound(format!("Document not found: {}", id)))
-  }
-
-  async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    let sql = self.build_delete_by_id_sql(collection);
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-
-    map_err_query(conn.exec_drop(&sql, (id,)).await)?;
-
-    Ok(true)
-  }
-
-  async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
-    let mut sql = self.build_count_sql(collection);
-    let mut params: Vec<JsonValue> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-    let values = convert_params(params);
-
-    let result: Option<(i64,)> = if values.is_empty() {
-      map_err_query(conn.exec_first(&sql, ()).await)?
-    } else {
-      map_err_query(conn.exec_first(&sql, &values).await)?
-    };
-    let (count,) = result.ok_or_else(|| OrmError::Query("No result".to_string()))?;
-
-    Ok(count as u64)
-  }
-
-  async fn update_many(
-    &self,
-    collection: &str,
-    filter: Option<Filter>,
-    updates: JsonValue,
-  ) -> OrmResult<usize> {
-    let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
-
-    let mut sql = self.build_update_sql(collection, &set_clauses);
-    let mut params: Vec<JsonValue> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-    let values = convert_params(params);
-
-    if values.is_empty() {
-      map_err_query(conn.exec_drop(&sql, ()).await)?;
-    } else {
-      map_err_query(conn.exec_drop(&sql, &values).await)?;
-    }
-
-    Ok(conn.affected_rows() as usize)
-  }
-
-  async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
-    let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
-    let mut params: Vec<JsonValue> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-    let values = convert_params(params);
-
-    if values.is_empty() {
-      map_err_query(conn.exec_drop(&sql, ()).await)?;
-    } else {
-      map_err_query(conn.exec_drop(&sql, &values).await)?;
-    }
-
-    Ok(conn.affected_rows() as usize)
-  }
-
-  async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
-    let mut index_def = crate::sql::types::SqlIndexDef::new(
-      index.get_name().unwrap_or("idx_default"),
-      collection,
-      index.get_fields().iter().map(|(f, _)| f.clone()).collect(),
-    );
-
-    if index.is_unique() {
-      index_def = index_def.unique();
-    }
-
-    let sql = self.query_builder.build_create_index(&index_def);
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-
-    map_err_query(conn.exec_drop(&sql, ()).await)?;
-
-    Ok(())
-  }
-
-  async fn drop_index(&self, _collection: &str, index_name: &str) -> OrmResult<()> {
-    let sql = format!(
-      "DROP INDEX {} ON {}",
-      self.dialect.quote_identifier(index_name),
-      self.dialect.quote_identifier(_collection)
-    );
-
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
-
-    map_err_query(conn.exec_drop(&sql, ()).await)?;
-
-    Ok(())
-  }
-
-  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+  async fn list_indexes_for(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
     self.list_mysql_indexes(collection).await
   }
 
-  fn capabilities(&self) -> ProviderCapabilities {
+  fn sql_capabilities(&self) -> ProviderCapabilities {
     ProviderCapabilities::none()
       .with(Capability::Indexes)
       .with(Capability::RawQueries)

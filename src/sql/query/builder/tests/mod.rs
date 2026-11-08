@@ -69,10 +69,7 @@ fn test_filter_params_number_placeholders_in_order() {
   let (sql, params) = builder
     .filter_to_sql_params(&filter)
     .expect("filter_to_sql_params failed");
-  assert_eq!(
-    sql,
-    "(\"name\" = $1) AND (\"age\" BETWEEN $2 AND $3)"
-  );
+  assert_eq!(sql, "(\"name\" = $1) AND (\"age\" BETWEEN $2 AND $3)");
   assert_eq!(
     params,
     vec![
@@ -87,10 +84,7 @@ fn test_filter_params_number_placeholders_in_order() {
 fn test_filter_params_keep_injection_as_a_value() {
   let builder = SqlQueryBuilder::new(SqlDialect::SQLite);
   let injected = "x' OR '1'='1";
-  let filter = crate::query::Filter::Eq(
-    "name".to_string(),
-    serde_json::json!(injected),
-  );
+  let filter = crate::query::Filter::Eq("name".to_string(), serde_json::json!(injected));
   let (sql, params) = builder
     .filter_to_sql_params(&filter)
     .expect("filter_to_sql_params failed");

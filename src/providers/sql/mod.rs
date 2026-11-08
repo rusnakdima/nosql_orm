@@ -1,6 +1,9 @@
 pub mod common;
+pub mod executor;
 pub mod row;
 pub mod utils;
+
+pub use executor::SqlExecutor;
 
 #[cfg(feature = "sql-sqlite")]
 pub mod sqlite;

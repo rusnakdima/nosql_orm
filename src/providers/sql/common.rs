@@ -69,6 +69,40 @@ pub trait SqlProviderHelpers {
     )
   }
 
+  // INSERT without `RETURNING` — the shared `Storage` implementation
+  // (`providers/sql/executor.rs`) reads the document back itself, so every
+  // backend runs the same statement shape.
+  fn build_insert_plain_sql(
+    &self,
+    collection: &str,
+    columns: &[&str],
+    values: &[String],
+  ) -> String {
+    let columns_str = columns
+      .iter()
+      .map(|c| self.quote_identifier(c))
+      .collect::<Vec<_>>()
+      .join(", ");
+
+    format!(
+      "INSERT INTO {} ({}) VALUES ({})",
+      self.quote_identifier(collection),
+      columns_str,
+      values.join(", ")
+    )
+  }
+
+  // `UPDATE … WHERE id = …` without `RETURNING`; the caller reads the row
+  // back the same way on every backend.
+  fn build_update_by_id_plain_sql(&self, collection: &str, set_clauses: &[String]) -> String {
+    format!(
+      "UPDATE {} SET {} WHERE id = {}",
+      self.quote_identifier(collection),
+      set_clauses.join(", "),
+      self.placeholder(0)
+    )
+  }
+
   fn build_select_by_id_sql(&self, collection: &str) -> String {
     format!(
       "SELECT * FROM {} WHERE id = {}",

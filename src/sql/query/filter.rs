@@ -201,11 +201,7 @@ impl SqlQueryBuilder {
     placeholder
   }
 
-  fn filter_to_bound_sql(
-    &self,
-    filter: &Filter,
-    params: &mut Vec<Value>,
-  ) -> OrmResult<String> {
+  fn filter_to_bound_sql(&self, filter: &Filter, params: &mut Vec<Value>) -> OrmResult<String> {
     match filter {
       Filter::Eq(field, value) => {
         validate_identifier(field)?;

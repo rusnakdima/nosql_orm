@@ -28,13 +28,11 @@ query_cache = []
 # Extension modules that no code path in Storage, Repository or the providers
 # reaches yet. They are opt-in so the default build carries only the storage
 # surface the crate actually integrates; each is documented in docs/07-features.
-cdc = []
+# (cdc/graphql/search/subscription were removed 2026-11-06 — zero callers in
+# this workspace; see roadmap register A8.)
 embedded = []
-graphql = []
 inheritance = []
 lazy = []
-search = []
-subscription = []
 
 [dependencies]
 tracing = "0.1"

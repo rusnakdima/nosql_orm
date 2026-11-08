@@ -725,8 +725,7 @@ impl AdminCommands for JsonProvider {
 impl TransactionControl for JsonProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
     Err(OrmError::NotSupported(
-      "the JSON provider cannot open a transaction: writes are persisted per call"
-        .to_string(),
+      "the JSON provider cannot open a transaction: writes are persisted per call".to_string(),
     ))
   }
 

@@ -1,5 +1,4 @@
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
-use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, Capability, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
   FieldInfo, IndexInfo, ProviderCapabilities, ProviderConfig, RawResult, SchemaIntrospection,
@@ -118,251 +117,52 @@ impl TableIntrospector for PostgresProvider {
   }
 }
 
+fn extract_index_fields(indexdef: &str) -> Vec<(String, i32)> {
+  let fields_re = regex::Regex::new(r"\((\w+)(?:\s+ASC|\s+DESC)?\)").unwrap();
+  fields_re
+    .captures_iter(indexdef)
+    .map(|c| (c.get(1).unwrap().as_str().to_string(), 1i32))
+    .collect()
+}
+
+fn determine_index_type(indexdef: &str) -> String {
+  if indexdef.contains(" USING gin") {
+    "gin".to_string()
+  } else if indexdef.contains(" USING gist") {
+    "gist".to_string()
+  } else if indexdef.contains(" USING hash") {
+    "hash".to_string()
+  } else {
+    "b-tree".to_string()
+  }
+}
+
 #[async_trait]
-impl Storage for PostgresProvider {
-  async fn insert(&self, collection: &str, mut doc: Value) -> OrmResult<Value> {
-    let id = match doc["id"].as_str() {
-      Some(s) => s.to_string(),
-      None => uuid::Uuid::new_v4().to_string(),
-    };
-    doc["id"] = serde_json::json!(id);
-
-    let columns: Vec<&str> = doc
-      .as_object()
-      .map(|m| m.keys().map(|k| k.as_str()).collect())
-      .unwrap_or_default();
-
-    let values: Vec<String> = columns
-      .iter()
-      .map(|c| {
-        doc
-          .get(*c)
-          .map(|v| self.query_builder.value_to_sql(v))
-          .unwrap_or_else(|| "NULL".to_string())
-      })
-      .collect();
-
-    let sql = self.build_insert_sql(collection, &columns, &values);
-
+impl crate::providers::sql::SqlExecutor for PostgresProvider {
+  async fn execute(&self, sql: &str, params: Vec<Value>) -> OrmResult<u64> {
     let client = map_err_connection(self.pool.get().await)?;
-
-    let row = map_err_query(client.query_one(&sql, &[]).await)?;
-
-    Ok(row::row_to_json_postgres(&row))
-  }
-
-  async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
-    let sql = self.build_select_by_id_sql(collection);
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    let row = map_err_query(client.query_opt(&sql, &[&id]).await)?;
-
-    Ok(row.map(|r| row::row_to_json_postgres(&r)))
-  }
-
-  async fn find_many(
-    &self,
-    collection: &str,
-    filter: Option<&Filter>,
-    skip: Option<u64>,
-    limit: Option<u64>,
-    sort_by: Option<&str>,
-    sort_asc: bool,
-  ) -> OrmResult<Vec<Value>> {
-    let mut sql = format!(
-      "SELECT * FROM {}",
-      self.dialect.quote_identifier(collection)
-    );
-    let mut params: Vec<Value> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    if let Some(sort) = sort_by {
-      let dir = if sort_asc { "ASC" } else { "DESC" };
-      sql.push_str(&format!(
-        " ORDER BY {} {}",
-        self.dialect.quote_identifier(sort),
-        dir
-      ));
-    }
-
-    // SQL reads "LIMIT n OFFSET m" — the other order is a syntax error on
-    // SQLite and MySQL.
-    if let Some(l) = limit {
-      sql.push_str(&format!(" LIMIT {}", l));
-    }
-
-    if let Some(s) = skip {
-      sql.push_str(&format!(" OFFSET {}", s));
-    }
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    let owned_params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+    let owned: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
       params.iter().map(to_postgres_param).collect();
-    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned_params
+    let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned
       .iter()
       .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
       .collect();
-    let rows = map_err_query(client.query(&sql, &param_refs).await)?;
+    Ok(map_err_query(client.execute(sql, &refs).await)?)
+  }
 
+  async fn query(&self, sql: &str, params: Vec<Value>) -> OrmResult<Vec<Value>> {
+    let client = map_err_connection(self.pool.get().await)?;
+    let owned: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+      params.iter().map(to_postgres_param).collect();
+    let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned
+      .iter()
+      .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
+      .collect();
+    let rows = map_err_query(client.query(sql, &refs).await)?;
     Ok(rows.iter().map(row::row_to_json_postgres).collect())
   }
 
-  async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
-    let set_clauses = self.query_builder.build_set_clause(&doc, &["id"])?;
-
-    let sql = self.build_update_by_id_sql(collection, &set_clauses);
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    let row = map_err_query(client.query_one(&sql, &[&id]).await)?;
-
-    Ok(row::row_to_json_postgres(&row))
-  }
-
-  async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
-    let set_clauses = self.query_builder.build_set_clause(&patch, &[])?;
-
-    let sql = self.build_update_by_id_sql(collection, &set_clauses);
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    let row = map_err_query(client.query_one(&sql, &[&id]).await)?;
-
-    Ok(row::row_to_json_postgres(&row))
-  }
-
-  async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    let sql = self.build_delete_by_id_sql(collection);
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    let result = map_err_query(client.execute(&sql, &[&id]).await)?;
-
-    Ok(result > 0)
-  }
-
-  async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
-    let mut sql = self.build_count_sql(collection);
-    let mut params: Vec<Value> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    let owned_params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
-      params.iter().map(to_postgres_param).collect();
-    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned_params
-      .iter()
-      .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
-      .collect();
-    let row = map_err_query(client.query_one(&sql, &param_refs).await)?;
-
-    let count: i64 = row.get(0);
-    Ok(count as u64)
-  }
-
-  async fn update_many(
-    &self,
-    collection: &str,
-    filter: Option<Filter>,
-    updates: Value,
-  ) -> OrmResult<usize> {
-    let set_clauses = self.query_builder.build_set_clause(&updates, &[])?;
-
-    let mut sql = self.build_update_sql(collection, &set_clauses);
-    let mut params: Vec<Value> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    let owned_params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
-      params.iter().map(to_postgres_param).collect();
-    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned_params
-      .iter()
-      .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
-      .collect();
-    let rows = map_err_query(client.execute(&sql, &param_refs).await)?;
-
-    Ok(rows as usize)
-  }
-
-  async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize> {
-    let mut sql = format!("DELETE FROM {}", self.dialect.quote_identifier(collection));
-    let mut params: Vec<Value> = Vec::new();
-
-    if let Some(f) = filter {
-      let (clause, values) = self.query_builder.filter_to_sql_params(&f)?;
-      sql.push_str(" WHERE ");
-      sql.push_str(&clause);
-      params = values;
-    }
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    let owned_params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
-      params.iter().map(to_postgres_param).collect();
-    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned_params
-      .iter()
-      .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
-      .collect();
-    let rows = map_err_query(client.execute(&sql, &param_refs).await)?;
-
-    Ok(rows as usize)
-  }
-
-  async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
-    let mut index_def = crate::sql::types::SqlIndexDef::new(
-      index.get_name().unwrap_or("idx_default"),
-      collection,
-      index.get_fields().iter().map(|(f, _)| f.clone()).collect(),
-    );
-
-    if index.is_unique() {
-      index_def = index_def.unique();
-    }
-
-    let sql = self.query_builder.build_create_index(&index_def);
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    map_err_query(client.execute(&sql, &[]).await)?;
-
-    Ok(())
-  }
-
-  async fn drop_index(&self, _collection: &str, index_name: &str) -> OrmResult<()> {
-    let sql = format!(
-      "DROP INDEX IF EXISTS {}",
-      self.dialect.quote_identifier(index_name)
-    );
-
-    let client = map_err_connection(self.pool.get().await)?;
-
-    map_err_query(client.execute(&sql, &[]).await)?;
-
-    Ok(())
-  }
-
-  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+  async fn list_indexes_for(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
     let sql = "
             SELECT indexname, indexdef
             FROM pg_indexes
@@ -394,30 +194,10 @@ impl Storage for PostgresProvider {
     Ok(indexes)
   }
 
-  fn capabilities(&self) -> ProviderCapabilities {
+  fn sql_capabilities(&self) -> ProviderCapabilities {
     ProviderCapabilities::none()
       .with(Capability::Indexes)
       .with(Capability::RawQueries)
-  }
-}
-
-fn extract_index_fields(indexdef: &str) -> Vec<(String, i32)> {
-  let fields_re = regex::Regex::new(r"\((\w+)(?:\s+ASC|\s+DESC)?\)").unwrap();
-  fields_re
-    .captures_iter(indexdef)
-    .map(|c| (c.get(1).unwrap().as_str().to_string(), 1i32))
-    .collect()
-}
-
-fn determine_index_type(indexdef: &str) -> String {
-  if indexdef.contains(" USING gin") {
-    "gin".to_string()
-  } else if indexdef.contains(" USING gist") {
-    "gist".to_string()
-  } else if indexdef.contains(" USING hash") {
-    "hash".to_string()
-  } else {
-    "b-tree".to_string()
   }
 }
 
@@ -564,7 +344,9 @@ impl SchemaIntrospection for PostgresProvider {
 fn to_postgres_param(value: &Value) -> Box<dyn tokio_postgres::types::ToSql + Sync + Send> {
   match value {
     // NULL must bind as NULL; an empty string is a value, not the absence of one.
-    Value::Null => Box::new(Option::<String>::None) as Box<dyn tokio_postgres::types::ToSql + Sync + Send>,
+    Value::Null => {
+      Box::new(Option::<String>::None) as Box<dyn tokio_postgres::types::ToSql + Sync + Send>
+    }
     Value::Bool(b) => Box::new(*b) as Box<dyn tokio_postgres::types::ToSql + Sync + Send>,
     Value::Number(n) => {
       if let Some(i) = n.as_i64() {
