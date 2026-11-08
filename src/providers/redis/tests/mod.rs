@@ -71,38 +71,32 @@ fn docs() -> Vec<serde_json::Value> {
 fn filtering_happens_before_skip_and_limit() {
   let filter = Filter::Gt("rank".to_string(), json!(1));
   let page = select_documents(docs(), Some(&filter), Some(1), Some(2), None, true);
-  let ids: Vec<&str> = page.iter().map(|doc| doc["id"].as_str().unwrap()).collect();
-  assert_eq!(ids, vec!["c", "d"]);
+  // Every fixture document carries a string id, so a None here would mean
+  // select_documents returned a document the fixture never wrote. Comparing
+  // the Options states that instead of panicking on it.
+  let ids: Vec<Option<&str>> = page.iter().map(|doc| doc["id"].as_str()).collect();
+  assert_eq!(ids, vec![Some("c"), Some("d")]);
 }
 
 #[test]
 fn sort_ascending_uses_the_named_field() {
   let sorted = select_documents(docs(), None, None, None, Some("name"), true);
-  let names: Vec<&str> = sorted
-    .iter()
-    .map(|doc| doc["name"].as_str().unwrap())
-    .collect();
-  assert_eq!(names, vec!["Ann", "Bob", "Cid", "Dot"]);
+  let names: Vec<Option<&str>> = sorted.iter().map(|doc| doc["name"].as_str()).collect();
+  assert_eq!(names, vec![Some("Ann"), Some("Bob"), Some("Cid"), Some("Dot")]);
 }
 
 #[test]
 fn sort_descending_reverses_the_order() {
   let sorted = select_documents(docs(), None, None, None, Some("rank"), false);
-  let ranks: Vec<i64> = sorted
-    .iter()
-    .map(|doc| doc["rank"].as_i64().unwrap())
-    .collect();
-  assert_eq!(ranks, vec![4, 3, 2, 1]);
+  let ranks: Vec<Option<i64>> = sorted.iter().map(|doc| doc["rank"].as_i64()).collect();
+  assert_eq!(ranks, vec![Some(4), Some(3), Some(2), Some(1)]);
 }
 
 #[test]
 fn sort_then_page_returns_the_requested_window() {
   let page = select_documents(docs(), None, Some(1), Some(2), Some("rank"), true);
-  let ranks: Vec<i64> = page
-    .iter()
-    .map(|doc| doc["rank"].as_i64().unwrap())
-    .collect();
-  assert_eq!(ranks, vec![2, 3]);
+  let ranks: Vec<Option<i64>> = page.iter().map(|doc| doc["rank"].as_i64()).collect();
+  assert_eq!(ranks, vec![Some(2), Some(3)]);
 }
 
 #[test]

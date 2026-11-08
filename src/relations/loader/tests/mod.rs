@@ -80,9 +80,11 @@ impl Storage for MockStorage {
 
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
     let mut data = self.data.write();
-    if let Some(existing) = data
+    // A collection the fixture never seeded is a NotFound, not a panic.
+    let docs = data
       .get_mut(collection)
-      .unwrap()
+      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
+    if let Some(existing) = docs
       .iter_mut()
       .find(|d| d.get("id").and_then(|v| v.as_str()) == Some(id))
     {
@@ -93,9 +95,10 @@ impl Storage for MockStorage {
 
   async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
     let mut data = self.data.write();
-    if let Some(existing) = data
+    let docs = data
       .get_mut(collection)
-      .unwrap()
+      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
+    if let Some(existing) = docs
       .iter_mut()
       .find(|d| d.get("id").and_then(|v| v.as_str()) == Some(id))
     {
@@ -109,7 +112,9 @@ impl Storage for MockStorage {
 
   async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
     let mut data = self.data.write();
-    let docs = data.get_mut(collection).unwrap();
+    let docs = data
+      .get_mut(collection)
+      .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
     let len_before = docs.len();
     docs.retain(|d| d.get("id").and_then(|v| v.as_str()) != Some(id));
     Ok(docs.len() < len_before)
@@ -440,11 +445,11 @@ async fn test_save_and_reload() -> OrmResult<()> {
     "prod2_category": prod2_cat,
     "loaded_count": loaded.len()
   });
-  std::fs::write(&saved_path, serde_json::to_string_pretty(&state).unwrap())?;
+  std::fs::write(&saved_path, serde_json::to_string_pretty(&state)?)?;
 
   // Reload: read from temp file and verify equality
   let reloaded_raw = std::fs::read_to_string(&saved_path)?;
-  let reloaded_state: serde_json::Value = serde_json::from_str(&reloaded_raw).unwrap();
+  let reloaded_state: serde_json::Value = serde_json::from_str(&reloaded_raw)?;
 
   assert_eq!(reloaded_state["loaded_count"], 2);
   assert_eq!(

@@ -1,6 +1,15 @@
 use super::*;
 use tempfile::tempdir;
 
+// A tempdir path is UTF-8 on every platform this crate runs on; a path that
+// is not is reported as an error instead of panicking the test thread.
+async fn connect_temp(db_path: &std::path::Path) -> OrmResult<SqliteProvider> {
+  let path = db_path.to_str().ok_or_else(|| {
+    OrmError::InvalidInput(format!("tempdir path is not valid UTF-8: {}", db_path.display()))
+  })?;
+  SqliteProvider::connect(path).await
+}
+
 async fn make_table(provider: &SqliteProvider, columns: &[(&str, &str)]) -> OrmResult<()> {
   let columns = columns
     .iter()
@@ -16,7 +25,7 @@ async fn make_table(provider: &SqliteProvider, columns: &[(&str, &str)]) -> OrmR
 async fn sqlite_insert_find_by_id() -> OrmResult<()> {
   let temp = tempdir()?;
   let db_path = temp.path().join("test.db");
-  let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+  let provider = connect_temp(&db_path).await?;
   make_table(
     &provider,
     &[("id", "TEXT"), ("name", "TEXT"), ("email", "TEXT")],
@@ -32,9 +41,11 @@ async fn sqlite_insert_find_by_id() -> OrmResult<()> {
   assert_eq!(inserted["id"], "test-id-1");
   assert_eq!(inserted["name"], "Alice");
 
-  let found = provider.find_by_id("users", "test-id-1").await?;
-  assert!(found.is_some());
-  assert_eq!(found.unwrap()["name"], "Alice");
+  let found = provider
+    .find_by_id("users", "test-id-1")
+    .await?
+    .ok_or_else(|| OrmError::NotFound("inserted row test-id-1 is missing".to_string()))?;
+  assert_eq!(found["name"], "Alice");
 
   Ok(())
 }
@@ -43,7 +54,7 @@ async fn sqlite_insert_find_by_id() -> OrmResult<()> {
 async fn sqlite_insert_delete() -> OrmResult<()> {
   let temp = tempdir()?;
   let db_path = temp.path().join("test.db");
-  let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+  let provider = connect_temp(&db_path).await?;
   make_table(&provider, &[("id", "TEXT"), ("name", "TEXT")]).await?;
 
   let doc = serde_json::json!({"id": "delete-me", "name": "Bob"});
@@ -64,7 +75,7 @@ async fn sqlite_insert_delete() -> OrmResult<()> {
 async fn sqlite_update() -> OrmResult<()> {
   let temp = tempdir()?;
   let db_path = temp.path().join("test.db");
-  let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+  let provider = connect_temp(&db_path).await?;
   make_table(
     &provider,
     &[("id", "TEXT"), ("name", "TEXT"), ("age", "INTEGER")],
@@ -84,9 +95,11 @@ async fn sqlite_update() -> OrmResult<()> {
   assert_eq!(updated["name"], "Charles");
   assert_eq!(updated["age"], 31);
 
-  let found = provider.find_by_id("users", "update-me").await?;
-  assert!(found.is_some());
-  assert_eq!(found.unwrap()["name"], "Charles");
+  let found = provider
+    .find_by_id("users", "update-me")
+    .await?
+    .ok_or_else(|| OrmError::NotFound("updated row update-me is missing".to_string()))?;
+  assert_eq!(found["name"], "Charles");
 
   Ok(())
 }
@@ -95,7 +108,7 @@ async fn sqlite_update() -> OrmResult<()> {
 async fn sqlite_find_many_pages_and_sorts() -> OrmResult<()> {
   let temp = tempdir()?;
   let db_path = temp.path().join("test.db");
-  let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+  let provider = connect_temp(&db_path).await?;
   make_table(&provider, &[("id", "TEXT"), ("name", "TEXT")]).await?;
 
   for (id, name) in [("a", "Ann"), ("b", "Bob"), ("c", "Cid")] {
@@ -129,7 +142,7 @@ async fn sqlite_find_many_pages_and_sorts() -> OrmResult<()> {
 async fn sqlite_list_collections_counts_the_rows() -> OrmResult<()> {
   let temp = tempdir()?;
   let db_path = temp.path().join("test.db");
-  let provider = SqliteProvider::connect(db_path.to_str().unwrap()).await?;
+  let provider = connect_temp(&db_path).await?;
   make_table(&provider, &[("id", "TEXT"), ("name", "TEXT")]).await?;
   provider
     .insert("users", serde_json::json!({"id": "u1", "name": "Ann"}))

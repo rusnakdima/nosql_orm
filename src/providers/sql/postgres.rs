@@ -118,10 +118,19 @@ impl TableIntrospector for PostgresProvider {
 }
 
 fn extract_index_fields(indexdef: &str) -> Vec<(String, i32)> {
-  let fields_re = regex::Regex::new(r"\((\w+)(?:\s+ASC|\s+DESC)?\)").unwrap();
+  // Both `expect`s are unreachable by construction: the pattern is a static
+  // literal (it compiles, and `indexdef` only ever comes from pg_indexes),
+  // and group 1 is mandatory in it, so every capture carries group 1.
+  let fields_re = regex::Regex::new(r"\((\w+)(?:\s+ASC|\s+DESC)?\)")
+    .expect("static index pattern is a valid regex");
   fields_re
     .captures_iter(indexdef)
-    .map(|c| (c.get(1).unwrap().as_str().to_string(), 1i32))
+    .map(|c| {
+      let field = c
+        .get(1)
+        .expect("group 1 is mandatory in the static index pattern");
+      (field.as_str().to_string(), 1i32)
+    })
     .collect()
 }
 
