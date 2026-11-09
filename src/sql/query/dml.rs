@@ -23,6 +23,9 @@ impl SqlQueryBuilder {
     )
   }
 
+  // Eight parameters is the shape of a SELECT (table, filter, projection,
+  // order, paging, columns) — a struct split would only move the fields.
+  #[allow(clippy::too_many_arguments)]
   pub fn build_select(
     &self,
     table: &str,
