@@ -5,7 +5,10 @@ use tempfile::tempdir;
 // is not is reported as an error instead of panicking the test thread.
 async fn connect_temp(db_path: &std::path::Path) -> OrmResult<SqliteProvider> {
   let path = db_path.to_str().ok_or_else(|| {
-    OrmError::InvalidInput(format!("tempdir path is not valid UTF-8: {}", db_path.display()))
+    OrmError::InvalidInput(format!(
+      "tempdir path is not valid UTF-8: {}",
+      db_path.display()
+    ))
   })?;
   SqliteProvider::connect(path).await
 }

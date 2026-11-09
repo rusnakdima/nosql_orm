@@ -82,7 +82,10 @@ fn filtering_happens_before_skip_and_limit() {
 fn sort_ascending_uses_the_named_field() {
   let sorted = select_documents(docs(), None, None, None, Some("name"), true);
   let names: Vec<Option<&str>> = sorted.iter().map(|doc| doc["name"].as_str()).collect();
-  assert_eq!(names, vec![Some("Ann"), Some("Bob"), Some("Cid"), Some("Dot")]);
+  assert_eq!(
+    names,
+    vec![Some("Ann"), Some("Bob"), Some("Cid"), Some("Dot")]
+  );
 }
 
 #[test]
