@@ -112,6 +112,11 @@ Each is exported at the crate root and under `nosql_orm::new_providers`.
 - `VectorSearchStorage<P>` / `DistanceMetric` — vector search
   (`nosql_orm::vector_search`)
 - `MongoTxStorage<P>` / `RedisTxStorage<P>` — write-buffer transactions
+  (`begin_transaction()` / `commit_transaction()` / `rollback_transaction()` /
+  `is_transaction_active()`)
+- `PgVectorProvider` — Postgres + vector extension
+  (`connect(uri)`, `with_embedding_field(f)`, `setup_vector()`,
+  `search_similar(collection, embedding, top_k)`)
 - `ChangeCaptureStorage` events flow into `SubscriptionManager` via
   `SubscribedStorage::poll_changes()`
 

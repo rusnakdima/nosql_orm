@@ -147,6 +147,24 @@ returns the next cursor.
 
 ---
 
+## Full-text search and streaming
+
+```rust
+// Full-text search (Storage trait — in-memory baseline)
+provider.search(collection, &["title", "body"], "query").await?
+
+// Streaming (Storage trait — collect-then-stream default)
+let mut stream = provider.find_stream(collection, Some(filter)).await;
+while let Some(Ok(doc)) = stream.next().await { /* ... */ }
+```
+
+`search()` filters documents whose named fields contain the query
+(case-insensitive substring). Provider-native ranking (`$text`, `tsvector`,
+FTS5) is coming soon. `find_stream()` returns a `Pin<Box<dyn Stream>>`;
+`Repository::find_stream()` wraps it in a batched `QueryStream`.
+
+---
+
 ## Query statistics / optimization
 
 `query` module also exposes (mostly advisory, in-memory):

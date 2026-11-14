@@ -47,6 +47,38 @@ Operations outside a backend's contract return `OrmError::NotSupported`.
 
 ---
 
+## Wrapper features (always compiled)
+
+These types wrap any `Storage` provider and add cross-cutting behaviour.
+They need **no feature flag** — import from the crate root:
+
+| Type | Import | What it does |
+|---|---|---|
+| `ChangeCaptureStorage<P>` | `nosql_orm::cdc` | Records every insert/update/delete as a `ChangeEvent`; `drain_changes()`, `peek_changes()`, `changes_stream()`. |
+| `SubscriptionManager` / `SubscribedStorage<P>` | `nosql_orm::subscription` | In-process pub/sub over change events; `subscribe(filter)` → async `Subscription`. |
+| `TenantStorage<P>` | `nosql_orm::tenant` | Injects `_tenant_id` on write, filters every read — transparent multi-tenancy. |
+| `EncryptedStorage<P>` + `StaticKeyProvider` | `nosql_orm::encryption` | AES-256-GCM field-level encryption on configured fields. |
+| `VectorSearchStorage<P>` + `DistanceMetric` | `nosql_orm::vector_search` | Stores embeddings, `search_similar()` with cosine/euclidean/dot-product. |
+| `SyncEngine<L, R>` | `nosql_orm::sync` | Offline write queue drained to a remote store; re-queues failures. |
+| `MongoTxStorage<P>` / `RedisTxStorage<P>` | `nosql_orm::mongo_tx` / `redis_tx` | Write-buffer transactions (begin/commit/rollback). |
+| `Storage::search()` / `Storage::find_stream()` | `nosql_orm::provider::Storage` | Full-text search and streaming results (default impls on the trait). |
+| `PgVectorProvider` | `nosql_orm` (feature `pgvector`) | Real Postgres driver with vector similarity search. |
+
+Example — wrapping a provider:
+
+```rust
+use nosql_orm::{ChangeCaptureStorage, TenantStorage, EncryptedStorage, StaticKeyProvider};
+use std::sync::Arc;
+
+let base = JsonProvider::new("./data").await?;
+let tenant = TenantStorage::new(base, "acme");
+let cdc = ChangeCaptureStorage::new(tenant);
+let key = Arc::new(StaticKeyProvider::new(vec![0u8; 32])?);
+let secure = EncryptedStorage::new(cdc, key, vec!["ssn".into()]);
+```
+
+---
+
 ## Installation
 
 ```toml

@@ -140,6 +140,35 @@ listeners. `dispatch_insert` is called on insert; `dispatch_update` on update.
 
 ---
 
+## Transactions
+
+Available when `P: Storage + TransactionControl`:
+
+```rust
+pub async fn begin_transaction(&self) -> OrmResult<TransactionId>
+pub async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()>
+pub async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()>
+pub async fn is_transaction_active(&self) -> OrmResult<bool>
+```
+
+Native: JSON (snapshot), SQLite/Postgres/MySQL (dedicated connection).
+Write-buffer wrappers: `MongoTxStorage`, `RedisTxStorage`.
+
+---
+
+## Search
+
+`Storage::search()` is available on the provider (and forwards through the
+repository's provider):
+
+```rust
+repo.provider().search("docs", &["title", "body"], "rust").await?
+```
+
+In-memory substring baseline; provider-native ranking is coming soon.
+
+---
+
 ## Examples
 
 ```rust

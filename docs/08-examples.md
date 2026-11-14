@@ -35,6 +35,19 @@ cargo run --example sql_mysql_example --features sql-mysql
 | `taskflow_like.rs` | default | TaskFlow-style usage |
 | `derive_entity_test.rs`, `test_macro.rs`, `test_snake_case.rs` | default | Macro tests |
 
+### Wrapper features (always compiled — no feature flag)
+
+| Example | Topic |
+|---|---|
+| `cdc_example.rs` | `ChangeCaptureStorage` — capture insert/update/delete events |
+| `subscription_example.rs` | `SubscriptionManager` + `SubscribedStorage` — real-time change stream |
+| `tenant_example.rs` | `TenantStorage` — multi-tenant isolation |
+| `encryption_example.rs` | `EncryptedStorage` + `StaticKeyProvider` — AES-256-GCM field encryption |
+| `vector_search_example.rs` | `VectorSearchStorage` + `DistanceMetric` — cosine similarity search |
+| `sync_example.rs` | `SyncEngine` — offline queue + sync to remote |
+| `transactions_example.rs` | JSON/Postgres/MySQL native + `MongoTxStorage`/`RedisTxStorage` write-buffer |
+| `pgvector_example.rs` | `PgVectorProvider` — Postgres vector search (`--features pgvector`) |
+
 ---
 
 ## Minimal end-to-end example

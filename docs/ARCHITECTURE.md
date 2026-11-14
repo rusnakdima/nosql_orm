@@ -85,12 +85,25 @@ src/
 ├── soft_delete.rs      SoftDeletable, SoftDeleteExt
 ├── timestamps.rs       Timestamps, apply_timestamps
 ├── utils.rs            compare_values, generate_id, get_document_id, DocumentExt
+├── cdc.rs              ChangeCaptureStorage, ChangeEvent, ChangeOp (always on)
+├── subscription.rs     SubscriptionManager, Subscription, SubscribedStorage (always on)
+├── tenant.rs           TenantStorage multi-tenancy wrapper (always on)
+├── encryption.rs       EncryptedStorage, KeyProvider, StaticKeyProvider (always on)
+├── vector_search.rs    VectorSearchStorage, DistanceMetric (always on)
+├── sync.rs             SyncEngine offline-first sync (always on)
+├── mongo_tx.rs         MongoTxStorage write-buffer transactions (always on)
+├── redis_tx.rs         RedisTxStorage write-buffer transactions (always on)
+├── pgvector.rs         PgVectorProvider (feature = "pgvector")
+├── new_providers.rs    re-exports of the alias providers (feature-gated)
 └── providers/
     ├── json.rs         JSON file provider              (feature = "json")
     ├── json_tree.rs    one-file-per-document provider  (feature = "json")
     ├── mongo/          MongoDB provider                (feature = "mongo")
     ├── redis.rs        Redis provider                  (feature = "redis")
     ├── sql/            Postgres, MySQL, SQLite         (feature = "sql-*")
+    │   ├── postgres.rs / mysql.rs / sqlite.rs
+    │   ├── duckdb.rs / mssql.rs / oracle.rs  (aliases, feature-gated)
+    │   └── common.rs / executor.rs / row.rs / utils.rs
     ├── backend.rs      connect_backend, BackendKind, ConnectionParts
     ├── sync.rs         provider-to-provider sync
     └── variant.rs      provider hand-off (json + mongo)
