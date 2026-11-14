@@ -505,7 +505,7 @@ impl TransactionControl for PostgresProvider {
     let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
 
     // Acquire a dedicated connection from the pool
-    let mut client = map_err_connection(self.pool.get().await)?;
+    let client = map_err_connection(self.pool.get().await)?;
     // Execute BEGIN
     client
       .execute("BEGIN", &[])

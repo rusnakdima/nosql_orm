@@ -740,7 +740,10 @@ impl TransactionControl for JsonProvider {
       while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
-          let file_name = path.file_name().unwrap();
+          let file_name = match path.file_name() {
+            Some(name) => name,
+            None => continue,
+          };
           let backup_path = backup_dir.join(file_name);
           tokio::fs::copy(&path, &backup_path).await.map_err(|e| {
             OrmError::Transaction(format!("Failed to backup {}: {}", path.display(), e))
@@ -805,7 +808,10 @@ impl TransactionControl for JsonProvider {
         while let Ok(Some(entry)) = entries.next_entry().await {
           let path = entry.path();
           if path.is_file() {
-            let file_name = path.file_name().unwrap();
+            let file_name = match path.file_name() {
+            Some(name) => name,
+            None => continue,
+          };
             let target = self.base_dir.join(file_name);
             tokio::fs::copy(&path, &target).await.map_err(|e| {
               OrmError::Transaction(format!("Failed to restore {}: {}", path.display(), e))

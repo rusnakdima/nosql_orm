@@ -22,7 +22,7 @@ pub struct MySqlProvider {
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
   transaction_state: std::sync::Arc<tokio::sync::Mutex<Option<TransactionId>>>,
-  tx_connection: std::sync::Arc<tokio::sync::Mutex<Option<mysql_async::conn::Conn>>>,
+  tx_connection: std::sync::Arc<tokio::sync::Mutex<Option<mysql_async::Conn>>>,
 }
 
 impl MySqlProvider {

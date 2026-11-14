@@ -172,8 +172,8 @@ pub trait Storage: Send + Sync + Clone + 'static {
       .await
   }
 
-  /// Full-text search across the given fields. Default implementation filters
-  /// in memory; providers can override for native full-text search.
+  // Full-text search across the given fields. Default implementation filters
+  // in memory; providers can override for native full-text search.
   async fn search(
     &self,
     collection: &str,
@@ -197,8 +197,8 @@ pub trait Storage: Send + Sync + Clone + 'static {
     Ok(results)
   }
 
-  /// Stream results lazily. Default implementation collects all and streams;
-  /// providers can override for native cursor support.
+  // Stream results lazily. Default implementation collects all and streams;
+  // providers can override for native cursor support.
   fn find_stream(
     &self,
     collection: &str,
