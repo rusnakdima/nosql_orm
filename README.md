@@ -1,49 +1,39 @@
 # nosql_orm
 
-A **TypeORM-inspired async ORM for Rust** with one `Storage` API in front of six backends: **JSON files**, **MongoDB**, **Redis**, and **SQL** (PostgreSQL, MySQL, SQLite). Inspired by TypeORM's design philosophy: repositories, typed entities, fluent queries, and eager relation loading — all in idiomatic async Rust.
+A TypeORM-inspired async ORM for Rust with one unified, type-safe API over
+JSON files, MongoDB, Redis, PostgreSQL, SQLite and MySQL.
 
----
+Crate: `nosql_orm` 0.9.0. Derive crate: `nosql_orm_derive` (re-exported).
 
 ## Features
 
-| Feature | JSON / JsonTree | MongoDB | Redis | SQL (Postgres / MySQL / SQLite) |
-|---------|-----------------|---------|-------|----------------------------------|
-| Full CRUD | ✅ | ✅ | ✅ | ✅ |
-| Fluent query builder + filters | ✅ | ✅ | ✅ | ✅ |
-| Sorting & pagination | ✅ | ✅ | ✅ | ✅ |
-| Dot-notation field access | ✅ | ✅ | — | — |
-| OneToOne / ManyToOne | ✅ | ✅ | ✅ | ✅ |
-| OneToMany | ✅ | ✅ | ✅ | ✅ |
-| ManyToMany (embedded ids) | ✅ | ✅ | ✅ | ✅ |
-| Partial update (`patch`) | ✅ | ✅ | ✅ | ✅ |
-| Auto-generated UUIDs | ✅ | ✅ | ✅ | ✅ |
-| Index management | NotSupported | ✅ | NotSupported | ✅ |
-| Raw SQL (`execute_raw`) | NotSupported | NotSupported | NotSupported | ✅ |
-
-`NotSupported` means the provider returns `OrmError::NotSupported` rather than
-reporting a success it did not perform.
-
----
+- Unified `Storage` trait across all backends
+- `Repository<E, P>` typed CRUD, queries, streaming
+- `RelationRepository` with eager relation loading (`WithLoaded`)
+- Fluent `QueryBuilder` + `Filter` (19 variants) + `Projection`
+- Derive macros: `Model`, `OrmEntity`, `Entity`, `Validate`
+- Soft delete, auto timestamps, validators, migrations (basic runner)
+- Indexes (Mongo + SQL), aggregation (JSON + Mongo)
+- Events, cascade delete, lazy loading, embedded, inheritance (opt-in)
+- Query caching (opt-in), query logging
 
 ## Installation
 
 ```toml
 [dependencies]
-# JSON only (default):
-nosql_orm = { version = "0.9", git = "https://github.com/rusnakdima/nosql_orm" }
-
-# MongoDB only:
-nosql_orm = { version = "0.9", git = "...", default-features = false, features = ["mongo"] }
-
-# MongoDB + Redis + all SQL backends:
-nosql_orm = { version = "0.9", git = "...", features = ["full"] }
+nosql_orm = "0.9"                                          # JSON only
+# nosql_orm = { version = "0.9", features = ["mongo"] }
+# nosql_orm = { version = "0.9", features = ["redis"] }
+# nosql_orm = { version = "0.9", features = ["sql"] }        # all SQL
+# nosql_orm = { version = "0.9", features = ["full"] }
 ```
 
----
+Feature flags: `json` (default), `mongo`, `redis`, `sql` (`sql-postgres`,
+`sql-sqlite`, `sql-mysql`), `full`, `query_cache`, `embedded`,
+`inheritance`, `lazy`. There are no `graphql`/`cdc`/`subscription`/`search`
+features.
 
-## Quick Start
-
-### 1. Define your entity
+## Quick start
 
 ```rust
 use nosql_orm::prelude::*;
@@ -54,237 +44,59 @@ pub struct User {
     pub id: Option<String>,
     pub name: String,
     pub email: String,
-    pub age: u32,
 }
 
-// Implement Entity — or use the #[derive(Entity)] proc-macro (see below)
 impl Entity for User {
     fn meta() -> EntityMeta { EntityMeta::new("users") }
     fn get_id(&self) -> Option<String> { self.id.clone() }
     fn set_id(&mut self, id: String) { self.id = Some(id); }
 }
-```
 
-### 2. Connect and create a repository
+#[tokio::main]
+async fn main() -> OrmResult<()> {
+    let tmp = tempfile::tempdir().unwrap();
+    let provider = JsonProvider::new(tmp.path()).await?;
+    let repo: Repository<User, _> = Repository::new(provider);
 
-```rust
-use nosql_orm::prelude::*;
+    let u = repo.save(User { id: None, name: "Alice".into(), email: "a@x.com".into() }).await?;
+    println!("saved {}", u.id.unwrap());
 
-// JSON provider — reads/writes from ./data/*.json
-let provider = JsonProvider::new("./data").await?;
-
-// MongoDB provider
-// let provider = MongoProvider::connect("mongodb://localhost:27017", "mydb").await?;
-
-let users: Repository<User, _> = Repository::new(provider.clone());
-```
-
-### 3. CRUD
-
-```rust
-// INSERT (id auto-generated)
-let user = users.save(User { id: None, name: "Alice".into(), email: "a@b.com".into(), age: 30 }).await?;
-
-// GET by id
-let found = users.get_by_id(user.id.as_ref().unwrap()).await?;
-
-// UPDATE
-let updated = users.save(User { id: user.id.clone(), age: 31, ..user.clone() }).await?;
-
-// PATCH (partial update)
-let patched = users.patch(user.id.as_ref().unwrap(), serde_json::json!({ "age": 32 })).await?;
-
-// DELETE
-users.delete(user.id.as_ref().unwrap()).await?;
-
-// COUNT
-let n = users.count().await?;
-```
-
-### 4. Fluent query builder
-
-```rust
-let results = users.query()
-    .where_gt("age", serde_json::json!(18))
-    .where_contains("email", "@example.com")
-    .order_by(OrderBy::asc("name"))
-    .skip(0)
-    .limit(10)
-    .find()
-    .await?;
-```
-
-Available filters: `where_eq`, `where_ne`, `where_gt`, `where_lt`, `where_contains`,
-`where_starts_with`, `where_in`, and raw `filter(Filter::And(...))`.
-
-### 5. Relations
-
-Declare relations on your entity:
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Post {
-    pub id: Option<String>,
-    pub title: String,
-    pub author_id: String,      // FK → users.id
-    pub tag_ids: Vec<String>,   // FK[] → tags.id
-}
-
-impl Entity for Post { /* ... */ }
-
-impl WithRelations for Post {
-    fn relations() -> Vec<RelationDef> {
-        vec![
-            RelationDef::many_to_one("author", "users", "author_id"),
-            RelationDef::many_to_many("tags", "tags", "tag_ids"),
-        ]
-    }
-}
-```
-
-Then use `RelationRepository`:
-
-```rust
-let posts: RelationRepository<Post, _> = RelationRepository::new(provider.clone());
-
-// Load one post with author + tags
-let item = posts
-    .find_with_relations(&post_id, &["author", "tags"])
-    .await?
-    .unwrap();
-
-println!("Post: {}", item.entity.title);
-
-// Single (ManyToOne / OneToOne)
-if let Some(author) = item.one("author")? {
-    println!("Author: {}", author["name"]);
-}
-
-// Many (OneToMany / ManyToMany)
-for tag in item.many("tags")? {
-    println!("Tag: {}", tag["name"]);
-}
-
-// Load all posts with relations
-let all = posts.find_all_with_relations(&["author", "tags"]).await?;
-
-// Query with relations
-let rust_posts = posts
-    .query_with_relations(
-        QueryBuilder::new().where_contains("title", "Rust"),
-        &["author"],
-    )
-    .await?;
-```
-
-#### Relation types
-
-| Method | When to use |
-|--------|------------|
-| `RelationDef::many_to_one("name", "collection", "local_fk")` | Post → User (post.author_id) |
-| `RelationDef::one_to_many("name", "collection", "foreign_fk")` | User → Posts (post.user_id) |
-| `RelationDef::one_to_one("name", "collection", "local_fk")` | User → Profile (user.profile_id) |
-| `RelationDef::many_to_many("name", "collection", "ids_field")` | Post ↔ Tags (post.tag_ids[]) |
-
----
-
-## Provider Config API
-
-```rust
-use nosql_orm::provider::ProviderConfig;
-
-// JSON
-let provider = JsonProvider::new("/path/to/data").await?;
-
-// MongoDB via config struct
-let config = ProviderConfig::new("mongodb://localhost:27017")
-    .with_database("myapp");
-let provider = MongoProvider::from_config(&config).await?;
-
-// Redis
-let provider = RedisProvider::new("redis://127.0.0.1:6379").await?;
-
-// SQL: each provider takes a connection string
-let provider = SqliteProvider::connect("app.db").await?;
-```
-
----
-
-## Swap providers without changing business logic
-
-```rust
-async fn run<P: Storage>(provider: P) -> OrmResult<()> {
-    let users: Repository<User, P> = Repository::new(provider);
-    let user = users.save(User { id: None, name: "Test".into(), email: "t@t.com".into(), age: 20 }).await?;
-    println!("{:?}", user);
+    let adults = repo.query().where_gt("age", 18).limit(10).find().await.unwrap_or_default();
+    let _ = adults;
     Ok(())
 }
-
-// Works with every backend:
-run(JsonProvider::new("./data").await?).await?;
-run(MongoProvider::connect("mongodb://localhost:27017", "mydb").await?).await?;
 ```
 
----
+## Providers
 
-## Feature flags
+| Provider | Feature | Constructor |
+|---|---|---|
+| `JsonProvider` | `json` (default) | `JsonProvider::new(base_dir).await` |
+| `JsonTreeProvider` | `json` | `JsonTreeProvider::new(base_dir).await` |
+| `MongoProvider` | `mongo` | `MongoProvider::connect(uri, db_name).await` |
+| `RedisProvider` | `redis` | `RedisProvider::new(conn_str).await` |
+| `SqliteProvider` | `sql-sqlite` | `SqliteProvider::connect(path).await` |
+| `PostgresProvider` | `sql-postgres` | `PostgresProvider::connect(uri).await` |
+| `MySqlProvider` | `sql-mysql` | `MySqlProvider::connect(uri).await` |
 
-| Feature | Enables |
-|---------|---------|
-| `json` (default) | `JsonProvider` and `JsonTreeProvider` |
-| `mongo` | `MongoProvider` |
-| `redis` | `RedisProvider` |
-| `sql` | `PostgresProvider`, `MySqlProvider`, `SqliteProvider` (equals the three `sql-*` features) |
-| `sql-postgres`, `sql-mysql`, `sql-sqlite` | one SQL backend each |
-| `full` | `json` + `mongo` + `redis` + `sql` |
-| `query_cache` | `cache::QueryCache` |
-| `graphql`, `cdc`, `subscription`, `inheritance`, `search`, `embedded`, `lazy` | the extension modules, off by default; no code path in `Storage`, `Repository` or the providers reaches them yet |
+Runtime selection: `connect_backend(BackendKind, url)` →
+`Arc<dyn StorageBackend>`.
 
----
+## Documentation
 
-## Running examples
+See `docs/` (table of contents: `docs/00-table-of-contents.md`):
 
-```bash
-# JSON example (no external services needed)
-cargo run --example json_example
+- `01-introduction.md` — overview, feature matrix, install
+- `02-entity.md` — Entity trait, macros
+- `03-provider.md` — providers & feature flags
+- `04-repository.md` — Repository CRUD
+- `05-query-builder.md` — querying
+- `06-relations.md` — relations, cascade, lazy, embedded, inheritance
+- `07-features/` — feature deep dives
+- `08-examples.md` — examples
+- `09-api-reference.md` — API quick reference
+- `ARCHITECTURE.md`, `MODULE.md`
 
-# MongoDB example
-cargo run --example mongo_example --features mongo
-```
+## License
 
----
-
-## Project layout
-
-```
-src/
-├── lib.rs            — module declarations, root re-exports, prelude
-├── provider.rs       — Storage, StorageBackend, SchemaIntrospection,
-│                       AdminCommands, TransactionControl, Capability
-├── admin_types.rs    — DTOs: CollectionMeta, CollectionSchema, CollectionStats,
-│                       ConnectionHealth, IndexInfo, RawResult, TransactionId
-├── entity/           — Entity trait, EntityMeta, accessors, mutators
-├── repository/       — Repository<E, P>, RelationRepository, indexes, fast path
-├── query/            — QueryBuilder, Filter, projection, optimizer, statistics
-├── relations/        — RelationDef, relation loaders, registry, wrappers
-├── cascade/          — cascade delete and restore across relations
-├── nosql_index/      — index definitions and IndexManager
-├── migrations/       — Migration trait, SqlMigration/JsonMigration, MigrationRunner
-├── soft_delete.rs    — SoftDeletable + SoftDeleteExt
-├── validators/       — field validators and ValidationError
-├── logging/          — query loggers
-├── sql/              — dialect-agnostic SQL types and query builder
-├── cli/              — command parsing, migration and seeder commands
-└── providers/
-    ├── json.rs       — JSON file provider (feature = "json")
-    ├── json_tree.rs  — one-file-per-document JSON provider (feature = "json")
-    ├── mongo/        — MongoDB provider (feature = "mongo")
-    ├── redis.rs      — Redis provider (feature = "redis")
-    ├── sql/          — PostgreSQL, MySQL and SQLite providers (feature = "sql-*")
-    ├── backend.rs    — dyn-safe connect_backend / BackendKind
-    ├── sync.rs       — provider-to-provider sync
-    └── variant.rs    — provider hand-off (only when json and mongo are both on)
-```
-
-Extension modules (`graphql`, `cdc`, `subscription`, `inheritance`, `search`,
-`embedded`, `lazy`) are feature-gated and documented in `docs/07-features/`.
+MIT.

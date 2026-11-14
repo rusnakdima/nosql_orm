@@ -1,40 +1,6 @@
-# Pub/Sub
+# Removed / not available
 
-Publish-subscribe functionality.
-
-Opt-in: compiled only with the `subscription` feature. No code path in
-`Storage`, `Repository` or the providers calls this module yet.
-
----
-
-## Publisher
-
-```rust
-pub trait Publisher: Clone + Send + Sync {
-    async fn publish(&self, topic: &str, message: Value) -> OrmResult<()>;
-    async fn subscribe(&self, topic: &str) -> OrmResult<Subscription>;
-}
-```
-
-## Subscription
-
-```rust
-pub struct Subscription {
-    pub topic: String,
-}
-```
-
-## SubscriptionManager
-
-```rust
-pub struct SubscriptionManager { ... }
-```
-
-## Topic
-
-```rust
-pub struct Topic {
-    pub name: String,
-    pub subscription_handler: Option<Box<dyn SubscriptionHandler>>,
-}
-```
+This feature does not exist in `nosql_orm` 0.9.0. There is no `search`, `cdc`,
+`graphql` or `subscription` module and no corresponding Cargo feature. The file
+is retained only for backwards compatibility of documentation links; ignore its
+previous content.

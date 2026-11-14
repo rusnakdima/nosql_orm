@@ -1,403 +1,210 @@
 # Query Builder
 
-Fluent API for building complex queries.
+`nosql_orm` exposes two query surfaces: the standalone `QueryBuilder` and the
+`RepositoryQuery` returned by `Repository::query()` (which wraps a
+`QueryBuilder` and binds it to a repository). Both share the same filter model.
 
 ---
 
-## Table of Contents
+## Filter
 
-1. [QueryBuilder](#querybuilder)
-2. [Filters](#filters)
-3. [Sorting & Pagination](#sorting--pagination)
-4. [Projection](#projection)
-5. [Eager Loading](#eager-loading)
-6. [Cursor Pagination](#cursor-pagination)
+```rust
+pub enum Filter {
+    Eq(String, Value), Ne(String, Value),
+    Gt(String, Value), Gte(String, Value),
+    Lt(String, Value), Lte(String, Value),
+    In(String, Vec<Value>), NotIn(String, Vec<Value>),
+    ArrayContains(String, Value),
+    Contains(String, String),          // case-insensitive substring
+    StartsWith(String, String),        // case-insensitive
+    EndsWith(String, String),         // case-insensitive
+    Like(String, String),             // SQL-style % and _
+    IsNull(String), IsNotNull(String),
+    Between(String, Value, Value),
+    And(Vec<Filter>), Or(Vec<Filter>), Not(Box<Filter>),
+}
+```
+
+`Filter::matches(doc)` evaluates a filter in memory (used by JSON/Redis
+providers). `Filter::from_json(value)` parses a Mongo-style descriptor
+(`{"field": {"$gt": 5}}`, `{"$and": [...]}`, `{"$or": [...]}`,
+`{"$not": ...}`) into a `Filter`.
+
+Helper constructors in `nosql_orm::macros` and the prelude: `eq_filter`,
+`ne_filter`, `gt_filter`, `gte_filter`, `lt_filter`, `lte_filter`,
+`in_filter`, `and_filter`, `or_filter`, `not_filter`, `is_null_filter`,
+`is_not_null_filter`. Macros `filter!` and `filters!` are also exported.
 
 ---
 
 ## QueryBuilder
 
-### Starting a Query
-
 ```rust
-let query = repo.query();
-let query = repo.query_including_deleted();  // Includes soft-deleted
-```
+pub struct QueryBuilder {
+    filters: Vec<Filter>,
+    order: Option<OrderBy>,
+    skip: Option<u64>,
+    limit: Option<u64>,
+    relations: Vec<String>,
+    projection: Option<Projection>,
+}
 
-### Building Queries
-
-```rust
-let results = repo.query()
-    .where_eq("field", value)           // Equal
-    .where_ne("field", value)           // Not equal
-    .where_gt("field", value)         // Greater than
-    .where_gte("field", value)        // Greater or equal
-    .where_lt("field", value)         // Less than
-    .where_lte("field", value)       // Less or equal
-    .where_contains("field", sub)     // Case-insensitive contains
-    .where_starts_with("field", prefix)  // Starts with
-    .where_ends_with("field", suffix)    // Ends with
-    .where_in("field", vec![...])       // IN list
-    .where_not_in("field", vec![...])   // NOT IN
-    .where_like("field", pattern)      // LIKE pattern
-    .where_is_null("field")          // IS NULL
-    .where_is_not_null("field")      // IS NOT NULL
-    .where_between("field", min, max)  // Between (inclusive)
-    .where_and("field", value)       // AND with next condition
-    .where_or("field", value)       // OR with next condition
-    .where_not("field", value)       // NOT equal
-    .order_by(OrderBy)               // Sorting
-    .skip(n)                      // Pagination
-    .limit(n)                     // Limit
-    .select(&["field1", "field2"])  // Select fields
-    .exclude(&["field1"])         // Exclude fields
-    .with_relation("relations")     // Eager load relations
-    .filter(Filter)              // Raw filter
-    .find()
-    .await?;
-```
-
-### Executing Queries
-
-```rust
-// Get all results
-let results: Vec<User> = query.find().await?;
-
-// Get first result
-let user: Option<User> = query.find_one().await?;
-
-// Count results
-let count: u64 = query.count().await?;
-
-// Get raw JSON
-let docs: Vec<Value> = query.find_raw().await?;
-
-// With cursor
-let paginated = query.find_with_cursor(cursor).await?;
-```
-
----
-
-## Filters
-
-### Filter Operators
-
-| Method | Filter | Description |
-|--------|-------|-------------|
-| `where_eq(field, value)` | `Eq` | Field equals value |
-| `where_ne(field, value)` | `Ne` | Field not equal |
-| `where_gt(field, value)` | `Gt` | Field > value |
-| `where_gte(field, value)` | `Gte` | Field >= value |
-| `where_lt(field, value)` | `Lt` | Field < value |
-| `where_lte(field, value)` | `Lte` | Field <= value |
-| `where_contains(field, sub)` | `Contains` | Case-insensitive substring |
-| `where_starts_with(field, prefix)` | `StartsWith` | Starts with prefix |
-| `where_ends_with(field, suffix)` | `EndsWith` | Ends with suffix |
-| `where_in(field, vec)` | `In` | In list |
-| `where_not_in(field, vec)` | `NotIn` | Not in list |
-| `where_like(field, pattern)` | `Like` | SQL LIKE pattern |
-| `where_is_null(field)` | `IsNull` | IS NULL |
-| `where_is_not_null(field)` | `IsNotNull` | IS NOT NULL |
-| `where_between(field, min, max)` | `Between` | Between min and max |
-
-### Filter Enum
-
-```rust
-pub enum Filter {
-    Eq(String, Value),
-    Ne(String, Value),
-    Gt(String, Value),
-    Gte(String, Value),
-    Lt(String, Value),
-    Lte(String, Value),
-    In(String, Vec<Value>),
-    NotIn(String, Vec<Value>),
-    Contains(String, String),
-    StartsWith(String, String),
-    EndsWith(String, String),
-    Like(String, String),
-    IsNull(String),
-    IsNotNull(String),
-    Between(String, Value, Value),
-    And(Vec<Filter>),
-    Or(Vec<Filter>),
-    Not(Box<Filter>),
+impl QueryBuilder {
+    pub fn new() -> Self;
+    // filters
+    pub fn where_eq(self, field, value) -> Self;
+    pub fn where_ne(self, field, value) -> Self;
+    pub fn where_gt(self, field, value) -> Self;
+    pub fn where_gte(self, field, value) -> Self;
+    pub fn where_lt(self, field, value) -> Self;
+    pub fn where_lte(self, field, value) -> Self;
+    pub fn where_in(self, field, values: Vec<Value>) -> Self;
+    pub fn where_not_in(self, field, values: Vec<Value>) -> Self;
+    pub fn where_contains(self, field, sub: String) -> Self;
+    pub fn where_starts_with(self, field, prefix: String) -> Self;
+    pub fn where_ends_with(self, field, suffix: String) -> Self;
+    pub fn where_like(self, field, pattern: String) -> Self;
+    pub fn where_is_null(self, field) -> Self;
+    pub fn where_is_not_null(self, field) -> Self;
+    pub fn where_between(self, field, min, max) -> Self;
+    pub fn filter(self, f: Filter) -> Self;
+    pub fn or(self, other: QueryBuilder) -> Self;
+    pub fn negate(self) -> Self;
+    pub fn where_or(self, field, value) -> Self;
+    pub fn where_and(self, field, value) -> Self;
+    // combinators
+    pub fn combine_and(self, others: Vec<QueryBuilder>) -> Self;
+    pub fn combine_or(self, others: Vec<QueryBuilder>) -> Self;
+    // ordering / paging
+    pub fn order_by(self, order: OrderBy) -> Self;
+    pub fn skip(self, n: u64) -> Self;
+    pub fn limit(self, n: u64) -> Self;
+    // projection
+    pub fn select(self, fields: &[&str]) -> Self;
+    pub fn exclude(self, fields: &[&str]) -> Self;
+    pub fn get_projection(&self) -> Option<&Projection>;
+    // relations
+    pub fn with_relation(self, name) -> Self;
+    // terminal helpers
+    pub fn build_filter(&self) -> Option<Filter>;
 }
 ```
 
-### Complex Filters
-
-#### AND
-
-```rust
-// Implicit AND (chained conditions)
-repo.query()
-    .where_eq("status", "active")
-    .where_gt("age", 18)
-    .find().await?;
-
-// Explicit AND group
-query.and_group(vec![
-    QueryBuilder::new().where_eq("status", "active"),
-    QueryBuilder::new().where_eq("role", "admin"),
-]).find().await?;
-```
-
-#### OR
-
-```rust
-// Implicit OR (multiple in one call)
-repo.query()
-    .where_in("status", vec!["active", "pending"])
-    .find().await?;
-
-// Explicit OR group
-query.or_group(vec![
-    QueryBuilder::new().where_eq("status", "active"),
-    QueryBuilder::new().where_eq("status", "pending"),
-]).find().await?;
-```
-
-#### NOT
-
-```rust
-repo.query()
-    .not()
-    .where_eq("status", "deleted")
-    .find().await?;
-```
-
-#### Nested Groups
-
-```rust
-query.filter(Filter::And(vec![
-    Filter::Eq("status".into(), "active".into()),
-    Filter::Or(vec![
-        Filter::Eq("role".into(), "admin".into()),
-        Filter::Eq("role".into(), "moderator".into()),
-    ]),
-])).find().await?;
-```
+`OrderBy { field, direction: SortDirection }` with `OrderBy::asc(field)` /
+`OrderBy::desc(field)`. `SortDirection { Asc, Desc }`.
 
 ---
 
-## Sorting & Pagination
+## RepositoryQuery (bound to a repository)
 
-### OrderBy
+Returned by `Repository::query()` and `query_including_deleted()`. Proxies:
 
-```rust
-use nosql_orm::query::OrderBy;
-use nosql_orm::query::SortDirection;
+`where_eq`, `where_ne`, `where_gt`, `where_lt`, `where_contains`, `where_in`,
+`order_by`, `skip`, `limit`, `with_relation`, `filter`, `select`, `exclude`.
 
-// Ascending
-query.order_by(OrderBy::asc("name"));
-
-// Descending
-query.order_by(OrderBy::desc("created_at"));
-
-// With direction
-query.order_by(OrderBy {
-    field: "name".into(),
-    direction: SortDirection::Asc,
-});
-```
-
-### Pagination
+Terminal methods:
 
 ```rust
-// Skip and limit
-let results = query
-    .skip(20)
-    .limit(10)
-    .find()
-    .await?;
+pub async fn find(self) -> OrmResult<Vec<E>>;
+pub async fn find_one(self) -> OrmResult<Option<E>>;
+pub async fn find_with_cursor(self, cursor: Option<Cursor>) -> OrmResult<PaginatedResult<E>>;
+pub async fn find_raw(self) -> OrmResult<Vec<Value>>;
+pub async fn count(self) -> OrmResult<u64>;
 ```
+
+`query()` automatically filters out soft-deleted rows (`where_is_null("deleted_at")`)
+for soft-deletable entities; use `query_including_deleted()` to include them.
+
+For filters not proxied (e.g. `where_gte`), build a `Filter` and pass it via
+`.filter(Filter::Gte(...))`.
 
 ---
 
 ## Projection
 
-Select specific fields or exclude fields.
-
-### Select Fields
-
 ```rust
-// Only these fields
-let results = repo.query()
-    .select(&["id", "name", "email"])
-    .find()
-    .await?;
-```
-
-### Exclude Fields
-
-```rust
-// Exclude these fields
-let results = repo.query()
-    .exclude(&["password", "token"])
-    .find()
-    .await?;
-```
-
-### Projection Struct
-
-```rust
-pub struct Projection {
-    pub select: Option<Vec<String>>,
-    pub exclude: Option<Vec<String>>,
+pub struct Projection { ... }
+impl Projection {
+    pub fn select(fields: &[&str]) -> Self;
+    pub fn exclude(fields: &[&str]) -> Self;
+    pub fn apply_recursive(&self, doc: &Value) -> Value;
 }
 ```
+
+Used by `QueryBuilder::select`/`exclude` and `Repository::find_for_frontend`.
 
 ---
 
-## Eager Loading
-
-### Loading Relations
+## Pagination
 
 ```rust
-// Single relation path
-let posts = posts.find_with_relations(&["author"]).await?;
-
-// Multiple relation paths
-let posts = posts.find_with_relations(&["author", "tags"]).await?;
-
-// Nested relations
-let todo = todos.find_with_relations(&["tasks"]).await?;
+pub struct Cursor { last_id, sort_field, sort_asc }
+pub struct PaginatedResult<T> { data: Vec<T>, next_cursor: Option<Cursor>, has_more: bool }
 ```
 
-### With Query
-
-```rust
-let posts = posts.query_with_relations(
-    QueryBuilder::new()
-        .where_contains("title", "Rust")
-        .limit(10),
-    &["author", "tags"]
-).await?;
-```
+`RepositoryQuery::find_with_cursor(Some(cursor))` appends the cursor filter and
+returns the next cursor.
 
 ---
 
-## Cursor Pagination
+## Query statistics / optimization
 
-More efficient than offset for large datasets.
+`query` module also exposes (mostly advisory, in-memory):
 
-### Basic Cursor Pagination
+- `QueryStatistics`, `QueryCollectionStats`, `FilterPattern`
+- `QueryOptimizer` → `OptimizedQuery`, `OptimizationHint`, `QueryAnalyzer`,
+  `QueryHint`
+- `IndexRecommender`, `IndexRecommendation`, `QueryStats`
+- `ZeroCopyDeserialize`, `DirectDeserializer`, `LazyValue`,
+  `TypedArrayDeserializer`
 
-```rust
-let result = repo.query()
-    .order_by(OrderBy::asc("id"))
-    .limit(20)
-    .find_with_cursor(None)
-    .await?;
-
-// First page
-for post in result.data {
-    println!("{}", post.title);
-}
-
-// Next page
-let next = repo.query()
-    .order_by(OrderBy::asc("id"))
-    .limit(20)
-    .find_with_cursor(result.next_cursor)
-    .await?;
-```
-
-### Cursor Struct
-
-```rust
-pub struct Cursor {
-    pub last_id: String,
-    pub sort_field: String,
-    pub sort_asc: bool,
-}
-
-impl Cursor {
-    pub fn new(last_id: String, sort_field: String, sort_asc: bool) -> Self;
-    pub fn as_filter(&self) -> Filter;
-}
-```
-
-### PaginatedResult
-
-```rust
-pub struct PaginatedResult<T> {
-    pub data: Vec<T>,
-    pub next_cursor: Option<Cursor>,
-    pub has_more: bool,
-}
-```
+These are advanced helpers; most callers only need `QueryBuilder`.
 
 ---
 
 ## Examples
 
-### Complex Query Example
+### Basic query
 
 ```rust
-let results = repo.query()
-    // Filters
-    .where_in("status", vec!["active", "pending"])
+let adults = repo.query()
     .where_gt("age", 18)
-    .where_contains("name", "John")
-    .where_is_not_null("email")
-    
-    // Sorting
-    .order_by(OrderBy::desc("created_at"))
-    
-    // Pagination
-    .skip(20)
-    .limit(10)
-    
-    // Projection
-    .select(&["id", "name", "email"])
-    
-    // Execute
+    .where_contains("name", "ali")
+    .order_by(OrderBy::desc("age"))
+    .limit(20)
     .find()
     .await?;
 ```
 
-### Search with OR
+### OR / NOT
 
 ```rust
-let results = repo.query()
-    .where_or("name", "Alice")
-    .where_or("email", "alice@example.com")
-    .find()
-    .await?;
+let q = repo.query().filter(Filter::Or(vec![
+    Filter::Eq("role".into(), "admin".into()),
+    Filter::Eq("role".into(), "editor".into()),
+]));
 ```
 
-### Query Builder Groups
+### Projection
 
 ```rust
-let queries = vec![
-    QueryBuilder::new().where_eq("role", "admin"),
-    QueryBuilder::new().where_eq("role", "moderator"),
-];
-
-let results = repo.query()
-    .or_group(queries)
-    .find()
-    .await?;
+let rows = repo.query().select(&["id", "name"]).find_raw().await?;
 ```
 
-### Query Raw JSON
+### Cursor pagination
 
 ```rust
-let docs = repo.query()
-    .where_eq("status", "active")
-    .find_raw()
-    .await?;
-
-for doc in docs {
-    println!("{}", doc);
+let page = repo.query().order_by(OrderBy::asc("id")).limit(10)
+    .find_with_cursor(None).await?;
+if page.has_more {
+    let next = repo.query().order_by(OrderBy::asc("id")).limit(10)
+        .find_with_cursor(page.next_cursor).await?;
 }
 ```
 
 ---
 
-## Next Steps
+## Next steps
 
-- [06-relations.md](06-relations.md) - Relation loading
-- [07-features/](07-features/) - Advanced features
+- [06-relations.md](06-relations.md) — Relations
+- [09-api-reference.md](09-api-reference.md) — API reference

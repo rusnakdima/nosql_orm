@@ -1,150 +1,76 @@
 # nosql_orm Features
 
-This directory contains detailed documentation for all nosql_orm features.
+This directory contains detailed documentation for the nosql_orm feature set.
 
-## Feature List
+## Feature list (actual modules present in `src/`)
 
-| Feature | File | Description |
-|---------|------|-------------|
-| Macros | [07a-macros.md](07a-macros.md) | `#[derive(Model)]` and `#[derive(Validate)]` macros |
-| Validators | [07b-validators.md](07b-validators.md) | Entity validation |
-| Soft Delete | [07c-soft-delete.md](07c-soft-delete.md) | Soft delete support |
-| Timestamps | [07d-timestamps.md](07d-timestamps.md) | Auto created_at/updated_at |
-| Migrations | [07e-migrations.md](07e-migrations.md) | Database migrations |
-| Indexes | [07f-indexes.md](07f-indexes.md) | NoSQL indexes |
-| Events | [07g-events.md](07g-events.md) | Entity event listeners |
-| Cascade | [07h-cascade.md](07h-cascade.md) | Cascade delete |
-| Lazy | [07i-lazy.md](07i-lazy.md) | Lazy loading |
-| Embedded | [07j-embedded.md](07j-embedded.md) | Embedded entities |
-| Inheritance | [07k-inheritance.md](07k-inheritance.md) | Table inheritance |
-| Search | [07l-search.md](07l-search.md) | Full-text search |
-| Aggregation | [07m-aggregation.md](07m-aggregation.md) | Aggregation pipeline |
-| CDC | [07n-cdc.md](07n-cdc.md) | Change Data Capture |
-| GraphQL | [07o-graphql.md](07o-graphql.md) | GraphQL integration |
-| Subscription | [07p-subscription.md](07p-subscription.md) | Pub/Sub |
-| Cache | [07q-cache.md](07q-cache.md) | Query caching |
-| SQL | [07r-sql.md](07r-sql.md) | SQL utilities |
-| Logging | [07s-logging.md](07s-logging.md) | Query logging |
+| Feature / module | File | Status |
+|---|---|---|
+| Macros | [07a-macros.md](07a-macros.md) | ✅ (`nosql_orm_derive`) |
+| Validators | [07b-validators.md](07b-validators.md) | ✅ (`validators`) |
+| Soft Delete | [07c-soft-delete.md](07c-soft-delete.md) | ✅ (`soft_delete`) |
+| Timestamps | [07d-timestamps.md](07d-timestamps.md) | ✅ (`timestamps`) |
+| Migrations | [07e-migrations.md](07e-migrations.md) | ✅ (`migrations`) — basic runner |
+| Indexes | [07f-indexes.md](07f-indexes.md) | ✅ (`nosql_index`) |
+| Events | [07g-events.md](07g-events.md) | ✅ (`events`) |
+| Cascade | [07h-cascade.md](07h-cascade.md) | ✅ (`cascade`) |
+| Lazy | [07i-lazy.md](07i-lazy.md) | ✅ opt-in (`lazy`) |
+| Embedded | [07j-embedded.md](07j-embedded.md) | ✅ opt-in (`embedded`) |
+| Inheritance | [07k-inheritance.md](07k-inheritance.md) | ✅ opt-in (`inheritance`) |
+| Aggregation | [07m-aggregation.md](07m-aggregation.md) | ✅ (`aggregation`) |
+| Cache | [07q-cache.md](07q-cache.md) | ✅ opt-in (`query_cache`) |
+| SQL | [07r-sql.md](07r-sql.md) | ✅ (`sql`) |
+| Logging | [07s-logging.md](07s-logging.md) | ✅ (`logging`) |
 
----
-
-## Quick Feature Overview
-
-### Core (Required for Basic Usage)
-- **Macros** - Derive macros for Entity implementation
-- **Entity** - Entity trait and metadata (see [02-entity.md](../02-entity.md))
-- **Repository** - CRUD operations (see [04-repository.md](../04-repository.md))
-
-### Common Features
-- **Soft Delete** - Soft delete with restore
-- **Timestamps** - Auto created_at/updated_at
-- **Validators** - Field validation
-- **Migrations** - Schema migrations
-- **Indexes** - NoSQL index management
-
-### Advanced Features
-- **Relations** - Relation loading (see [06-relations.md](../06-relations.md))
-- **Cascade** - Cascade delete
-
-### Opt-in extension features (feature-gated, not wired into `Repository`)
-
-These are implemented but no code path in `Storage`, `Repository` or the
-providers reaches them; each is off by default and enabled by its own feature.
-
-- **Lazy** - Lazy loading (`lazy`)
-- **Embedded** - Embedded entities (`embedded`)
-- **Inheritance** - Table inheritance (`inheritance`)
-
-### Integrated Features
-- **Aggregation** - Aggregation pipeline
-- **Cache** - Query caching
-- **Events** - Event listeners
-- **SQL** - SQL utilities
-- **Logging** - Query logging
+There are **no** `search`, `cdc`, `graphql` or `subscription` modules in this
+crate, and no corresponding feature flags. Files `07l-search.md`,
+`07n-cdc.md`, `07o-graphql.md` and `07p-subscription.md` are stale and
+describe functionality that does not exist.
 
 ---
 
-## Feature Dependencies
-
-```
-Entity Trait
-    │
-     ├── Macros
-     │
-     ├── Repository
-     │    │
-     │    ├── Soft Delete
-     │    ├── Timestamps
-     │    ├── Validators
-     │    ├── Migrations
-     │    │
-     │    └── Relations
-     │         │
-     │         ├── Cascade
-     │         ├── Lazy
-     │         └── Embedded
-     │
-     └── Providers (JSON, MongoDB, Redis, SQL)
-          │
-          ├── Indexes
-          ├── Aggregation
-          │
-          └── Logging
-```
-
----
-
-## Getting Started with Features
-
-1. Start with [01-introduction.md](../01-introduction.md)
-2. Learn about [Entity](../02-entity.md)
-3. Configure a [Provider](../03-provider.md)
-4. Use [Repository](../04-repository.md) for CRUD
-5. Build [Queries](../05-query-builder.md)
-6. Set up [Relations](../06-relations.md)
-7. Add features as needed
-
----
-
-## Feature Flags
-
-Features are enabled via Cargo feature flags in `Cargo.toml`:
+## Feature flags
 
 ```toml
 [features]
 default = ["json"]
-json = []                           # JSON provider (JsonProvider, JsonTreeProvider)
-mongo = ["dep:mongodb", ...]        # MongoDB provider
-redis = ["dep:redis"]               # Redis provider
+json = []
+mongo = ["dep:mongodb", "dep:futures-util", "dep:futures"]
+redis = ["dep:redis"]
+full = ["json", "mongo", "redis", "sql"]
 sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
-full = ["json", "mongo", "redis", "sql"]   # every storage backend
+sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres"]
+sql-sqlite = ["dep:rusqlite"]
+sql-mysql = ["dep:mysql_async"]
+query_cache = []
 
-query_cache = []                    # Query caching
-
-# One SQL provider each
-sql-postgres = [...]
-sql-sqlite = [...]
-sql-mysql = [...]
-
-# Opt-in extension modules: implemented, but no code path in Storage,
-# Repository or the providers reaches them
-graphql = []
-cdc = []
-subscription = []
-inheritance = []
-search = []
+# Opt-in extension modules (implemented, not wired into Storage/Repository)
 embedded = []
+inheritance = []
 lazy = []
 ```
 
 ---
 
-## Related Documentation
+## Opt-in vs integrated
 
-- [../02-entity.md](../02-entity.md) - Entity system
-- [../03-provider.md](../03-provider.md) - Providers
-- [../04-repository.md](../04-repository.md) - Repository
-- [../05-query-builder.md](../05-query-builder.md) - Query builder
-- [../06-relations.md](../06-relations.md) - Relations
-- [../08-examples.md](../08-examples.md) - Examples
-- [../09-api-reference.md](../09-api-reference.md) - API reference
+- **Integrated** (always available under their provider feature): soft delete,
+  timestamps, validators, migrations, indexes, events, cascade, aggregation,
+  SQL utilities, logging, query caching (under `query_cache`).
+- **Opt-in extension modules** (feature-gated, self-contained, not wired into
+  `Storage`/`Repository`/providers): `embedded`, `inheritance`, `lazy`.
+- **Storage backends** (provider features): `json`, `mongo`, `redis`, `sql-*`.
+
+---
+
+## Quick overview
+
+1. Start with [../01-introduction.md](../01-introduction.md)
+2. [../02-entity.md](../02-entity.md) — Entity trait
+3. [../03-provider.md](../03-provider.md) — Providers
+4. [../04-repository.md](../04-repository.md) — Repository
+5. [../05-query-builder.md](../05-query-builder.md) — Querying
+6. [../06-relations.md](../06-relations.md) — Relations
+7. This directory — advanced features
+8. [../08-examples.md](../08-examples.md) — Examples
+9. [../09-api-reference.md](../09-api-reference.md) — API reference

@@ -1,134 +1,44 @@
 # Relations
 
-Eager loading and relationship management between entities.
+`nosql_orm` models relations as `RelationDef` descriptors plus a loader.
+Relations are declared on entities via `WithRelations`.
 
 ---
 
-## Table of Contents
+## Relation types
 
-1. [RelationDef](#relationdef)
-2. [Relation Types](#relation-types)
-3. [WithRelations](#withrelations)
-4. [RelationLoader](#relationloader)
-5. [WithLoaded](#withloaded)
-6. [Registration](#registration)
+```rust
+pub enum RelationType { OneToOne, OneToMany, ManyToOne, ManyToMany }
+```
+
+`RelationDef` constructors:
+
+```rust
+RelationDef::many_to_one(name, target_collection, local_key)
+RelationDef::one_to_many(name, target_collection, foreign_key)
+RelationDef::one_to_one(name, target_collection, local_key)
+RelationDef::many_to_many(name, target_collection, join_field)
+```
+
+Builder methods on `RelationDef`:
+
+- `transform_map(lookup_key, source_collection, source_key)`
+- `local_key_in_array(array_field)`
+- `on_delete(SqlOnDelete)` (sets cascade flags for `Cascade`/`Restrict`/...)
+- `cascade_soft_delete(bool)`, `cascade_hard_delete(bool)`
+
+Fields of `RelationDef`: `name`, `relation_type`, `target_collection`,
+`local_key`, `foreign_key`, `join_field`, `local_key_in_array`,
+`transform_map_via`, `on_delete`, `cascade_soft_delete`,
+`cascade_hard_delete`.
 
 ---
 
-## RelationDef
+## Declaring relations on an entity
 
-Defines a relationship between entities.
-
-### Creating Relations
+Manual:
 
 ```rust
-pub struct RelationDef {
-    pub name: String,
-    pub relation_type: RelationType,
-    pub target_collection: String,
-    pub local_key: String,
-    pub foreign_key: String,
-    pub join_field: Option<String>,
-    pub local_key_in_array: Option<String>,
-    pub transform_map_via: Option<TransformMapVia>,
-    pub on_delete: Option<SqlOnDelete>,
-    pub cascade_soft_delete: bool,
-    pub cascade_hard_delete: bool,
-}
-```
-
-### Methods
-
-```rust
-let relation = RelationDef::many_to_one("author", "users", "author_id");
-let relation = RelationDef::one_to_many("posts", "posts", "user_id");
-let relation = RelationDef::one_to_one("profile", "profiles", "profile_id");
-let relation = RelationDef::many_to_many("tags", "tags", "tag_ids");
-```
-
----
-
-## Relation Types
-
-### OneToOne
-
-One record relates to one record.
-
-```
-User ─────── Profile
-  id    ──── user_id
-```
-
-```rust
-RelationDef::one_to_one("profile", "profiles", "profile_id")
-```
-
-### ManyToOne (Foreign Key)
-
-Many records relate to one record.
-
-```
-Post ─────── User
- author_id  ──── id
-```
-
-```rust
-RelationDef::many_to_one("author", "users", "author_id")
-```
-
-### OneToMany
-
-One record relates to many records.
-
-```
-User ─────── Posts
-   id ────── user_id
-```
-
-```rust
-RelationDef::one_to_many("posts", "posts", "author_id")
-```
-
-### ManyToMany
-
-Many records relate to many records via join field.
-
-```
-Post ────── Tag
- tag_ids ── id
-```
-
-```rust
-RelationDef::many_to_many("tags", "tags", "tag_ids")
-```
-
----
-
-## WithRelations
-
-Trait for entities declaring their relations.
-
-### Implementing
-
-```rust
-use nosql_orm::prelude::*;
-use nosql_orm::relations::{RelationDef, WithRelations};
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Post {
-    pub id: Option<String>,
-    pub title: String,
-    pub author_id: String,
-    pub tag_ids: Vec<String>,
-}
-
-impl Entity for Post {
-    fn meta() -> EntityMeta { EntityMeta::new("posts") }
-    fn get_id(&self) -> Option<String> { self.id.clone() }
-    fn set_id(&mut self, id: String) { self.id = Some(id); }
-}
-
 impl WithRelations for Post {
     fn relations() -> Vec<RelationDef> {
         vec![
@@ -139,89 +49,59 @@ impl WithRelations for Post {
 }
 ```
 
----
-
-## RelationLoader
-
-Batch loads relations efficiently.
-
-### Loading Single Relation
+Macro (on the struct, with `#[derive(Model)]`):
 
 ```rust
-let loader = RelationLoader::new(provider);
-
-// Load one relation
-let result = loader.load_relation(&doc, &relation_def).await?;
+#[derive(Model)]
+#[many_to_one("author", "users", "author_id")]
+#[many_to_many("tags", "tags", "tag_ids")]
+pub struct Post { ... }
 ```
 
-### Loading Multiple Relations (Batch)
-
-```rust
-// Load ManyToOne for multiple docs at once
-let results = loader.load_many(docs, &relation, true).await?;
-```
-
-### Loading Nested
-
-```rust
-// Load nested relations (e.g., tasks.subtasks.comments)
-let results = loader.load_nested(docs, &["tasks", "subtasks"], true).await?;
-```
-
-### Loading with Relations on Docs
-
-```rust
-let results = loader.load_relations_on_docs(
-    docs,
-    "posts",
-    &["author", "tags"],
-    true
-).await?;
-```
+`Relations`/`relations` list attribute generates `one_to_many` relations
+using the snake-cased collection name and `<name>_id` key.
 
 ---
 
-## WithLoaded
-
-Entity with loaded relations.
-
-### Structure
+## Registry
 
 ```rust
-pub struct WithLoaded<E: Entity> {
-    pub entity: E,
-    pub loaded: HashMap<String, RelationValue>,
-}
+pub fn register_collection_relations(collection, relations: Vec<RelationDef>);
+pub fn register_relations_for_entity<E: WithRelations>();
+pub fn get_collection_relations(collection) -> Vec<RelationDef>;
+pub fn get_relation_def(collection, name) -> Option<RelationDef>;
+pub fn get_registered_collection_relations(collection) -> ...;
+pub fn clear_relation_registry();
+pub fn clear_registered_collections();
 ```
 
-### Accessing Relations
+`register_relations_for_entity::<E>()` is the usual entry point; providers and
+`CascadeManager` consult the registry.
+
+---
+
+## Loading relations
+
+`RelationLoader<P>` (constructed with a provider) loads relations eagerly.
+`RelationRepository` is the ergonomic wrapper:
 
 ```rust
-let post = relation_repo
-    .find_with_relations("post-id-123", &["author", "tags"])
-    .await?
-    .unwrap();
+let posts: RelationRepository<Post, _> = RelationRepository::new(provider);
+let post = posts.find_with_relations(&id, &["author", "tags"]).await?.unwrap();
 
-// Entity
-println!("{}", post.entity.title);
-
-// Get single relation (ManyToOne/OneToOne)
-if let Some(author) = post.one("author")? {
-    println!("Author: {}", author["name"]);
-}
-
-// Get many relation (OneToMany/ManyToMany)
-for tag in post.many("tags")? {
-    println!("Tag: {}", tag["name"]);
-}
+if let Some(author) = post.one("author")? { /* Value */ }
+for tag in post.many("tags")? { /* Value */ }
 ```
 
-### Methods
+`find_with_relations` / `find_all_with_relations` / `query_with_relations`
+are only available when `E: WithRelations + SoftDeletable`.
+
+`WithLoaded<E>`:
 
 ```rust
-impl<E: Entity> WithLoaded<E> {
+pub struct WithLoaded<E> { pub entity: E, pub loaded: HashMap<String, RelationValue> }
+impl WithLoaded<E> {
     pub fn new(entity: E) -> Self;
-
     pub fn one(&self, name: &str) -> OrmResult<Option<&Value>>;
     pub fn many(&self, name: &str) -> OrmResult<&[Value]>;
     pub fn get(&self, path: &str) -> Option<&RelationValue>;
@@ -230,168 +110,100 @@ impl<E: Entity> WithLoaded<E> {
 }
 ```
 
+`RelationValue` is `Single(Option<Value>)` or `Many(Vec<Value>)`.
+
+### QueryBuilder relation hints
+
+`QueryBuilder::with_relation(name)` records a relation name in the builder;
+`RepositoryQuery::with_relation(name)` proxies it. These hints are stored but
+the actual loading is performed via `RelationRepository`.
+
 ---
 
-## Registration
-
-Relations must be registered before using RelationRepository.
-
-### register_collection_relations()
+## Cascade delete
 
 ```rust
-use nosql_orm::prelude::*;
-use nosql_orm::relations::register_collection_relations;
-
-register_collection_relations("posts", vec![
-    RelationDef::many_to_one("author", "users", "author_id"),
-    RelationDef::many_to_many("tags", "tags", "tag_ids"),
-]);
+pub struct CascadeManager<P: Storage> { ... }
+impl CascadeManager<P> {
+    pub fn new(provider: P) -> Self;
+    pub async fn check_restrict<E: Entity + WithRelations>(entity_id, relations) -> OrmResult<bool>;
+    pub async fn soft_delete(collection, id) -> OrmResult<bool>;
+    // hard_delete_cascade, restore, toggle_delete via submodules
+}
 ```
 
-### register_relations_for_entity()
+`RelationDef::on_delete(SqlOnDelete::Cascade)` sets `cascade_hard_delete` and
+`cascade_soft_delete` to true. `SqlOnDelete` variants: `Cascade`, `Restrict`,
+`SetNull`, `SetDefault`, `NoAction`.
+
+`Repository::delete` consults relations and dispatches to the cascade
+manager when hard cascade is configured.
+
+---
+
+## Lazy loading (`lazy` feature)
 
 ```rust
-use nosql_orm::prelude::*;
-use nosql_orm::relations::register_relations_for_entity;
-
-register_relations_for_entity::<Post>();
+pub struct Lazy<T> { ... }            // generic memoized loader
+pub struct LazyRelation<E, P> { ... }  // single relation
+pub struct LazyMany<E, P> { ... }     // collection relation
+pub struct LazyLoader;                 // factory
 ```
+
+`Lazy::new(loader)`; `Lazy::get()`, `is_loaded()`, `reload()`.
+
+`RepositoryLazyExt` (implemented for `Repository<E, P>`) adds
+`lazy_relation(self: Arc<Self>, relation, local_id)` and
+`lazy_many(self: Arc<Self>, relation, local_id)`. `LazyMany::with_filter(filter)`
+narrows the loaded set.
+
+---
+
+## Embedded entities (`embedded` feature)
+
+```rust
+pub trait Embedded { fn embedded_meta() -> EmbeddedMeta; }
+pub struct EmbeddedMeta { prefix: Option<String>, flatten: bool }
+pub trait EmbedExt { fn embed(&self, field) -> Value; fn unembed(&self, field) -> Value; }
+pub struct Embedder;  // flatten / unflatten helpers
+```
+
+---
+
+## Inheritance (`inheritance` feature)
+
+```rust
+pub enum InheritanceType { SingleTable, ClassTable, ConcreteTable }
+pub trait Inheritance { inheritance_type, discriminator_value, parent_entity, child_entities }
+pub struct Discriminator { column, values }
+pub trait Discriminated { discriminator_column, discriminator_value }
+```
+
+`entity_inheritance!` macro generates `Inheritance` impls for STI/parent.
+
+---
+
+## Wrappers
+
+```rust
+pub struct OneToOne<T: Entity>(pub Option<T>);
+pub struct ManyToOne<T: Entity>(pub Option<T>);
+pub struct OneToMany<T: Entity>(pub Vec<T>);
+pub struct ManyToMany<T: Entity>(pub Vec<T>);
+```
+
+Each has a `get()` accessor.
 
 ---
 
 ## Examples
 
-### Basic Relations
-
-```rust
-use chrono::{DateTime, Utc};
-use nosql_orm::prelude::*;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: Option<String>,
-    pub name: String,
-    pub email: String,
-}
-
-impl Entity for User {
-    fn meta() -> EntityMeta { EntityMeta::new("users") }
-    fn get_id(&self) -> Option<String> { self.id.clone() }
-    fn set_id(&mut self, id: String) { self.id = Some(id); }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Post {
-    pub id: Option<String>,
-    pub title: String,
-    pub author_id: String,
-    pub tag_ids: Vec<String>,
-}
-
-impl Entity for Post {
-    fn meta() -> EntityMeta { EntityMeta::new("posts") }
-    fn get_id(&self) -> Option<String> { self.id.clone() }
-    fn set_id(&mut self, id: String) { self.id = Some(id); }
-}
-
-impl WithRelations for Post {
-    fn relations() -> Vec<RelationDef> {
-        vec![
-            RelationDef::many_to_one("author", "users", "author_id"),
-            RelationDef::many_to_many("tags", "tags", "tag_ids"),
-        ]
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tag {
-    pub id: Option<String>,
-    pub name: String,
-}
-
-impl Entity for Tag {
-    fn meta() -> EntityMeta { EntityMeta::new("tags") }
-    fn get_id(&self) -> Option<String> { self.id.clone() }
-    fn set_id(&mut self, id: String) { self.id = Some(id); }
-}
-
-#[tokio::main]
-async fn main() -> OrmResult<()> {
-    let provider = JsonProvider::new("./data").await?;
-
-    let users = Repository::<User, _>::new(provider.clone());
-    let tags = Repository::<Tag, _>::new(provider.clone());
-    let posts: RelationRepository<Post, _> = RelationRepository::new(provider.clone());
-
-    // Register relations
-    register_relations_for_entity::<Post>();
-
-    // Create data
-    let alice = users.save(User {
-        id: None,
-        name: "Alice".into(),
-        email: "alice@example.com".into(),
-    }).await?;
-
-    let tag = tags.save(Tag {
-        id: None,
-        name: "Rust".into(),
-    }).await?;
-
-    let post = posts.repo().save(Post {
-        id: None,
-        title: "Hello Rust".into(),
-        author_id: alice.id.unwrap(),
-        tag_ids: vec![tag.id.unwrap()],
-    }).await?;
-
-    // Load with relations
-    let loaded = posts
-        .find_with_relations(&post.id.unwrap(), &["author", "tags"])
-        .await?
-        .unwrap();
-
-    println!("Post: {}", loaded.entity.title);
-    if let Some(author) = loaded.one("author")? {
-        println!("Author: {}", author["name"]);
-    }
-    for tag in loaded.many("tags")? {
-        println!("Tag: {}", tag["name"]);
-    }
-
-    Ok(())
-}
-```
-
-### Nested Relations
-
-```rust
-// Load Todo with tasks
-let todo = todos.find_with_relations(&todo_id, &["tasks"]).await?;
-
-// Load Todo with nested relations (tasks and their subtasks)
-let todo = todos.find_with_relations(&todo_id, &["tasks"]).await?;
-
-// Custom nested loading via RelationLoader
-let loader = RelationLoader::new(provider);
-let docs = loader.load_nested(docs, &["tasks", "subtasks"], true).await?;
-```
-
-### Cascade Delete
-
-```rust
-let relation = RelationDef::many_to_one("author", "users", "author_id")
-    .on_delete(SqlOnDelete::Cascade);
-
-// Now deleting a user cascades to posts
-let deleted = users.delete("user-id").await?;
-```
+See `examples/todo_with_all_relations.rs`, `examples/nested_relations_5_levels.rs`,
+`examples/deep_relation_loading.rs`, `examples/relation_filter_example.rs`.
 
 ---
 
-## Next Steps
+## Next steps
 
-- [07-features/07c-soft-delete.md](07-features/07c-soft-delete.md) - Soft deletes
-- [07-features/07h-cascade.md](07-features/07h-cascade.md) - Cascade delete
-- [07-features/07i-lazy.md](07-features/07i-lazy.md) - Lazy loading
+- [07-features/](07-features/) — Feature deep dives
+- [09-api-reference.md](09-api-reference.md) — API reference

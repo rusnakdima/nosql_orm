@@ -1,41 +1,34 @@
-# nosql_orm - Introduction
+# nosql_orm — Introduction
 
-A TypeORM-inspired ORM for NoSQL and SQL databases with a unified, type-safe API in Rust. Supports JSON files, MongoDB, Redis, PostgreSQL, SQLite, and MySQL.
+`nosql_orm` is a TypeORM-inspired, async ORM for Rust with one unified,
+type-safe API over heterogeneous storage backends: JSON files, MongoDB, Redis,
+PostgreSQL, SQLite and MySQL.
+
+Crate version: **0.9.0**. The crate name on crates.io is `nosql_orm`; the
+library crate is `nosql_orm` and the derive crate is `nosql_orm_derive`
+(re-exported from the main crate).
 
 ---
 
-## Features
+## Feature matrix
 
-### Core Features
-| Feature | JSON | MongoDB | Redis | SQL |
-|--------|------|--------|------|------|
-| Full CRUD | ✅ | ✅ | ✅ | ✅ |
-| Fluent query builder | ✅ | ✅ | — | ✅ |
-| Relations (1:1, 1:N, N:M) | ✅ | ✅ | ✅ | ✅ |
-| Batch operations | ✅ | ✅ | ✅ | ✅ |
-| Auto-generated UUIDs | ✅ | ✅ | ✅ | ✅ |
-| Field projection | ✅ | ✅ | — | ✅ |
-| Indexes | ✅ | ✅ | ✅ | ✅ |
+| Capability | JSON (`JsonProvider`) | JSON tree (`JsonTreeProvider`) | MongoDB (`MongoProvider`) | Redis (`RedisProvider`) | SQL (`Postgres`/`MySql`/`Sqlite`) |
+|---|---|---|---|---|---|
+| Full CRUD | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Query builder / `Filter` | ✅ (in-memory) | ✅ (in-memory) | ✅ (translated) | ✅ (in-memory) | ✅ (translated) |
+| Relations (1:1, 1:N, N:M) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Batch insert | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Auto-generated UUIDs | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Field projection | ✅ | ✅ | ✅ | ✅ (in-memory) | ✅ |
+| Indexes | no-op / empty | no-op / empty | ✅ | ❌ (`NotSupported`) | ✅ |
+| Aggregation | ✅ (in-memory) | ❌ (`NotSupported`) | ✅ | ❌ | ❌ |
+| Raw SQL (`execute_raw`) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Transactions | ❌ | ❌ | ❌ | ❌ | SQLite ✅ (others via driver pools) |
+| Schema sync (`sync_schema`) | ❌ (non-SQL) | ❌ | ❌ | ❌ | ✅ |
 
-### Advanced Features
-| Feature | Status |
-|---------|--------|
-| Soft deletes | ✅ |
-| Timestamps (auto created_at/updated_at) | ✅ |
-| Validators | ✅ |
-| Migrations | ✅ |
-| Event listeners | ✅ |
-| Cascade delete | ✅ |
-| Lazy loading | ✅ |
-| Embedded entities | ✅ |
-| Table inheritance | ✅ |
-| Full-text search | ✅ |
-| Aggregation pipeline | ✅ |
-| Change Data Capture (CDC) | ✅ |
-| GraphQL integration | ✅ |
-| Pub/Sub | ✅ |
-| Query caching | ✅ |
-| Query logging | ✅ |
+`Capability` (`transactions`, `indexes`, `aggregation`, `raw_queries`) is
+queryable at runtime via `provider.capabilities()` / `provider.supports(...)`.
+Operations outside a backend's contract return `OrmError::NotSupported`.
 
 ---
 
@@ -44,49 +37,47 @@ A TypeORM-inspired ORM for NoSQL and SQL databases with a unified, type-safe API
 ```toml
 [dependencies]
 # JSON only (default)
-nosql_orm = "0.6"
+nosql_orm = "0.9"
 
 # MongoDB
-nosql_orm = { version = "0.6", features = ["mongo"] }
+nosql_orm = { version = "0.9", features = ["mongo"] }
 
 # Redis
-nosql_orm = { version = "0.6", features = ["redis"] }
+nosql_orm = { version = "0.9", features = ["redis"] }
 
-# All NoSQL providers
-nosql_orm = { version = "0.6", features = ["full"] }
+# SQL (all three)
+nosql_orm = { version = "0.9", features = ["sql"] }
 
-# SQL providers
-nosql_orm = { version = "0.6", features = ["sql"] }
-
-# Full features
-nosql_orm = { version = "0.6", features = ["full", "sql"] }
+# Everything
+nosql_orm = { version = "0.9", features = ["full"] }
 ```
 
-### Feature Flags
+### Feature flags
 
-```toml
-[features]
-default = ["json"]
-json = []                    # JSON file provider (default)
-mongo = ["dep:mongodb", "dep:futures-util"]  # MongoDB provider
-redis = ["dep:redis"]       # Redis provider
-full = ["json", "mongo", "redis"]
+| Flag | Effect |
+|---|---|
+| `default = ["json"]` | JSON provider is on by default |
+| `json` | `JsonProvider`, `JsonTreeProvider` |
+| `mongo` | `MongoProvider` (`dep:mongodb`, `dep:futures-util`, `dep:futures`) |
+| `redis` | `RedisProvider` (`dep:redis`) |
+| `sql` | all three SQL providers |
+| `sql-postgres` | `PostgresProvider` |
+| `sql-sqlite` | `SqliteProvider` |
+| `sql-mysql` | `MySqlProvider` |
+| `full` | `json`, `mongo`, `redis`, `sql` |
+| `query_cache` | `cache::QueryCache` (off by default) |
+| `embedded` | `embedded` module (off by default, opt-in) |
+| `inheritance` | `inheritance` module (off by default, opt-in) |
+| `lazy` | `lazy` module (off by default, opt-in) |
 
-query_cache = []             # Query caching
-validators = []              # Entity validation
-
-# SQL Providers
-sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:base64"]
-sql-sqlite = ["dep:rusqlite", "dep:base64"]
-sql-mysql = ["dep:mysql_async", "dep:base64"]
-sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
-```
+There are **no** `graphql`, `cdc`, `subscription` or `search` features: those
+modules do not exist in this crate.
 
 ---
 
-## Quick Start
+## Quick start
 
-### 1. Define an Entity
+### 1. Define an entity
 
 ```rust
 use nosql_orm::prelude::*;
@@ -100,71 +91,43 @@ pub struct User {
 }
 
 impl Entity for User {
-    fn meta() -> EntityMeta { EntityMeta::new("users") }
+    fn meta() -> EntityMeta {
+        EntityMeta::new("users")
+    }
     fn get_id(&self) -> Option<String> { self.id.clone() }
     fn set_id(&mut self, id: String) { self.id = Some(id); }
 }
 ```
 
-### 2. Create a Provider
+### 2. Create a provider
 
 ```rust
-// JSON provider (embedded, zero-config)
-let provider = JsonProvider::new("./data").await?;
-
-// MongoDB provider
-let provider = MongoProvider::connect("mongodb://localhost:27017", "mydb").await?;
-
-// Redis provider
-let provider = RedisProvider::connect("redis://localhost:6379").await?;
-
-// SQL providers
-let provider = PostgresProvider::connect("postgres://user:pass@localhost/db").await?;
-let provider = SqliteProvider::connect("app.db").await?;
-let provider = MySqlProvider::connect("mysql://user:pass@localhost/db").await?;
+let provider = JsonProvider::new("./data").await?;          // JSON
+// let provider = MongoProvider::connect("mongodb://localhost:27017", "db").await?;
+// let provider = RedisProvider::new("redis://localhost:6379").await?;
+// let provider = SqliteProvider::connect("app.db").await?;
 ```
 
-### 3. CRUD Operations
+### 3. CRUD
 
 ```rust
 let repo: Repository<User, _> = Repository::new(provider);
 
-// INSERT (id auto-generated)
-let user = repo.save(User {
-    id: None,
-    name: "Alice".into(),
-    email: "alice@example.com".into(),
-}).await?;
-
-// FIND by id
+let user = repo.save(User { id: None, name: "Alice".into(), email: "a@x.com".into() }).await?;
 let found = repo.find_by_id(user.id.as_ref().unwrap()).await?;
-
-// UPDATE
-let updated = repo.save(User {
-    id: user.id.clone(),
-    name: "Alice Updated".into(),
-    ..user
-}).await?;
-
-// PATCH (partial update)
-let patched = repo.patch(user.id.as_ref().unwrap(), 
-    serde_json::json!({ "name": "Alice Patched" })
-).await?;
-
-// DELETE
+let patched = repo.patch(user.id.as_ref().unwrap(), serde_json::json!({ "name": "Alice 2" })).await?;
 repo.delete(user.id.as_ref().unwrap()).await?;
-
-// COUNT
 let count = repo.count().await?;
 ```
 
-### 4. Query Builder
+`save` is an upsert: inserts when `id` is `None`, updates otherwise.
+
+### 4. Query builder
 
 ```rust
 let results = repo.query()
     .where_eq("email", "alice@example.com")
     .where_gt("age", 18)
-    .where_contains("name", "Alice")
     .order_by(OrderBy::asc("name"))
     .skip(0)
     .limit(10)
@@ -181,15 +144,11 @@ use nosql_orm::relations::{RelationDef, WithRelations};
 pub struct Post {
     pub id: Option<String>,
     pub title: String,
-    pub author_id: String,      // FK → users.id
-    pub tag_ids: Vec<String>, // FK[] → tags.id (many-to-many)
+    pub author_id: String,
+    pub tag_ids: Vec<String>,
 }
 
-impl Entity for Post {
-    fn meta() -> EntityMeta { EntityMeta::new("posts") }
-    fn get_id(&self) -> Option<String> { self.id.clone() }
-    fn set_id(&mut self, id: String) { self.id = Some(id); }
-}
+impl Entity for Post { /* ... */ }
 
 impl WithRelations for Post {
     fn relations() -> Vec<RelationDef> {
@@ -199,30 +158,22 @@ impl WithRelations for Post {
         ]
     }
 }
-```
 
-```rust
 let posts: RelationRepository<Post, _> = RelationRepository::new(provider);
-
 let post = posts.find_with_relations(&post_id, &["author", "tags"]).await?.unwrap();
-
-if let Some(author) = post.one("author")? {
-    println!("Author: {}", author["name"]);
-}
-
-for tag in post.many("tags")? {
-    println!("Tag: {}", tag["name"]);
-}
+if let Some(author) = post.one("author")? { println!("{}", author["name"]); }
 ```
+
+`RelationRepository::find_with_relations` is only available when the entity
+also implements `SoftDeletable` (see `src/repository/relations.rs`). For
+non-soft-deletable entities use `repo()` plus manual relation loading.
 
 ---
 
-## Using Macros
-
-Instead of manually implementing traits, use the `#[derive(Model)]` and `#[derive(Validate)]` macros:
+## Using macros
 
 ```rust
-use nosql_orm_derive::Model;
+use nosql_orm_derive::{Model, Validate};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Model)]
@@ -236,63 +187,40 @@ pub struct User {
 }
 ```
 
-See [07-features/07a-macros.md](07-features/07a-macros.md) for detailed macro documentation.
+`#[derive(Model)]` implements `Entity` (and `WithRelations` with an empty
+list). `#[derive(Validate)]` implements the `Validate` trait from the
+`#[validate(...)]` attributes. See
+[07-features/07a-macros.md](07-features/07a-macros.md).
 
 ---
 
-## Why nosql_orm?
-
-### Key Differentiators
-1. **Unified API** - Single code works for NoSQL + SQL databases
-2. **Zero-config storage** - Embedded JSON provider needs no setup
-3. **Native async** - Built on Tokio for async Rust
-4. **Type-safe** - Full Rust type safety
-5. **Rich features** - Built-in GraphQL, Pub/Sub, CDC, migrations
-
-### Comparison
-
-| Feature | nosql_orm | TypeORM | Prisma | Django ORM |
-|---------|-----------|--------|-------|--------|
-| NoSQL support | ✅ MongoDB, Redis, JSON | ⚠️ Limited | ❌ | ❌ |
-| Zero-config | ✅ JSON | ❌ | ⚠️ | ❌ |
-| SQL support | ✅ PG, MySQL, SQLite | ✅ | ✅ | ✅ |
-| Async first | ✅ | ⚠️ | ✅ | ❌ |
-| Built-in GraphQL | ✅ | ❌ | ❌ | ❌ |
-| Built-in Pub/Sub | ✅ | ❌ | ❌ | ❌ |
-| CDC | ✅ | ❌ | ❌ | ❌ |
-| Migrations | ✅ | ✅ | ✅ | ✅ |
-| Relations | ✅ | ✅ | ✅ | ✅ |
-
----
-
-## Documentation Structure
+## Documentation map
 
 ```
 docs/
-├── 00-table-of-contents.md    # This file
-├── 01-introduction.md        # Introduction (this file)
-├── 02-entity.md            # Entity trait
-├── 03-provider.md         # Providers (JSON, MongoDB, Redis, SQL)
-├── 04-repository.md        # Repository pattern
-├── 05-query-builder.md   # Query builder
-├── 06-relations.md        # Relations
-├── 07-features/          # Feature modules
-│   ├── README.md
-│   ├── 07a-macros.md
-│   ├── 07b-validators.md
-│   ├── ...
-├── 08-examples.md        # Examples
-└── 09-api-reference.md  # API quick reference
+├── 00-table-of-contents.md
+├── 01-introduction.md
+├── 02-entity.md
+├── 03-provider.md
+├── 04-repository.md
+├── 05-query-builder.md
+├── 06-relations.md
+├── 07-features/          # per-feature deep dives
+├── 08-examples.md
+├── 09-api-reference.md
+├── ARCHITECTURE.md
+└── MODULE.md
 ```
 
 ---
 
-## Next Steps
+## Next steps
 
-- Read [02-entity.md](02-entity.md) - Learn about Entity trait
-- Read [03-provider.md](03-provider.md) - Understand providers
-- Read [04-repository.md](04-repository.md) - Repository CRUD
-- Read [05-query-builder.md](05-query-builder.md) - Query builder
-- Read [06-relations.md](06-relations.md) - Relations
-- Explore [07-features/](07-features/) - Advanced features
-- Check [08-examples.md](08-examples.md) - Full examples
+- [02-entity.md](02-entity.md) — Entity trait and metadata
+- [03-provider.md](03-provider.md) — Providers and feature flags
+- [04-repository.md](04-repository.md) — Repository CRUD
+- [05-query-builder.md](05-query-builder.md) — Querying
+- [06-relations.md](06-relations.md) — Relations
+- [07-features/](07-features/) — Advanced features
+- [08-examples.md](08-examples.md) — Full examples
+- [09-api-reference.md](09-api-reference.md) — API quick reference

@@ -1,364 +1,205 @@
-# Database Providers
+# Providers
 
-Providers abstract database operations, allowing the same ORM logic to work with different backends.
-
----
-
-## Table of Contents
-
-1. [Provider Interface](#provider-interface)
-2. [JSON Provider](#json-provider)
-3. [MongoDB Provider](#mongodb-provider)
-4. [Redis Provider](#redis-provider)
-5. [SQL Providers](#sql-providers)
+`nosql_orm` exposes one storage contract (`Storage`) implemented by every
+backend. This document covers the traits, each provider and how to choose one.
 
 ---
 
-## Provider Interface
+## Provider traits
 
-### Storage Trait
+### `Storage` (generic, `Clone`)
 
 ```rust
 #[async_trait]
 pub trait Storage: Send + Sync + Clone + 'static {
     async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value>;
     async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>>;
-    async fn find_many(&self, collection: &str, filter: Option<&Filter>, skip: Option<u64>, limit: Option<u64>, sort_by: Option<&str>, sort_asc: bool) -> OrmResult<Vec<Value>>;
-    async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value>;
-    async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value>;
-    async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool>;
-    async fn delete_many(&self, collection: &str, filter: Option<Filter>) -> OrmResult<usize>;
-    async fn update_many(&self, collection: &str, filter: Option<Filter>, updates: Value) -> OrmResult<usize>;
-    async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64>;
-    async fn exists(&self, collection: &str, id: &str) -> OrmResult<bool>;
-    async fn find_all(&self, collection: &str) -> OrmResult<Vec<Value>> {
-        self.find_many(collection, None, None, None, None, true).await
-    }
-    async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()>;
-    async fn drop_index(&self, collection: &str, index_name: &str) -> OrmResult<()>;
-    async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<NosqlIndexInfo>>;
-    async fn index_exists(&self, collection: &str, index_name: &str) -> OrmResult<bool> {
-        let indexes = self.list_indexes(collection).await?;
-        Ok(indexes.iter().any(|i| i.name == index_name))
-    }
+    async fn find_many(&self, collection, filter, skip, limit, sort_by, sort_asc) -> OrmResult<Vec<Value>>;
+    async fn update(&self, collection, id, doc) -> OrmResult<Value>;
+    async fn patch(&self, collection, id, patch) -> OrmResult<Value>;
+    async fn delete(&self, collection, id) -> OrmResult<bool>;
+    async fn delete_many(&self, collection, filter) -> OrmResult<usize>;
+    async fn update_many(&self, collection, filter, updates) -> OrmResult<usize>;
+    async fn count(&self, collection, filter) -> OrmResult<u64>;
+    async fn exists(&self, collection, id) -> OrmResult<bool>;       // default
+    async fn find_all(&self, collection) -> OrmResult<Vec<Value>>;  // default
+    async fn find_all_typed<T>(&self, collection) -> OrmResult<Vec<T>>; // default
+    async fn create_index(&self, collection, index) -> OrmResult<()>;
+    async fn drop_index(&self, collection, index_name) -> OrmResult<()>;
+    async fn list_indexes(&self, collection) -> OrmResult<Vec<IndexInfo>>;
+    async fn index_exists(&self, collection, index_name) -> OrmResult<bool>; // default
+    async fn aggregate(&self, collection, pipeline) -> OrmResult<Vec<Value>>; // default NotSupported
+    async fn health_check(&self) -> OrmResult<bool>;                  // default true
+    async fn insert_many(&self, collection, docs) -> OrmResult<usize>; // default loop
+    fn capabilities(&self) -> ProviderCapabilities;                    // default none
+    fn supports(&self, capability) -> bool;                           // default
 }
 ```
 
-### ProviderConfig
+### `StorageBackend` (dyn-safe)
+
+Object-safe subset used when the backend is chosen at runtime:
+`connect_backend(kind, url)` returns `Arc<dyn StorageBackend>`. A blanket impl
+forwards `Storage`+`SchemaIntrospection`+`AdminCommands` providers to it, and
+`impl Storage for Arc<dyn StorageBackend>` bridges it back to `Repository`.
+
+### Companion traits
+
+- `SchemaIntrospection`: `list_collections`, `describe_collection`,
+  `get_collection_stats`, `list_indexes`, `get_database_name`, `list_databases`.
+- `AdminCommands`: `execute_raw`, `create_collection`, `drop_collection`,
+  `rename_collection`, `get_server_version`, `health_check_detailed`.
+- `TransactionControl`: `begin_transaction`, `commit_transaction`,
+  `rollback_transaction`, `is_transaction_active` over `TransactionId`.
+
+### Capability model
 
 ```rust
-pub struct ProviderConfig {
-    pub connection: String,
-    pub database: Option<String>,
-    pub options: HashMap<String, String>,
-}
-
-impl ProviderConfig {
-    pub fn new(connection: impl Into<String>) -> Self;
-    pub fn with_database(mut self, db: impl Into<String>) -> Self;
-    pub fn with_option(mut self, key: impl Into<String>, value: impl Into<String>) -> Self;
-}
+pub enum Capability { Transactions, Indexes, Aggregation, RawQueries }
+pub struct ProviderCapabilities { ... }  // none() / all() / with(cap)
 ```
 
 ---
 
-## JSON Provider
-
-File-based JSON storage. Each collection is stored as a JSON array in `<base_dir>/<collection>.json`.
-
-### Creating JsonProvider
+## JSON provider (`json` feature, default)
 
 ```rust
-use nosql_orm::prelude::*;
-
-// Create/open JSON database at directory
-let provider = JsonProvider::new("./data").await?;
-let provider = JsonProvider::new("/path/to/data").await?;
-
-// With temp directory (for testing)
-let temp_dir = tempfile::tempdir()?;
-let provider = JsonProvider::new(temp_dir.path()).await?;
+pub struct JsonProvider { ... }          // collection → Vec<Value> in memory + .json file
+pub struct JsonProviderConfig { base_dir, cache_config }
+pub struct JsonCacheConfig { max_entries_per_collection, ttl_seconds }
 ```
 
-### Operations
-
-All operations go through an in-memory cache (RwLock), then flushed to disk:
-
-```
-insert() ──► In-memory cache ──► Flush (pretty printed JSON)
-find_by_id() ──► In-memory cache ──► Load from disk if not cached
-update() ──► In-memory cache ──► Mark dirty ──► Flush
-patch() ──► Merge fields ──► Flush
-delete() ──► Remove from cache ──► Flush
-```
-
-### Example
+Constructors:
 
 ```rust
-use nosql_orm::prelude::*;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: Option<String>,
-    pub name: String,
-    pub email: String,
-}
-
-impl Entity for User {
-    fn meta() -> EntityMeta { EntityMeta::new("users") }
-    fn get_id(&self) -> Option<String> { self.id.clone() }
-    fn set_id(&mut self, id: String) { self.id = Some(id); }
-}
-
-#[tokio::main]
-async fn main() -> OrmResult<()> {
-    let provider = JsonProvider::new("./data").await?;
-    let repo: Repository<User, _> = Repository::new(provider);
-
-    // Create
-    let user = repo.save(User {
-        id: None,
-        name: "Alice".into(),
-        email: "alice@example.com".into(),
-    }).await?;
-
-    // Read
-    let found = repo.find_by_id(&user.id.unwrap()).await?;
-
-    // Update
-    let updated = repo.save(User {
-        id: user.id.clone(),
-        name: "Alice Updated".into(),
-        ..user
-    }).await?;
-
-    // Delete
-    repo.delete(&user.id.unwrap()).await?;
-
-    Ok(())
-}
+JsonProvider::new(base_dir: impl AsRef<Path>) -> OrmResult<Self>
+JsonProvider::with_config(config: JsonProviderConfig) -> OrmResult<Self>
 ```
+
+- Stores one `<collection>.json` file per collection under `base_dir`.
+- `JsonProviderConfig::new` honours the `NOSQL_ORM_DATA_DIR` env var (prepended
+  to `base_dir`).
+- Collection names are validated (`validate_collection_name`): non-empty,
+  ≤255 chars, no `..`, `/`, `\`, no leading dot.
+- `capabilities()`: `Aggregation` only. Index ops are no-ops / empty.
+- Implements `SchemaIntrospection`, `AdminCommands`, `TransactionControl`.
+
+### JSON tree provider (`json` feature)
+
+```rust
+pub struct JsonTreeProvider;
+JsonTreeProvider::new(base_dir: impl AsRef<Path>) -> OrmResult<Self>
+```
+
+One file per document (used by the Forge content tree). `capabilities()`: none.
 
 ---
 
-## MongoDB Provider
-
-MongoDB driver integration.
-
-### Creating MongoProvider
+## MongoDB provider (`mongo` feature)
 
 ```rust
-use nosql_orm::prelude::*;
-
-// Direct connection
-let provider = MongoProvider::connect("mongodb://localhost:27017", "mydb").await?;
-
-// Via config
-let config = ProviderConfig::new("mongodb://localhost:27017")
-    .with_database("mydb");
-let provider = MongoProvider::from_config(&config).await?;
-
-// With options
-let config = ProviderConfig::new("mongodb://localhost:27017")
-    .with_database("mydb")
-    .with_option("maxPoolSize", "10");
-let provider = MongoProvider::from_config(&config).await?;
+pub struct MongoProvider { ... }
+MongoProvider::connect(uri, db_name) -> OrmResult<Self>
+MongoProvider::from_config(&ProviderConfig) -> OrmResult<Self>
 ```
 
-### ID Mapping
-
-MongoDB uses `_id`, the library maps to/from `id`:
-
-```rust
-// When storing: id → _id
-// When reading: _id → id
-```
-
-### Filter Mapping
-
-Filters are converted to MongoDB query documents:
-
-```rust
-Filter::Eq("name", "Alice")         // → { name: "Alice" }
-Filter::Contains("name", "lic")      // → { name: { $regex: "lic", $options: "i" } }
-Filter::StartsWith("name", "A")    // → { name: { $regex: "^A", $options: "i" } }
-Filter::Gt("age", 18)             // → { age: { $gt: 18 } }
-Filter::In("status", ["a", "b"])   // → { status: { $in: ["a", "b"] } }
-Filter::And(filters)            // → { $and: [...] }
-Filter::Or(filters)             // → { $or: [...] }
-```
-
-### Example
-
-```rust
-use nosql_orm::prelude::*;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: Option<String>,
-    pub name: String,
-    pub email: String,
-}
-
-impl Entity for User {
-    fn meta() -> EntityMeta { EntityMeta::new("users") }
-    fn get_id(&self) -> Option<String> { self.id.clone() }
-    fn set_id(&mut self, id: String) { self.id = Some(id); }
-}
-
-#[tokio::main]
-async fn main() -> OrmResult<()> {
-    let provider = MongoProvider::connect("mongodb://localhost:27017", "mydb").await?;
-    let repo: Repository<User, _> = Repository::new(provider);
-
-    let user = repo.save(User {
-        id: None,
-        name: "Alice".into(),
-        email: "alice@example.com".into(),
-    }).await?;
-
-    println!("Saved user: {:?}", user);
-    Ok(())
-}
-```
+- Sub-modules: `mongo/filter` (Filter → BSON), `mongo/convert`,
+  `mongo/helpers`, `mongo/indexes`.
+- Extra methods: `create_mongo_index`, `drop_mongo_index`.
+- `capabilities()`: `Indexes`, `Aggregation`.
 
 ---
 
-## Redis Provider
-
-Redis key-value storage, caching, pub/sub.
-
-### Creating RedisProvider
+## Redis provider (`redis` feature)
 
 ```rust
-use nosql_orm::prelude::*;
-
-// Direct connection
-let provider = RedisProvider::connect("redis://localhost:6379").await?;
-
-// With password
-let provider = RedisProvider::connect("redis://user:password@localhost:6379").await?;
-
-// With database number
-let provider = RedisProvider::connect("redis://localhost:6379/1").await?;
+pub struct RedisProvider { ... }
+RedisProvider::new(connection_string: &str) -> OrmResult<Self>
+RedisProvider::with_prefix(self, prefix: &str) -> Self   // default "nosql_orm:"
 ```
 
-### Operations
+- Stores documents as JSON strings keyed `<prefix><collection>:<id>`, with a
+  set of ids per collection.
+- `capabilities()`: none. Indexes `NotSupported`.
+- Extra method: `publish(channel, message)` (pub/sub primitive).
+- `TransactionControl` is implemented.
 
-Redis provider stores JSON values:
+---
+
+## SQL providers (`sql-*` features)
 
 ```rust
-// Insert: collection:id → JSON
-// Find by id: collection:id → JSON
-// Find many: collection:* → JSON
-// Delete: collection:id → DEL
+pub struct SqliteProvider { ... }
+SqliteProvider::connect(path) -> OrmResult<Self>
+SqliteProvider::from_config(&ProviderConfig) -> OrmResult<Self>
+
+pub struct PostgresProvider { ... }
+PostgresProvider::connect(uri) -> OrmResult<Self>
+
+pub struct MySqlProvider { ... }
+MySqlProvider::connect(uri) -> OrmResult<Self>
 ```
 
-### Example
+- All implement `Storage`, `SchemaIntrospection`, `TransactionControl`.
+- Extra helpers: `dialect()`, `query_builder()`, `build_select(...)`.
+- `capabilities()`: Postgres/MySQL → `Indexes`, `RawQueries`; SQLite →
+  `Indexes`, `Transactions`, `RawQueries`.
+- `execute_raw` runs arbitrary SQL and returns `RawResult { affected_rows, rows }`.
+
+### Runtime selection
 
 ```rust
-#[tokio::main]
-async fn main() -> OrmResult<()> {
-    let provider = RedisProvider::connect("redis://localhost:6379").await?;
-    let repo: Repository<User, _> = Repository::new(provider);
+pub enum BackendKind { Json, Mongo, Redis, Postgres, MySql, Sqlite }
+pub async fn connect_backend(kind: BackendKind, url: &str) -> OrmResult<Arc<dyn StorageBackend>>
+pub async fn connect_by_name(name: &str, url: &str) -> OrmResult<Arc<dyn StorageBackend>>
+```
 
-    // Use for caching
-    let user = repo.save(User {
-        id: Some("user:1".into()),
-        name: "Alice".into(),
-        email: "alice@example.com".into(),
-    }).await?;
+`dialect_from_connection(url)` infers a `SqlDialect` from the URL/path.
 
-    Ok(())
+---
+
+## Fallback provider
+
+```rust
+pub struct FallbackProvider<P1: Storage, P2: Storage> {
+    pub primary: P1,
+    pub fallback: P2,
 }
 ```
 
----
-
-## SQL Providers
-
-### PostgreSQL Provider
-
-```rust
-#[cfg(feature = "sql-postgres")]
-let provider = PostgresProvider::connect(
-    "host=localhost user=postgres password=secret dbname=mydb"
-).await?;
-
-// Or using URL
-let provider = PostgresProvider::connect(
-    "postgres://postgres:secret@localhost/mydb"
-).await?;
-```
-
-### SQLite Provider
-
-```rust
-#[cfg(feature = "sql-sqlite")]
-let provider = SqliteProvider::connect("app.db").await?;
-
-// In-memory
-let provider = SqliteProvider::connect(":memory:").await?;
-```
-
-### MySQL Provider
-
-```rust
-#[cfg(feature = "sql-mysql")]
-let provider = MySqlProvider::connect(
-    "mysql://user:password@localhost:3306/mydb"
-).await?;
-```
+Methods: `find_with_fallback(collection, filter, timeout)` and
+`find_all_with_fallback(collection, filter, skip, limit, timeout)`. Primary is
+tried within the timeout; on error/timeout/empty it falls back to the
+secondary.
 
 ---
 
-## Swapping Providers
-
-The same code works with any provider:
+## Provider sync
 
 ```rust
-async fn create_user<P: Storage>(provider: P) -> OrmResult<()> {
-    let repo: Repository<User, P> = Repository::new(provider);
-    let user = repo.save(User {
-        id: None,
-        name: "Alice".into(),
-        email: "alice@example.com".into(),
-    }).await?;
-    Ok(())
-}
-
-// Works with JSON
-create_user(JsonProvider::new("./data").await?).await?;
-
-// Works with MongoDB
-create_user(MongoProvider::connect("mongodb://localhost:27017", "mydb").await?).await?;
-
-// Works with PostgreSQL
-#[cfg(feature = "sql-postgres")]
-create_user(PostgresProvider::connect("postgres://user:pass@localhost/db").await?).await?;
+pub struct ProviderSync<P1, P2>;
+pub enum ConflictResolution { ... }
+pub struct SyncOptions { ... }
 ```
 
----
-
-## Provider Comparison
-
-| Feature | JSON | MongoDB | Redis | SQL |
-|--------|------|--------|------|------|
-| Storage | Files | MongoDB | Redis | SQL DB |
-| Transactions | ❌ | ✅ | ✅ | ✅ |
-| Indexes | ⚠️ No-op | ✅ native | ✅ | ✅ |
-| Query language | In-memory | MongoQL | Key-scan | SQL |
-| Relations | ✅ | ✅ | ⚠️ Basic | ✅ |
-| Scalability | Single instance | Replica set | Cluster | Single/replica |
-| Zero-config | ✅ | ❌ | ❌ | ❌ |
+Used for provider-to-provider replication. See `src/providers/sync.rs`.
 
 ---
 
-## Next Steps
+## Choosing a provider
 
-- [04-repository.md](04-repository.md) - Repository CRUD operations
-- [05-query-builder.md](05-query-builder.md) - Query building
-- [06-relations.md](06-relations.md) - Relations
-- [07-features/07f-indexes.md](07-features/07f-indexes.md) - Indexes
+| Need | Pick |
+|---|---|
+| Zero config / tests / local dev | `JsonProvider` |
+| One file per document (Forge content) | `JsonTreeProvider` |
+| Production document store | `MongoProvider` |
+| Cache / pub-sub | `RedisProvider` |
+| Relational + raw SQL | `PostgresProvider` / `MySqlProvider` / `SqliteProvider` |
+| Runtime-selected backend | `connect_backend` + `Arc<dyn StorageBackend>` |
+
+---
+
+## Next steps
+
+- [04-repository.md](04-repository.md) — Repository CRUD
+- [07-features/](07-features/) — Feature modules

@@ -1,26 +1,6 @@
-# Full-Text Search
+# Removed / not available
 
-Text search with scoring.
-
-Opt-in: compiled only with the `search` feature. No code path in `Storage`,
-`Repository` or the providers calls this module yet.
-
----
-
-## FullTextSearch
-
-```rust
-pub struct FullTextSearch { query: String }
-pub struct TextSearch;
-pub struct SearchScore { pub id: String, pub score: f64 }
-pub struct SearchResult { pub results: Vec<Value>, pub scores: Vec<SearchScore> }
-```
-
-## Usage
-
-```rust
-let search = FullTextSearch::new("rust programming");
-let results = repo.search(search).await?;
-```
-
-See `src/search/search.rs` for implementation.
+This feature does not exist in `nosql_orm` 0.9.0. There is no `search`, `cdc`,
+`graphql` or `subscription` module and no corresponding Cargo feature. The file
+is retained only for backwards compatibility of documentation links; ignore its
+previous content.

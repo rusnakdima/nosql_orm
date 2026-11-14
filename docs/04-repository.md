@@ -1,440 +1,167 @@
-# Repository Pattern
+# Repository
 
-The Repository pattern provides CRUD operations between entities and providers.
-
----
-
-## Table of Contents
-
-1. [Repository](#repository)
-2. [CRUD Operations](#crud-operations)
-3. [Query Methods](#query-methods)
-4. [RelationRepository](#relationrepository)
-5. [Index Management](#index-management)
-6. [SQL Schema](#sql-schema)
+`Repository<E, P>` is the high-level, typed CRUD entry point. It is generic
+over the entity `E: Entity` and the provider `P: Storage`.
 
 ---
 
-## Repository
-
-### Creating a Repository
+## Construction
 
 ```rust
-let repo: Repository<User, JsonProvider> = Repository::new(provider);
+pub struct Repository<E, P> { ... }
 
-// Or with type inference
-let repo = Repository::<User, _>::new(provider);
+impl<E, P> Repository<E, P> where E: Entity, P: Storage {
+    pub fn new(provider: P) -> Self;
+    pub fn provider(&self) -> &P;
+    pub fn with_events(self, events: Arc<EntityEvents>) -> Self;
+    pub fn with_timeout(self, timeout_ms: u64) -> Self;
+    pub fn indexes(&self) -> IndexManager<P>;
+    pub async fn execute_sql(&self, sql: &str) -> OrmResult<usize>   // P: AdminCommands
+}
 ```
 
-### Repository Structure
+`sync_schema(&self)` is available when `P: Storage + AdminCommands +
+SqlProviderHelpers` (SQL providers) and creates the table from
+`E::sql_columns()`.
+
+`RelationRepository<E, P>` wraps a `Repository` and a `RelationLoader`:
 
 ```rust
-pub struct Repository<E, P>
-where
-    E: Entity,
-    P: Storage,
-{
-    pub(crate) provider: P,
-    _phantom: PhantomData<E>,
+pub struct RelationRepository<E, P> where E: WithRelations, P: Storage {
+    pub fn new(provider: P) -> Self;
+    pub fn repo(&self) -> &Repository<E, P>;
 }
 ```
 
 ---
 
-## CRUD Operations
+## Write operations (`crud.rs`)
 
-### Insert
+| Method | Signature | Notes |
+|---|---|---|
+| `insert` | `async fn insert(&self, entity: E) -> OrmResult<E>` (E: Validate) | validates, mints id if missing, applies insert timestamps, dispatches insert event |
+| `update` | `async fn update(&self, entity: E) -> OrmResult<E>` (E: Validate) | requires id; applies update timestamps; dispatches update event |
+| `update_with_immutable` | `async fn update_with_immutable(&self, entity, immutable_fields: &[&str]) -> OrmResult<E>` | restores listed fields from the stored row |
+| `save` | `async fn save(&self, entity: E) -> OrmResult<E>` (E: Validate) | upsert: insert if id is None else update |
+| `insert_many` | `async fn insert_many(&self, entities: Vec<E>) -> OrmResult<usize>` | loops insert (no validation) |
+| `update_many` | `async fn update_many(&self, filter, updates) -> OrmResult<usize>` | provider-level |
+| `upsert_many` | `async fn upsert_many(&self, entities) -> OrmResult<usize>` (E: Validate) | loops save |
+| `delete_many` | `async fn delete_many(&self, filter) -> OrmResult<usize>` | provider-level |
+| `patch` | `async fn patch(&self, id, patch: Value) -> OrmResult<E>` | partial update, returns reloaded entity |
+| `save_from_value` | `async fn save_from_value(&self, value: Value) -> OrmResult<E>` | upsert from a JSON value |
+| `update_from_value` | `async fn update_from_value(&self, value: Value) -> OrmResult<E>` | update from a JSON value |
 
-Insert a new entity (id auto-generated if not set):
+## Delete operations (`delete.rs`)
 
-```rust
-let user = repo.insert(User {
-    id: None,
-    name: "Alice".into(),
-    email: "alice@example.com".into(),
-}).await?;
-```
+| Method | Notes |
+|---|---|
+| `delete(id)` | hard delete; consults relations / cascade |
+| `remove(id)` | alias-style removal |
+| `soft_delete(id)` | sets `deleted_at = now()` (E: SoftDeletable) |
+| `restore(id)` | clears `deleted_at` (E: SoftDeletable) |
 
-### Save
+## Find operations (`find.rs`)
 
-Insert or update based on id presence:
+| Method | Notes |
+|---|---|
+| `find_by_id(id) -> OrmResult<Option<E>>` | |
+| `get_by_id(id) -> OrmResult<E>` | errors with `NotFound` if absent |
+| `find_all() -> OrmResult<Vec<E>>` | for soft-deletable entities this includes deleted rows |
+| `find_all_including_deleted()` | explicit |
+| `count() -> OrmResult<u64>` | |
+| `exists(id) -> OrmResult<bool>` | |
+| `find_for_frontend() -> OrmResult<Vec<E>>` (E: FrontendProjection) | applies projection excluding frontend-excluded fields |
+| `find_by_id_for_frontend(id)` | same, single |
+| `find_by_id_with_timeout(id)` | uses `query_timeout` (default 30s) |
+| `find_all_with_timeout()` | |
+| `count_with_timeout()` | |
 
-```rust
-// Insert (no id)
-let user = repo.save(User {
-    id: None,
-    name: "Alice".into(),
-    email: "alice@example.com".into(),
-}).await?;
-
-// Update (has id)
-let user = repo.save(User {
-    id: Some("existing-id".into()),
-    name: "Updated".into(),
-    email: "updated@example.com".into(),
-}).await?;
-```
-
-### Find by ID
-
-```rust
-// Returns Option<T>
-let user = repo.find_by_id("user-id-123").await?;
-
-// Returns T or Error
-let user = repo.get_by_id("user-id-123").await?;
-```
-
-### Find All
+## Querying
 
 ```rust
-// Excludes soft-deleted (for SoftDeletable entities)
-let users = repo.find_all().await?;
-
-// Includes soft-deleted
-let users = repo.find_all_including_deleted().await?;
+pub fn query(&self) -> RepositoryQuery<'_, E, P>
+pub fn query_including_deleted(&self) -> RepositoryQuery<'_, E, P>
 ```
 
-### Update
+`RepositoryQuery` proxies a subset of `QueryBuilder` methods: `where_eq`,
+`where_ne`, `where_gt`, `where_lt`, `where_contains`, `where_in`, `order_by`,
+`skip`, `limit`, `with_relation`, `filter`, `select`, `exclude`. Terminal:
+`find`, `find_one`, `find_with_cursor`, `find_raw`, `count`.
 
-Update an entity (requires id):
+Streaming:
 
 ```rust
-let updated = repo.update(User {
-    id: Some("user-id".into()),
-    name: "Updated Name".into(),
-    email: "updated@example.com".into(),
-}).await?;
+pub async fn find_stream(filter, skip, limit, sort_by, sort_asc) -> OrmResult<QueryStream<E, P>>
+pub async fn find_many_stream(filter, skip, limit) -> OrmResult<QueryStream<E, P>>
 ```
 
-### Patch
-
-Partial update (merge fields):
-
-```rust
-let patched = repo.patch("user-id", serde_json::json!({
-    "name": "Patched Name"
-})).await?;
-```
-
-### Delete
-
-Hard delete:
-
-```rust
-// By id
-let deleted = repo.delete("user-id").await?;
-
-// By entity
-let deleted = repo.remove(&entity).await?;
-```
-
-### Soft Delete
-
-For entities implementing `SoftDeletable`:
-
-```rust
-let deleted = repo.soft_delete("user-id").await?;
-let restored = repo.restore("user-id").await?;
-```
-
-### Count
-
-```rust
-let count = repo.count().await?;
-```
-
-### Exists
-
-```rust
-let exists = repo.exists("user-id").await?;
-```
+`QueryStream` fetches in batches (default 100) via `next_item()`.
 
 ---
 
-## Query Methods
+## Relations
 
-### query()
-
-Start a fluent query:
+`RelationRepository` adds (only when `E: WithRelations + SoftDeletable`):
 
 ```rust
-let results = repo.query()
-    .where_eq("name", "Alice")
-    .where_gt("age", 18)
-    .order_by(OrderBy::asc("name"))
-    .limit(10)
-    .find()
-    .await?;
+pub async fn find_with_relations(id, relation_paths: &[&str]) -> OrmResult<Option<WithLoaded<E>>>
+pub async fn find_all_with_relations(relation_paths) -> OrmResult<Vec<WithLoaded<E>>>
+pub async fn query_with_relations(builder: QueryBuilder, relation_paths) -> OrmResult<Vec<WithLoaded<E>>>
+pub async fn soft_delete_cascade(id) -> OrmResult<bool>
 ```
 
-### query_including_deleted()
-
-Query including soft-deleted:
-
-```rust
-let results = repo.query_including_deleted()
-    .where_eq("name", "Alice")
-    .find()
-    .await?;
-```
+`WithLoaded<E>` exposes `entity`, `loaded: HashMap<String, RelationValue>` and
+methods `one(name)`, `many(name)`, `get(path)`, `keys()`, `has(name)`. It
+serializes as the entity plus the loaded relation values.
 
 ---
 
-## RelationRepository
-
-Extends Repository with relation loading.
-
-### Creating RelationRepository
+## Index management
 
 ```rust
-let posts: RelationRepository<Post, JsonProvider> = RelationRepository::new(provider);
+self.indexes()  // IndexManager<P>
 ```
 
-### Find with Relations
-
-```rust
-// Load single entity with relations
-let post = posts
-    .find_with_relations("post-id", &["author", "tags"])
-    .await?
-    .unwrap();
-
-// Access entity
-println!("{}", post.entity.title);
-
-// Access loaded single relation (ManyToOne/OneToOne)
-if let Some(author) = post.one("author")? {
-    println!("Author: {}", author["name"]);
-}
-
-// Access loaded collection relation (OneToMany/ManyToMany)
-for tag in post.many("tags")? {
-    println!("Tag: {}", tag["name"]);
-}
-```
-
-### Find All with Relations
-
-```rust
-let posts = posts.find_all_with_relations(&["author", "tags"]).await?;
-
-for post in posts {
-    if let Some(author) = post.one("author")? {
-        println!("Author: {}", author["name"]);
-    }
-}
-```
-
-### Query with Relations
-
-```rust
-let posts = posts.query_with_relations(
-    QueryBuilder::new()
-        .where_contains("title", "Rust")
-        .limit(10),
-    &["author", "tags"]
-).await?;
-```
+`IndexManager` wraps the provider's index operations. See
+[07-features/07f-indexes.md](07-features/07f-indexes.md).
 
 ---
 
-## Index Management
-
-### create_index()
+## Events
 
 ```rust
-repo.create_index(NosqlIndex::single("email", 1)).await?;
-repo.create_index(NosqlIndex::unique("email"))?;
-repo.create_index(NosqlIndex::compound(&[("field1", 1), ("field2", -1)]))?;
-repo.create_index(NosqlIndex::text(&[("title", 10), ("body", 5)]))?;
-repo.create_index(NosqlIndex::ttl("created_at", 3600))?;
+let events = Arc::new(EntityEvents::new());
+let repo = Repository::new(provider).with_events(events.clone());
 ```
 
-### list_indexes()
-
-```rust
-let indexes = repo.list_indexes().await?;
-
-for idx in indexes {
-    println!("{}", idx.name);
-}
-```
-
-### drop_index()
-
-```rust
-repo.drop_index("idx_email").await?;
-```
-
-### sync_indexes()
-
-Create indexes from entity definition:
-
-```rust
-let created = repo.sync_indexes().await?;
-```
-
----
-
-## SQL Schema
-
-### sync_schema()
-
-Sync table schema from entity:
-
-```rust
-repo.sync_schema().await?;
-```
-
-### execute_sql()
-
-Execute raw SQL:
-
-```rust
-repo.execute_sql("TRUNCATE users CASCADE").await?;
-```
+`EntityEvents` dispatches `after_insert`, `before_update`/`after_update` and
+`before_delete`/`after_delete` to registered `EntityEventListener<Value>`
+listeners. `dispatch_insert` is called on insert; `dispatch_update` on update.
 
 ---
 
 ## Examples
 
-### Full CRUD Example
-
 ```rust
-use nosql_orm::prelude::*;
-use serde::{Deserialize, Serialize};
+let repo: Repository<User, _> = Repository::new(provider);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: Option<String>,
-    pub name: String,
-    pub email: String,
-}
+// insert
+let u = repo.insert(User { id: None, name: "Alice".into(), email: "a@x.com".into() }).await?;
 
-impl Entity for User {
-    fn meta() -> EntityMeta { EntityMeta::new("users") }
-    fn get_id(&self) -> Option<String> { self.id.clone() }
-    fn set_id(&mut self, id: String) { self.id = Some(id); }
-}
+// find
+assert!(repo.find_by_id(u.id.as_ref().unwrap()).await?.is_some());
 
-#[tokio::main]
-async fn main() -> OrmResult<()> {
-    let provider = JsonProvider::new("./data").await?;
-    let repo: Repository<User, _> = Repository::new(provider);
+// patch
+let patched = repo.patch(u.id.as_ref().unwrap(), serde_json::json!({"name":"Bob"})).await?;
 
-    // CREATE
-    let user = repo.save(User {
-        id: None,
-        name: "Alice".into(),
-        email: "alice@example.com".into(),
-    }).await?;
-    println!("Created: {:?}", user.id);
-
-    // READ
-    let found = repo.find_by_id(user.id.as_ref().unwrap()).await?;
-    println!("Found: {:?}", found);
-
-    // UPDATE
-    let updated = repo.save(User {
-        id: user.id.clone(),
-        name: "Alice Updated".into(),
-        email: "updated@example.com".into(),
-    }).await?;
-    println!("Updated: {:?}", updated.name);
-
-    // PATCH
-    let patched = repo.patch(
-        user.id.as_ref().unwrap(),
-        serde_json::json!({ "email": "patched@example.com" })
-    ).await?;
-    println!("Patched email: {:?}", patched.email);
-
-    // COUNT & EXISTS
-    println!("Count: {}", repo.count().await?);
-    println!("Exists: {}", repo.exists(user.id.as_ref().unwrap()).await?);
-
-    // QUERY
-    let results = repo.query()
-        .where_contains("name", "Alice")
-        .order_by(OrderBy::asc("name"))
-        .limit(10)
-        .find()
-        .await?;
-    println!("Found {} users", results.len());
-
-    // DELETE
-    let deleted = repo.delete(user.id.as_ref().unwrap()).await?;
-    println!("Deleted: {}", deleted);
-
-    Ok(())
-}
-```
-
-### With Relations
-
-```rust
-use nosql_orm::prelude::*;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Post {
-    pub id: Option<String>,
-    pub title: String,
-    pub author_id: String,
-    pub tag_ids: Vec<String>,
-}
-
-impl Entity for Post {
-    fn meta() -> EntityMeta { EntityMeta::new("posts") }
-    fn get_id(&self) -> Option<String> { self.id.clone() }
-    fn set_id(&mut self, id: String) { self.id = Some(id); }
-}
-
-impl WithRelations for Post {
-    fn relations() -> Vec<RelationDef> {
-        vec![
-            RelationDef::many_to_one("author", "users", "author_id"),
-            RelationDef::many_to_many("tags", "tags", "tag_ids"),
-        ]
-    }
-}
-
-#[tokio::main]
-async fn main() -> OrmResult<()> {
-    let provider = JsonProvider::new("./data").await?;
-    let posts: RelationRepository<Post, _> = RelationRepository::new(provider);
-
-    // Register relations
-    register_relations_for_entity::<Post>();
-
-    // Load with relations
-    let post = posts
-        .find_with_relations("post-id", &["author", "tags"])
-        .await?
-        .unwrap();
-
-    // Entity
-    println!("Title: {}", post.entity.title);
-
-    // ManyToOne/OneToOne
-    if let Some(author) = post.one("author")? {
-        println!("Author: {}", author["name"]);
-    }
-
-    // OneToMany/ManyToMany
-    for tag in post.many("tags")? {
-        println!("Tag: {}", tag["name"]);
-    }
-
-    Ok(())
-}
+// delete
+repo.delete(u.id.as_ref().unwrap()).await?;
 ```
 
 ---
 
-## Next Steps
+## Next steps
 
-- [05-query-builder.md](05-query-builder.md) - Query builder
-- [06-relations.md](06-relations.md) - Relations
-- [07-features/](07-features/) - Feature documentation
+- [05-query-builder.md](05-query-builder.md) — Querying
+- [06-relations.md](06-relations.md) — Relations
+- [07-features/](07-features/) — Features
