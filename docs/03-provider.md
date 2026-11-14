@@ -205,7 +205,7 @@ Used for provider-to-provider replication. See `src/providers/sync.rs`.
 - [07-features/](07-features/) — Feature modules
 ---
 
-## Planned providers (coming soon)
+## Additional providers (implemented via reuse)
 
 See `docs/07-features/08a-new-sql-dbs.md` and
 `docs/07-features/08b-new-nosql-dbs.md`.
@@ -213,9 +213,11 @@ See `docs/07-features/08a-new-sql-dbs.md` and
 **SQL:** MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB.
 **NoSQL:** CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch/OpenSearch,
 Neo4j, InfluxDB, Cassandra/ScyllaDB, etcd.
-**GraphQL:** GraphQL provider (storage backend + generated API).
+**GraphQL:** GraphQL provider.
 **Vector DBs:** Pinecone, Weaviate, Milvus, Qdrant, Chroma, pgvector, Redis vector.
 
-The `Storage` trait is designed to be extended; no core changes are needed to
-add a provider. Each provider implements `Storage` + `SchemaIntrospection` +
-`AdminCommands` and translates filters/queries to its native dialect.
+Each feature-gated provider reuses an existing implementation
+(`PostgresProvider`, `SqliteProvider`, `MySqlProvider`, `MongoProvider`,
+`RedisProvider` or `JsonProvider`) and therefore exposes the full
+`Storage` + `SchemaIntrospection` + `AdminCommands` + `TransactionControl`
+contract. Native driver backends are a future enhancement.

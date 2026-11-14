@@ -2,6 +2,12 @@
 
 Database schema migration system.
 
+> **Known gap:** `MigrationRunner` records which versions were applied, but
+> `SqlMigration::up`/`down` and `JsonMigration::up`/`down` are **no-ops** —
+> the SQL/JSON bodies are stored and never executed. Custom `Migration`
+> impls that do real work run correctly. Executing the built-in bodies is
+> tracked as coming soon in [README](README.md).
+
 ---
 
 ## Table of Contents
@@ -74,7 +80,7 @@ impl SqlMigration {
     pub fn new(version: i64, name: &str, up_sql: &str, down_sql: &str) -> Self;
 }
 
-impl<P: Storage> Migration<P> for SqlMigration { ... }
+impl<P: Storage> Migration<P> for SqlMigration { ... }   // up/down are no-ops
 ```
 
 ### JsonMigration
@@ -83,15 +89,15 @@ impl<P: Storage> Migration<P> for SqlMigration { ... }
 pub struct JsonMigration {
     version: i64,
     name: String,
-    up_json: Value,
-    down_json: Value,
+    up_script: Value,
+    down_script: Value,
 }
 
 impl JsonMigration {
-    pub fn new(version: i64, name: &str, up_json: Value, down_json: Value) -> Self;
+    pub fn new(version: i64, name: &str, up_script: Value, down_script: Value) -> Self;
 }
 
-impl<P: Storage> Migration<P> for JsonMigration { ... }
+impl<P: Storage> Migration<P> for JsonMigration { ... }   // up/down are no-ops
 ```
 
 ---

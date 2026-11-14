@@ -1,32 +1,47 @@
-# Streaming results (coming soon)
+# Streaming results
 
-> Status: **coming soon** — planned for 0.10.0. Not implemented in 0.9.0.
+> Status: **implemented** — `Storage::find_stream()` and
+> `Repository::find_stream()` ship in 0.10.0. Native provider cursors and
+> `aggregate_stream` are **coming soon**.
 
 Stream large result sets lazily instead of loading everything into memory.
 Essential for exports, reports and large collections.
 
 ---
 
-## Planned API
+## Implemented API
 
 ```rust
-let mut stream = repo.find_stream(filter).await?;
+use futures::StreamExt;
+
+// Storage trait — every provider inherits the default
+let mut stream = storage.find_stream("tasks", Some(filter));
 while let Some(row) = stream.next().await {
-    process(row?);
+  process(row?);
+}
+
+// Repository — typed, batched (default batch size 100)
+let mut stream = repo.find_stream(Some(filter), skip, limit, sort_by, sort_asc).await?;
+while let Some(entity) = stream.next().await {
+  process(entity?);
 }
 ```
 
-## Planned features
+- `Storage::find_stream` returns
+  `Pin<Box<dyn Stream<Item = OrmResult<Value>> + Send>>`. The default
+  collects once and streams the results; providers may override for native
+  cursor support.
+- `Repository::find_stream` returns `QueryStream<E, P>`, which fetches in
+  batches of `batch_size` (default 100, set with `with_batch_size`).
 
-- `find_stream`, `aggregate_stream` returning `async Stream<Item = Result<E>>`.
-- Backpressure-aware (consumer controls pace).
-- Provider-native cursors (Mongo cursor, SQL server-side cursor).
-- JSON/SQLite fallback via chunked pagination.
+Tested by `tests/test_new_features.rs::test_streaming`.
 
-## Why coming soon
+## Coming soon
 
-Requires an async stream abstraction and cursor lifetime management across
-providers. Tracked as `nosql_orm` roadmap item.
+- `aggregate_stream` for pipeline results.
+- Provider-native cursors (Mongo cursor, SQL server-side cursor) — the
+  trait already names this as the override point.
+- Backpressure-aware chunking tuning on the default path.
 
 ## See also
 

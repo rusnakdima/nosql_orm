@@ -191,7 +191,7 @@ WithLoaded<Entity>
 
 | Module | File | Description |
 |--------|------|-------------|
-| `entity` | `src/entity.rs` | `Entity` trait, `EntityMeta`, `FrontendProjection` |
+| `entity` | `src/entity/` | `Entity` trait, `EntityMeta`, `FrontendProjection` |
 | `provider` | `src/provider.rs` | `Storage` trait, `ProviderConfig` |
 | `repository` | `src/repository/` | `Repository`, `RelationRepository`, `RepositoryQuery` |
 
@@ -200,20 +200,28 @@ WithLoaded<Entity>
 | `relations` | `src/relations/` | `RelationDef`, `RelationLoader`, `WithRelations` |
 
 | `cascade` | `src/cascade/` | Cascade delete |
-| `lazy` | `src/lazy/` | Lazy loading |
-| `embedded` | `src/embedded/` | Embedded entities |
-| `inheritance` | `src/inheritance/` | Table inheritance |
-| `search` | `src/search/` | Full-text search |
+| `lazy` | `src/lazy/` | Lazy loading (feature `lazy`) |
+| `embedded` | `src/embedded/` | Embedded entities (feature `embedded`) |
+| `inheritance` | `src/inheritance/` | Table inheritance (feature `inheritance`) |
+| `search` | `src/provider.rs` | Full-text search — `Storage::search()` default impl |
 | `aggregation` | `src/aggregation/` | Aggregation pipeline |
-| `cdc` | `src/cdc/` | Change data capture |
-| `graphql` | `src/graphql/` | GraphQL integration |
-| `subscription` | `src/subscription/` | Pub/Sub |
-| `cache` | `src/cache/` | Query caching |
+| `cdc` | `src/cdc.rs` | Change data capture |
+| `graphql` | `src/new_providers.rs` | GraphQLProvider (JSON reuse) |
+| `subscription` | `src/subscription.rs` | Pub/Sub |
+| `tenant` | `src/tenant.rs` | Multi-tenancy wrapper |
+| `sync` | `src/sync.rs` | Offline-first sync engine |
+| `encryption` | `src/encryption.rs` | Encryption at rest |
+| `vector_search` | `src/vector_search.rs` | Vector / semantic search |
+| `mongo_tx`, `redis_tx` | `src/mongo_tx.rs`, `src/redis_tx.rs` | Write-buffer transactions |
+| `pgvector` | `src/pgvector.rs` | pgvector provider (feature `pgvector`) |
+| `cache` | `src/cache/` | Query caching (feature `query_cache`) |
 | `sql` | `src/sql/` | SQL utilities |
 | `constraints` | `src/constraints/` | Schema constraints |
 | `logging` | `src/logging/` | Query logging |
-| `cli` | `src/cli/` | CLI tools |
-| `transaction` | `src/transaction.rs` | Transaction support |
+| `transaction` | `src/repository/transaction.rs` | Transaction support (delegates to `TransactionControl`) |
+
+There is no `src/cli/` or `src/search/` directory: search lives on the
+`Storage` trait, and transaction support on `TransactionControl`.
 
 ---
 
@@ -604,16 +612,49 @@ default = ["json"]
 json = []
 mongo = ["dep:mongodb", "dep:futures-util"]
 redis = ["dep:redis"]
-full = ["json", "mongo", "redis"]
 query_cache = []
-validators = []
 
 # SQL Providers
-sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:base64"]
-sql-sqlite = ["dep:rusqlite", "dep:base64"]
-sql-mysql = ["dep:mysql_async", "dep:base64"]
+sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres"]
+sql-sqlite = ["dep:rusqlite"]
+sql-mysql = ["dep:mysql_async"]
 sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
+
+# Provider aliases (enable the underlying driver feature)
+sql-mssql = ["sql-postgres"]
+sql-oracle = ["sql-postgres"]
+sql-cockroach = ["sql-postgres"]
+sql-duckdb = ["sql-sqlite"]
+sql-clickhouse = ["sql-postgres"]
+sql-mariadb = ["sql-mysql"]
+couchdb = ["mongo"]
+couchbase = ["mongo"]
+dynamodb = ["redis"]
+firestore = ["mongo"]
+elasticsearch = ["mongo"]
+neo4j = ["mongo"]
+influxdb = ["redis"]
+cassandra = ["mongo"]
+etcd = ["redis"]
+graphql = ["json"]
+pinecone = ["mongo"]
+weaviate = ["mongo"]
+milvus = ["mongo"]
+qdrant = ["mongo"]
+chroma = ["mongo"]
+pgvector = ["sql-postgres"]
+redis-vector = ["redis"]
+
+# Opt-in extensions
+embedded = []
+inheritance = []
+lazy = []
+
+# Everything (all provider aliases included)
+full = ["json", "mongo", "redis", "sql", "…every alias above"]
 ```
+
+There is no `validators` feature — validators compile unconditionally.
 
 ### Creating a Provider
 

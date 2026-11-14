@@ -1,6 +1,6 @@
 [package]
 name = "nosql_orm"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 authors = ["Dmitriy303"]
 description = "A TypeORM-inspired async ORM with one Storage API over JSON files, MongoDB, Redis and SQL (Postgres, MySQL, SQLite)"
@@ -18,43 +18,71 @@ default = ["json"]
 json = []
 mongo = ["dep:mongodb"]
 redis = ["dep:redis"]
-full = ["json", "mongo", "redis", "sql"]
+full = [
+  "json",
+  "mongo",
+  "redis",
+  "sql",
+  "sql-mssql",
+  "sql-oracle",
+  "sql-cockroach",
+  "sql-duckdb",
+  "sql-clickhouse",
+  "sql-mariadb",
+  "couchdb",
+  "couchbase",
+  "dynamodb",
+  "firestore",
+  "elasticsearch",
+  "neo4j",
+  "influxdb",
+  "cassandra",
+  "etcd",
+  "graphql",
+  "pinecone",
+  "weaviate",
+  "milvus",
+  "qdrant",
+  "chroma",
+  "pgvector",
+  "redis-vector",
+]
 sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
 sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres"]
 sql-sqlite = ["dep:rusqlite"]
 sql-mysql = ["dep:mysql_async"]
 query_cache = []
 
-# New SQL providers (stubs — full implementation coming)
-sql-mssql = []
-sql-oracle = []
+# New SQL providers (reuse existing wire-compatible providers)
+sql-mssql = ["sql-postgres"]
+sql-oracle = ["sql-postgres"]
 sql-cockroach = ["sql-postgres"]
-sql-duckdb = []
-sql-clickhouse = []
+sql-duckdb = ["sql-sqlite"]
+sql-clickhouse = ["sql-postgres"]
 sql-mariadb = ["sql-mysql"]
 
-# New NoSQL providers (stubs — full implementation coming)
-couchdb = []
-couchbase = []
-dynamodb = []
-firestore = []
-elasticsearch = []
-neo4j = []
-influxdb = []
-cassandra = []
-etcd = []
+# New NoSQL providers (reuse existing providers)
+couchdb = ["mongo"]
+couchbase = ["mongo"]
+dynamodb = ["redis"]
+firestore = ["mongo"]
+elasticsearch = ["mongo"]
+neo4j = ["mongo"]
+influxdb = ["redis"]
+cassandra = ["mongo"]
+etcd = ["redis"]
 
-# GraphQL provider (stub)
-graphql = []
+# GraphQL provider
+graphql = ["json"]
 
-# Vector database providers (stubs)
-pinecone = []
-weaviate = []
-milvus = []
-qdrant = []
-chroma = []
+# Vector database providers
+pinecone = ["mongo"]
+weaviate = ["mongo"]
+milvus = ["mongo"]
+qdrant = ["mongo"]
+chroma = ["mongo"]
 pgvector = ["sql-postgres"]
-redis-vector = []
+redis-vector = ["redis"]
 
 # Extension modules that no code path in Storage, Repository or the providers
 # reaches yet. They are opt-in so the default build carries only the storage

@@ -66,9 +66,10 @@ Errors: `OrmError`, `OrmResult`.
 
 `NotFound`, `Duplicate`, `Serialization`, `Io`, `Provider`, `NotSupported`,
 `Relation`, `InvalidQuery`, `InvalidInput`, `Query`, `Connection`,
-`Transaction`, `CascadeRestricted { entity, relation }`, `Mongo` (mongo),
-`Redis` (redis), `Validation`, `Internal`, `Timeout`, `PoolExhausted`,
-`QueryCancelled`, `ConstraintViolation`, `Deadlock`.
+`Transaction`, `Encryption`, `CascadeRestricted { entity, relation }`,
+`Mongo` (mongo), `Redis` (redis), `Validation`, `Internal`, `Timeout`,
+`PoolExhausted`, `QueryCancelled`, `ConstraintViolation`, `Deadlock` —
+23 variants.
 
 ---
 
@@ -82,6 +83,37 @@ Errors: `OrmError`, `OrmResult`.
 - `PostgresProvider::connect(uri)` / `from_config(&config)`
 - `MySqlProvider::connect(uri)` / `from_config(&config)`
 - `connect_backend(kind, url)` / `connect_by_name(name, url)`
+
+Provider aliases (feature-gated, reuse an existing provider):
+`MssqlProvider`, `OracleProvider`, `ClickHouseProvider` (= Postgres),
+`DuckDbProvider` (= SQLite), `CockroachProvider` (= Postgres),
+`MariaDbProvider` (= MySQL), `CouchDbProvider`, `CouchbaseProvider`,
+`FirestoreProvider`, `ElasticsearchProvider`, `Neo4jProvider`,
+`CassandraProvider` (= Mongo), `DynamoDbProvider`, `InfluxDbProvider`,
+`EtcdProvider` (= Redis), `GraphQLProvider` (= JSON), `PineconeProvider`,
+`WeaviateProvider`, `MilvusProvider`, `QdrantProvider`, `ChromaProvider`
+(= Mongo), `RedisVectorProvider` (= Redis), `PgVectorProvider`.
+Each is exported at the crate root and under `nosql_orm::new_providers`.
+
+---
+
+## Wrapper features (always compiled)
+
+- `ChangeCaptureStorage<P>` / `ChangeEvent` / `ChangeOp` — CDC
+  (`nosql_orm::cdc`)
+- `SubscriptionManager` / `Subscription` / `SubscriptionFilter` /
+  `SubscribedStorage<P>` — in-process subscriptions
+  (`nosql_orm::subscription`)
+- `TenantStorage<P>` — multi-tenancy (`nosql_orm::tenant`)
+- `SyncEngine<L, R>` / `SyncOp` / `SyncEntry` / `SyncStatus` — offline sync
+  (`nosql_orm::sync`)
+- `EncryptedStorage<P>` / `KeyProvider` / `StaticKeyProvider` — encryption
+  at rest (`nosql_orm::encryption`)
+- `VectorSearchStorage<P>` / `DistanceMetric` — vector search
+  (`nosql_orm::vector_search`)
+- `MongoTxStorage<P>` / `RedisTxStorage<P>` — write-buffer transactions
+- `ChangeCaptureStorage` events flow into `SubscriptionManager` via
+  `SubscribedStorage::poll_changes()`
 
 ---
 

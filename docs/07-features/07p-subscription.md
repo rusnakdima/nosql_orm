@@ -1,34 +1,45 @@
-# Real-time subscriptions (coming soon)
+# Real-time subscriptions
 
-> Status: **coming soon** — planned for 0.10.0. Not implemented in 0.9.0.
+> Status: **implemented (in-process)** — `SubscriptionManager` +
+> `SubscribedStorage<P>` ship in 0.10.0. A transport layer (WebSocket/SSE)
+> lives in Forge and is **coming soon**.
 
-Real-time subscriptions push collection changes to clients over a transport
-(WebSocket / SSE) so Forge apps can show live data without polling.
+Subscribers register a filter and receive `ChangeEvent`s published while the
+app runs, so Forge apps show live data without polling.
 
 ---
 
-## Planned API
+## Implemented API
 
 ```rust
-let sub = repo.subscribe(Filter::all()).await?;
-// in a handler
-sub.on_change(|event| { ... });
+use nosql_orm::subscription::{
+  SubscribedStorage, SubscriptionFilter, SubscriptionManager,
+};
+
+// one wrapper = storage + manager
+let store = SubscribedStorage::new(inner, /* capacity */ 64);
+let mut sub = store.subscribe(SubscriptionFilter::Collection("tasks".into()));
+
+store.insert("tasks", doc).await?;
+store.poll_changes().await?;            // drain CDC into the manager
+
+if let Some(ev) = sub.recv().await { /* ... */ }   // async
+let ev = sub.try_recv();                            // non-blocking
 ```
 
-## Planned features
+Also available standalone: `SubscriptionManager::new(capacity)`,
+`.subscribe(filter)`, `.publish(event)`, `.subscriber_count()`.
+`SubscriptionFilter::matches(&ChangeEvent)` decides delivery.
 
-- Filterable subscriptions per collection.
-- Reconnect with last-seen cursor.
-- Backpressure handling.
-- Transport-agnostic core (WebSocket/SSE adapters in Forge).
+Tested by `tests/test_new_features.rs::test_subscription_receives_events`.
 
-## Why coming soon
+## Coming soon
 
-Depends on CDC (07n) and a transport layer that lives in Forge, not in
-`nosql_orm`. Tracked as `nosql_orm` roadmap item.
+- Reconnect with last-seen cursor (needs CDC resume tokens).
+- Backpressure handling beyond the bounded channel.
+- WebSocket/SSE adapters — these belong in Forge, not in `nosql_orm`.
 
 ## See also
 
-- [07n-cdc.md](07n-cdc.md) — change data capture (coming soon)
+- [07n-cdc.md](07n-cdc.md) — change data capture (the event source)
 - [07g-events.md](07g-events.md) — in-process entity events (available now)
-EOF

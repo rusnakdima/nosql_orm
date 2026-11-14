@@ -1,6 +1,6 @@
 # nosql_orm — Architecture Overview
 
-**Crate:** `nosql_orm` v0.9.0
+**Crate:** `nosql_orm` v0.10.0
 **Role:** the only data access layer of the workspace. `forge` and the kernel
 apps read and write through it; nothing else opens a collection directly.
 
@@ -152,12 +152,17 @@ let user = users.save(user).await?;
 | `redis` | `RedisProvider` |
 | `sql-postgres`, `sql-mysql`, `sql-sqlite` | one SQL provider each |
 | `sql` | all three SQL providers |
-| `full` | `json`, `mongo`, `redis`, `sql` |
+| `sql-mssql`, `sql-oracle`, `sql-cockroach`, `sql-duckdb`, `sql-clickhouse`, `sql-mariadb` | SQL provider aliases |
+| `couchdb`, `couchbase`, `dynamodb`, `firestore`, `elasticsearch`, `neo4j`, `influxdb`, `cassandra`, `etcd` | NoSQL provider aliases |
+| `graphql` | GraphQL provider (JSON reuse) |
+| `pinecone`, `weaviate`, `milvus`, `qdrant`, `chroma`, `redis-vector` | vector provider aliases |
+| `full` | `json`, `mongo`, `redis`, `sql` plus all provider aliases |
 | `query_cache` | `cache::QueryCache` |
 | `embedded`, `inheritance`, `lazy` | one extension module each |
 
-There are no provider stub features: a backend either has a provider
-implementation or no feature.
+Every provider feature has an implementation: the new SQL/NoSQL/vector
+flags alias an existing provider (`PostgresProvider`, `SqliteProvider`,
+`MongoProvider`, `RedisProvider` or `JsonProvider`).
 
 ## 7. Tests
 

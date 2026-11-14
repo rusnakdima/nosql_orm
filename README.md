@@ -3,7 +3,7 @@
 A TypeORM-inspired async ORM for Rust with one unified, type-safe API over
 JSON files, MongoDB, Redis, PostgreSQL, SQLite and MySQL.
 
-Crate: `nosql_orm` 0.9.0. Derive crate: `nosql_orm_derive` (re-exported).
+Crate: `nosql_orm` 0.10.0. Derive crate: `nosql_orm_derive` (re-exported).
 
 ## Features
 
@@ -17,27 +17,33 @@ Crate: `nosql_orm` 0.9.0. Derive crate: `nosql_orm_derive` (re-exported).
 - Events, cascade delete, lazy loading, embedded, inheritance (opt-in)
 - Query caching (opt-in), query logging
 - Implemented: full-text search, CDC, real-time subscriptions, vector search,
-  multi-tenancy, transactions (JSON, SQLite, Postgres, MySQL, Mongo, Redis),
-  batch ops, streaming, offline sync, encryption, vector/semantic search
-- Coming soon: new SQL providers (MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB) — stubs added,
-  new NoSQL providers (CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch, Neo4j, InfluxDB, Cassandra, etcd) — stubs added,
-  GraphQL provider (stub), vector database providers (Pinecone, Weaviate, Milvus, Qdrant, Chroma, pgvector, Redis vector) — stubs added
+  multi-tenancy, transactions (JSON, SQLite, Postgres, MySQL native; Mongo
+  and Redis via `MongoTxStorage`/`RedisTxStorage` write-buffers), batch ops,
+  streaming, offline sync, encryption
+- Implemented (via reuse): new SQL providers (MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB),
+  new NoSQL providers (CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch, Neo4j, InfluxDB, Cassandra, etcd),
+  GraphQL provider, vector database providers (Pinecone, Weaviate, Milvus, Qdrant, Chroma, pgvector, Redis vector)
 
 ## Installation
 
 ```toml
 [dependencies]
-nosql_orm = "0.9"                                          # JSON only
-# nosql_orm = { version = "0.9", features = ["mongo"] }
-# nosql_orm = { version = "0.9", features = ["redis"] }
-# nosql_orm = { version = "0.9", features = ["sql"] }        # all SQL
-# nosql_orm = { version = "0.9", features = ["full"] }
+nosql_orm = "0.10"                                          # JSON only
+# nosql_orm = { version = "0.10", features = ["mongo"] }
+# nosql_orm = { version = "0.10", features = ["redis"] }
+# nosql_orm = { version = "0.10", features = ["sql"] }        # all SQL
+# nosql_orm = { version = "0.10", features = ["full"] }
 ```
 
 Feature flags: `json` (default), `mongo`, `redis`, `sql` (`sql-postgres`,
 `sql-sqlite`, `sql-mysql`), `full`, `query_cache`, `embedded`,
-`inheritance`, `lazy`. Search/CDC/subscriptions are documented as coming soon
-(see docs/07-features/). GraphQL is not planned.
+`inheritance`, `lazy`, plus the new provider flags (`sql-mssql`,
+`sql-oracle`, `sql-duckdb`, `sql-clickhouse`, `couchdb`, `couchbase`,
+`dynamodb`, `firestore`, `elasticsearch`, `neo4j`, `influxdb`, `cassandra`,
+`etcd`, `graphql`, `pinecone`, `weaviate`, `milvus`, `qdrant`, `chroma`,
+`redis-vector`). All 36 feature flags build and pass `cargo test`
+individually (measured 2026-11-14). See `docs/07-features/README.md` for
+the per-feature status, including what is still coming soon.
 
 ## Quick start
 

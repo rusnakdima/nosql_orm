@@ -14,6 +14,18 @@ pub mod postgres;
 #[cfg(feature = "sql-mysql")]
 pub mod mysql;
 
+#[cfg(feature = "sql-mssql")]
+pub mod mssql;
+
+#[cfg(feature = "sql-oracle")]
+pub mod oracle;
+
+#[cfg(feature = "sql-duckdb")]
+pub mod duckdb;
+
+#[cfg(feature = "sql-clickhouse")]
+pub mod clickhouse;
+
 #[cfg(feature = "sql-sqlite")]
 pub use sqlite::SqliteProvider;
 
@@ -22,6 +34,18 @@ pub use postgres::PostgresProvider;
 
 #[cfg(feature = "sql-mysql")]
 pub use mysql::MySqlProvider;
+
+#[cfg(feature = "sql-mssql")]
+pub use mssql::MssqlProvider;
+
+#[cfg(feature = "sql-oracle")]
+pub use oracle::OracleProvider;
+
+#[cfg(feature = "sql-duckdb")]
+pub use duckdb::DuckDbProvider;
+
+#[cfg(feature = "sql-clickhouse")]
+pub use clickhouse::ClickHouseProvider;
 
 use crate::sql::types::SqlDialect;
 use crate::sql::SqlQueryBuilder;

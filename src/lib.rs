@@ -58,14 +58,58 @@ pub mod providers;
 
 pub use providers::FallbackProvider;
 
+#[cfg(feature = "sql-clickhouse")]
+pub use providers::sql::ClickHouseProvider;
+#[cfg(feature = "sql-duckdb")]
+pub use providers::sql::DuckDbProvider;
+#[cfg(feature = "sql-mssql")]
+pub use providers::sql::MssqlProvider;
+#[cfg(feature = "sql-oracle")]
+pub use providers::sql::OracleProvider;
+
+#[cfg(feature = "cassandra")]
+pub use new_providers::CassandraProvider;
+#[cfg(feature = "couchdb")]
+pub use new_providers::CouchDbProvider;
+#[cfg(feature = "couchbase")]
+pub use new_providers::CouchbaseProvider;
+#[cfg(feature = "dynamodb")]
+pub use new_providers::DynamoDbProvider;
+#[cfg(feature = "elasticsearch")]
+pub use new_providers::ElasticsearchProvider;
+#[cfg(feature = "etcd")]
+pub use new_providers::EtcdProvider;
+#[cfg(feature = "firestore")]
+pub use new_providers::FirestoreProvider;
+#[cfg(feature = "influxdb")]
+pub use new_providers::InfluxDbProvider;
+#[cfg(feature = "neo4j")]
+pub use new_providers::Neo4jProvider;
+
+#[cfg(feature = "graphql")]
+pub use new_providers::GraphQLProvider;
+
+#[cfg(feature = "chroma")]
+pub use new_providers::ChromaProvider;
+#[cfg(feature = "milvus")]
+pub use new_providers::MilvusProvider;
+#[cfg(feature = "pinecone")]
+pub use new_providers::PineconeProvider;
+#[cfg(feature = "qdrant")]
+pub use new_providers::QdrantProvider;
+#[cfg(feature = "redis-vector")]
+pub use new_providers::RedisVectorProvider;
+#[cfg(feature = "weaviate")]
+pub use new_providers::WeaviateProvider;
+
 #[cfg(feature = "query_cache")]
 pub mod cache;
 pub mod cdc;
+pub mod encryption;
 pub mod mongo_tx;
 pub mod new_providers;
 #[cfg(feature = "pgvector")]
 pub mod pgvector;
-pub mod encryption;
 pub mod subscription;
 
 pub use nosql_orm_derive::Model;

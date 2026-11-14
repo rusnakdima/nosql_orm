@@ -26,14 +26,18 @@
 - [07-features/07l-search.md](07-features/07l-search.md) - Full-text search
 - [07-features/07m-aggregation.md](07-features/07m-aggregation.md) - Aggregation pipeline
 - [07-features/07n-cdc.md](07-features/07n-cdc.md) - Change data capture
-- [07-features/07t-vector-search.md](07-features/07t-vector-search.md) - Vector / semantic search (coming soon)
-- [07-features/07u-multi-tenancy.md](07-features/07u-multi-tenancy.md) - Multi-tenancy (coming soon)
-- [07-features/07v-transactions.md](07-features/07v-transactions.md) - Transactions (coming soon)
-- [07-features/08a-new-sql-dbs.md](07-features/08a-new-sql-dbs.md) - New SQL providers (coming soon)
-- [07-features/08b-new-nosql-dbs.md](07-features/08b-new-nosql-dbs.md) - New NoSQL providers (coming soon)
-- [07-features/08c-graphql-provider.md](07-features/08c-graphql-provider.md) - GraphQL provider (coming soon)
-- [07-features/08c-vector-dbs.md](07-features/08c-vector-dbs.md) - Vector database providers (coming soon)
-- [07-features/07p-subscription.md](07-features/07p-subscription.md) - Pub/Sub
+- [07-features/07t-vector-search.md](07-features/07t-vector-search.md) - Vector / semantic search
+- [07-features/07u-multi-tenancy.md](07-features/07u-multi-tenancy.md) - Multi-tenancy
+- [07-features/07v-transactions.md](07-features/07v-transactions.md) - Transactions
+- [07-features/07w-batch-operations.md](07-features/07w-batch-operations.md) - Batch operations
+- [07-features/07x-streaming.md](07-features/07x-streaming.md) - Streaming results
+- [07-features/07y-offline-sync.md](07-features/07y-offline-sync.md) - Offline-first sync
+- [07-features/07z-encryption.md](07-features/07z-encryption.md) - Encryption at rest
+- [07-features/08a-new-sql-dbs.md](07-features/08a-new-sql-dbs.md) - New SQL providers (implemented via reuse)
+- [07-features/08b-new-nosql-dbs.md](07-features/08b-new-nosql-dbs.md) - New NoSQL providers (implemented via reuse)
+- [07-features/08c-graphql-provider.md](07-features/08c-graphql-provider.md) - GraphQL provider (implemented via JSON reuse)
+- [07-features/08c-vector-dbs.md](07-features/08c-vector-dbs.md) - Vector database providers (implemented via reuse)
+- [07-features/07p-subscription.md](07-features/07p-subscription.md) - Real-time subscriptions
 - [07-features/07q-cache.md](07-features/07q-cache.md) - Query caching
 - [07-features/07r-sql.md](07-features/07r-sql.md) - SQL utilities
 - [07-features/07s-logging.md](07-features/07s-logging.md) - Query logging

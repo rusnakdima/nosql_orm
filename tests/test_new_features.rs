@@ -141,7 +141,7 @@ async fn test_encryption_roundtrip() {
 async fn test_vector_search() {
   let dir = tempdir().unwrap();
   let inner = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
-  let vs = VectorSearchStorage::new(inner);
+  let vs = VectorSearchStorage::new(inner).with_metric(DistanceMetric::Cosine);
 
   vs.upsert_with_embedding("docs", json!({"id": "1", "title": "Rust"}), vec![1.0, 0.0, 0.0])
     .await
@@ -153,6 +153,15 @@ async fn test_vector_search() {
   let results = vs.search_similar("docs", &[1.0, 0.0, 0.0], 2).await.unwrap();
   assert_eq!(results.len(), 2);
   assert_eq!(results[0].0["title"], "Rust");
+
+  // Every metric answers, and the closest document ranks first.
+  for metric in [
+    DistanceMetric::Cosine,
+    DistanceMetric::Euclidean,
+    DistanceMetric::DotProduct,
+  ] {
+    assert!(metric.distance(&[1.0, 0.0], &[1.0, 0.0]) < metric.distance(&[1.0, 0.0], &[0.0, 1.0]));
+  }
 }
 
 #[tokio::test]

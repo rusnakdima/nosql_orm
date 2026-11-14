@@ -1,34 +1,43 @@
-# Multi-tenancy (coming soon)
+# Multi-tenancy
 
-> Status: **coming soon** — planned for 0.10.0. Not implemented in 0.9.0.
+> Status: **implemented** — `TenantStorage<P>` ships in 0.10.0.
+> Tenant-aware migrations and an admin tenant API are **coming soon**.
 
 Transparent tenant isolation: every repository operation is scoped to a
-tenant id so a single database can serve multiple apps/users without
+tenant id so one database can serve multiple apps/users without
 cross-tenant leakage.
 
 ---
 
-## Planned API
+## Implemented API
 
 ```rust
-let repo = Repository::new(storage).tenant(tenant_id);
-// all reads/writes scoped automatically
+use nosql_orm::tenant::TenantStorage;
+
+let store = TenantStorage::new(inner, "tenant-a");
+store.tenant_id();                       // "tenant-a"
+
+// writes get a `_tenant_id` field injected
+store.insert("tasks", doc).await?;
+// every read is filtered to this tenant
+store.find_many("tasks", None, None, None, None, true).await?;
 ```
 
-## Planned features
+`TenantStorage<P: Storage>` wraps any provider and forwards
+`insert`, `find_by_id`, `find_many`, `update`, `patch`, `delete`,
+`delete_many`, `update_many`, `count`, plus the index and
+`SchemaIntrospection` methods, injecting `tenant_filter()` into every read
+and `inject_tenant()` into every write.
 
-- Tenant id injected into every query filter automatically.
-- Per-tenant collection prefix or row-level discriminator.
+Tested by `tests/test_new_features.rs::test_tenant_isolation`.
+
+## Coming soon
+
 - Tenant-aware migrations.
 - Admin API to list/switch tenants.
-
-## Why coming soon
-
-Needs a consistent tenant context propagation through Storage/Repository
-and providers. Tracked as `nosql_orm` roadmap item.
+- Per-tenant collection prefixes (today the discriminator is a field).
 
 ## See also
 
 - [07e-migrations.md](07e-migrations.md) — migrations
 - [07c-soft-delete.md](07c-soft-delete.md) — soft delete
-EOF

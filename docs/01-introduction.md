@@ -4,7 +4,7 @@
 type-safe API over heterogeneous storage backends: JSON files, MongoDB, Redis,
 PostgreSQL, SQLite and MySQL.
 
-Crate version: **0.9.0**. The crate name on crates.io is `nosql_orm`; the
+Crate version: **0.10.0**. The crate name on crates.io is `nosql_orm`; the
 library crate is `nosql_orm` and the derive crate is `nosql_orm_derive`
 (re-exported from the main crate).
 
@@ -23,8 +23,23 @@ library crate is `nosql_orm` and the derive crate is `nosql_orm_derive`
 | Indexes | no-op / empty | no-op / empty | ✅ | ❌ (`NotSupported`) | ✅ |
 | Aggregation | ✅ (in-memory) | ❌ (`NotSupported`) | ✅ | ❌ | ❌ |
 | Raw SQL (`execute_raw`) | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Transactions | ❌ | ❌ | ❌ | ❌ | SQLite ✅ (others via driver pools) |
+| Transactions | ✅ (snapshot) | ✅ (snapshot) | ✅ (`MongoTxStorage`) | ✅ (`RedisTxStorage`) | SQLite/Postgres/MySQL ✅ native |
 | Schema sync (`sync_schema`) | ❌ (non-SQL) | ❌ | ❌ | ❌ | ✅ |
+
+### Cross-cutting wrapper capabilities (always compiled, wrap any provider)
+
+| Capability | Type | Applies to |
+|---|---|---|
+| Full-text search | `Storage::search()` | any provider (in-memory baseline) |
+| Streaming results | `Storage::find_stream()` | any provider |
+| Change Data Capture | `ChangeCaptureStorage<P>` | any provider |
+| Real-time subscriptions | `SubscriptionManager`, `SubscribedStorage<P>` | any provider |
+| Multi-tenancy | `TenantStorage<P>` | any provider |
+| Encryption at rest | `EncryptedStorage<P>` | any provider |
+| Vector / semantic search | `VectorSearchStorage<P>` | any provider |
+| Offline-first sync | `SyncEngine<L, R>` | any two providers |
+| Write-buffer transactions | `MongoTxStorage<P>`, `RedisTxStorage<P>` | any provider |
+| pgvector search | `PgVectorProvider` | Postgres (real driver) |
 
 `Capability` (`transactions`, `indexes`, `aggregation`, `raw_queries`) is
 queryable at runtime via `provider.capabilities()` / `provider.supports(...)`.
@@ -37,19 +52,19 @@ Operations outside a backend's contract return `OrmError::NotSupported`.
 ```toml
 [dependencies]
 # JSON only (default)
-nosql_orm = "0.9"
+nosql_orm = "0.10"
 
 # MongoDB
-nosql_orm = { version = "0.9", features = ["mongo"] }
+nosql_orm = { version = "0.10", features = ["mongo"] }
 
 # Redis
-nosql_orm = { version = "0.9", features = ["redis"] }
+nosql_orm = { version = "0.10", features = ["redis"] }
 
 # SQL (all three)
-nosql_orm = { version = "0.9", features = ["sql"] }
+nosql_orm = { version = "0.10", features = ["sql"] }
 
 # Everything
-nosql_orm = { version = "0.9", features = ["full"] }
+nosql_orm = { version = "0.10", features = ["full"] }
 ```
 
 ### Feature flags
@@ -64,14 +79,39 @@ nosql_orm = { version = "0.9", features = ["full"] }
 | `sql-postgres` | `PostgresProvider` |
 | `sql-sqlite` | `SqliteProvider` |
 | `sql-mysql` | `MySqlProvider` |
-| `full` | `json`, `mongo`, `redis`, `sql` |
+| `full` | `json`, `mongo`, `redis`, `sql` **plus every provider alias below** |
 | `query_cache` | `cache::QueryCache` (off by default) |
 | `embedded` | `embedded` module (off by default, opt-in) |
 | `inheritance` | `inheritance` module (off by default, opt-in) |
 | `lazy` | `lazy` module (off by default, opt-in) |
 
-There are **no** `graphql`, `cdc`, `subscription` or `search` features: those
-modules do not exist in this crate.
+**New SQL provider aliases** (each pulls the compatible base driver):
+
+| Flag | Effect |
+|---|---|
+| `sql-mssql` | `MssqlProvider` (baseline = Postgres) |
+| `sql-oracle` | `OracleProvider` (baseline = Postgres) |
+| `sql-cockroach` | `CockroachProvider` (= Postgres) |
+| `sql-duckdb` | `DuckDbProvider` (baseline = SQLite) |
+| `sql-clickhouse` | `ClickHouseProvider` (baseline = Postgres) |
+| `sql-mariadb` | `MariaDbProvider` (= MySQL) |
+
+**New NoSQL / GraphQL / vector provider aliases:**
+
+| Flag | Effect |
+|---|---|
+| `couchdb`, `couchbase`, `firestore`, `elasticsearch`, `neo4j`, `cassandra` | document-store aliases (baseline = Mongo) |
+| `dynamodb`, `influxdb`, `etcd` | key-value aliases (baseline = Redis) |
+| `graphql` | `GraphQLProvider` (baseline = JSON) |
+| `pinecone`, `weaviate`, `milvus`, `qdrant`, `chroma` | vector aliases (baseline = Mongo) |
+| `pgvector` | `PgVectorProvider` (real: Postgres + vector search) |
+| `redis-vector` | `RedisVectorProvider` (baseline = Redis) |
+
+> `cdc`, `subscription`, `tenant`, `encryption`, `sync`, `vector_search`,
+> `mongo_tx`, `redis_tx` are **always compiled wrapper modules** (no feature
+> flag): `ChangeCaptureStorage`, `SubscriptionManager`, `TenantStorage`,
+> `EncryptedStorage`, `SyncEngine`, `VectorSearchStorage`, `MongoTxStorage`,
+> `RedisTxStorage`. Full-text search is `Storage::search()` (always present).
 
 ---
 

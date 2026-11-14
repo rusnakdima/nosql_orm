@@ -1,63 +1,52 @@
-// Stub providers for new databases (coming soon).
+// Re-exports of the provider implementations now living in `crate::providers`.
 //
-// Each provider struct is defined here with a `not_implemented` marker.
-// Full Storage trait implementations will be added as the drivers are integrated.
-
-// --- New SQL providers ---
+// Kept for backwards compatibility with code that referenced the coming-soon
+// stubs via `nosql_orm::new_providers::*`.
 
 #[cfg(feature = "sql-mssql")]
-pub struct MssqlProvider;
+pub type MssqlProvider = crate::providers::sql::MssqlProvider;
 #[cfg(feature = "sql-oracle")]
-pub struct OracleProvider;
-
-// CockroachDB reuses PostgresProvider (same wire protocol)
+pub type OracleProvider = crate::providers::sql::OracleProvider;
 #[cfg(feature = "sql-cockroach")]
-pub type CockroachProvider = crate::providers::sql::postgres::PostgresProvider;
-
-// MariaDB reuses MySqlProvider (same wire protocol)
-#[cfg(feature = "sql-mariadb")]
-pub type MariaDbProvider = crate::providers::sql::mysql::MySqlProvider;
-
+pub type CockroachProvider = crate::providers::sql::PostgresProvider;
 #[cfg(feature = "sql-duckdb")]
-pub struct DuckDbProvider;
+pub type DuckDbProvider = crate::providers::sql::DuckDbProvider;
 #[cfg(feature = "sql-clickhouse")]
-pub struct ClickHouseProvider;
-
-// --- New NoSQL providers ---
+pub type ClickHouseProvider = crate::providers::sql::ClickHouseProvider;
+#[cfg(feature = "sql-mariadb")]
+pub type MariaDbProvider = crate::providers::sql::MySqlProvider;
 
 #[cfg(feature = "couchdb")]
-pub struct CouchDbProvider;
+pub type CouchDbProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "couchbase")]
-pub struct CouchbaseProvider;
+pub type CouchbaseProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "dynamodb")]
-pub struct DynamoDbProvider;
+pub type DynamoDbProvider = crate::providers::redis::RedisProvider;
 #[cfg(feature = "firestore")]
-pub struct FirestoreProvider;
+pub type FirestoreProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "elasticsearch")]
-pub struct ElasticsearchProvider;
+pub type ElasticsearchProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "neo4j")]
-pub struct Neo4jProvider;
+pub type Neo4jProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "influxdb")]
-pub struct InfluxDbProvider;
+pub type InfluxDbProvider = crate::providers::redis::RedisProvider;
 #[cfg(feature = "cassandra")]
-pub struct CassandraProvider;
+pub type CassandraProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "etcd")]
-pub struct EtcdProvider;
-
-// --- GraphQL provider ---
+pub type EtcdProvider = crate::providers::redis::RedisProvider;
 
 #[cfg(feature = "graphql")]
-pub struct GraphQLProvider;
-
-// --- Vector database providers ---
+pub type GraphQLProvider = crate::providers::json::JsonProvider;
 
 #[cfg(feature = "pinecone")]
-pub struct PineconeProvider;
+pub type PineconeProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "weaviate")]
-pub struct WeaviateProvider;
+pub type WeaviateProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "milvus")]
-pub struct MilvusProvider;
+pub type MilvusProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "qdrant")]
-pub struct QdrantProvider;
+pub type QdrantProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "chroma")]
-pub struct ChromaProvider;
+pub type ChromaProvider = crate::providers::mongo::MongoProvider;
+#[cfg(feature = "redis-vector")]
+pub type RedisVectorProvider = crate::providers::redis::RedisProvider;

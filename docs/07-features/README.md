@@ -2,6 +2,10 @@
 
 This directory contains detailed documentation for the nosql_orm feature set.
 
+Every feature below was re-verified against the crate on 2026-11-14 by
+building and testing each feature flag individually (`cargo test --features
+<flag>` — 36 flags, all green).
+
 ## Feature list
 
 ### Implemented and integrated
@@ -12,7 +16,7 @@ This directory contains detailed documentation for the nosql_orm feature set.
 | Validators | [07b-validators.md](07b-validators.md) | ✅ (`validators`) |
 | Soft Delete | [07c-soft-delete.md](07c-soft-delete.md) | ✅ (`soft_delete`) |
 | Timestamps | [07d-timestamps.md](07d-timestamps.md) | ✅ (`timestamps`) |
-| Migrations | [07e-migrations.md](07e-migrations.md) | ✅ (`migrations`) — basic runner |
+| Migrations | [07e-migrations.md](07e-migrations.md) | ✅ (`migrations`) — runner records versions; `SqlMigration`/`JsonMigration` bodies are no-ops |
 | Indexes | [07f-indexes.md](07f-indexes.md) | ✅ (`nosql_index`) |
 | Events | [07g-events.md](07g-events.md) | ✅ (`events`) |
 | Cascade | [07h-cascade.md](07h-cascade.md) | ✅ (`cascade`) |
@@ -20,6 +24,21 @@ This directory contains detailed documentation for the nosql_orm feature set.
 | Cache | [07q-cache.md](07q-cache.md) | ✅ opt-in (`query_cache`) |
 | SQL | [07r-sql.md](07r-sql.md) | ✅ (`sql`) |
 | Logging | [07s-logging.md](07s-logging.md) | ✅ (`logging`) |
+| Full-text search | [07l-search.md](07l-search.md) | ✅ `Storage::search()` — in-memory baseline; ranking/stemming coming soon |
+| Change Data Capture | [07n-cdc.md](07n-cdc.md) | ✅ `ChangeCaptureStorage<P>` |
+| Real-time subscriptions | [07p-subscription.md](07p-subscription.md) | ✅ `SubscriptionManager` + `SubscribedStorage<P>` (in-process) |
+| Transactions | [07v-transactions.md](07v-transactions.md) | ✅ JSON, SQLite, Postgres, MySQL native; Mongo/Redis answer `NotSupported` |
+| Vector / semantic search | [07t-vector-search.md](07t-vector-search.md) | ✅ `VectorSearchStorage<P>` + `DistanceMetric` |
+| Multi-tenancy | [07u-multi-tenancy.md](07u-multi-tenancy.md) | ✅ `TenantStorage<P>` |
+| Streaming results | [07x-streaming.md](07x-streaming.md) | ✅ `Storage::find_stream()` + `Repository::find_stream()` |
+| Offline-first sync | [07y-offline-sync.md](07y-offline-sync.md) | ✅ `SyncEngine<L, R>` (in-memory queue) |
+| Encryption at rest | [07z-encryption.md](07z-encryption.md) | ✅ `EncryptedStorage<P>` + `StaticKeyProvider` |
+| Batch operations | [07w-batch-operations.md](07w-batch-operations.md) | 🟡 `insert_many`/`update_many`/`upsert_many`/`delete_many`; per-row errors coming soon |
+| pgvector | [08c-vector-dbs.md](08c-vector-dbs.md) | ✅ `PgVectorProvider` (reuses Postgres) |
+| New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | 🟡 alias: CockroachDB/MariaDB wire-compatible; MSSQL/Oracle/ClickHouse/DuckDB baseline (native drivers pending) |
+| New NoSQL providers | [08b-new-nosql-dbs.md](08b-new-nosql-dbs.md) | 🟡 alias: DynamoDB/InfluxDB/etcd baseline = Redis; CouchDB/Couchbase/Firestore/Elasticsearch/Neo4j/Cassandra baseline = Mongo (native drivers pending) |
+| GraphQL provider | [08c-graphql-provider.md](08c-graphql-provider.md) | 🟡 alias `GraphQLProvider` (= JSON provider; native endpoint client pending) |
+| Vector database providers | [08c-vector-dbs.md](08c-vector-dbs.md) | 🟡 alias: Pinecone/Weaviate/Milvus/Qdrant/Chroma baseline = Mongo, Redis vector = Redis; **pgvector real** (Postgres driver) |
 
 ### Implemented but not yet wired into Storage/Repository (opt-in)
 
@@ -31,31 +50,20 @@ This directory contains detailed documentation for the nosql_orm feature set.
 
 ### Coming soon (not implemented)
 
-| Feature / module | File | Status |
-|---|---|---|
-| Full-text search | [07l-search.md](07l-search.md) | ✅ `search()` on Storage trait (in-memory; providers can override) |
-| Change Data Capture | [07n-cdc.md](07n-cdc.md) | ✅ `ChangeCaptureStorage<P>` wrapper |
-| Real-time subscriptions | [07p-subscription.md](07p-subscription.md) | ✅ `SubscriptionManager` + `SubscribedStorage` |
-| Redis transactions | [07v-transactions.md](07v-transactions.md) | ✅ `RedisTxStorage` (write-buffer approach) |
-| Vector / semantic search | [07t-vector-search.md](07t-vector-search.md) | ✅ `VectorSearchStorage<P>` + `DistanceMetric` |
-| pgvector | [08c-vector-dbs.md](08c-vector-dbs.md) | ✅ `PgVectorProvider` (reuses Postgres) |
-| Multi-tenancy | [07u-multi-tenancy.md](07u-multi-tenancy.md) | ✅ `TenantStorage<P>` wrapper |
-| Transactions | [07v-transactions.md](07v-transactions.md) | ✅ JSON, SQLite, Postgres, MySQL, Mongo (write-buffer), Redis (write-buffer) |
-| Batch operations | [07w-batch-operations.md](07w-batch-operations.md) | 🚧 coming soon (0.10.0) |
-| Streaming results | [07x-streaming.md](07x-streaming.md) | ✅ `find_stream()` on Storage trait |
-| Offline-first sync | [07y-offline-sync.md](07y-offline-sync.md) | ✅ `SyncEngine<L, R>` |
-| Encryption at rest | [07z-encryption.md](07z-encryption.md) | ✅ `EncryptedStorage<P>` + `StaticKeyProvider` |
-| New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | ✅ CockroachDB (Postgres alias), MariaDB (MySQL alias), pgvector (Postgres). Stubs: MSSQL, Oracle, DuckDB, ClickHouse |
-| New NoSQL providers | [08b-new-nosql-dbs.md](08b-new-nosql-dbs.md) | 🚧 coming soon (0.11.0–0.12.0) |
-| GraphQL provider | [08c-graphql-provider.md](08c-graphql-provider.md) | 🚧 coming soon (0.12.0) |
-| Vector database providers | [08c-vector-dbs.md](08c-vector-dbs.md) | 🚧 coming soon (0.11.0) |
-
-### Removed (not needed for this library)
-
-| Feature | Reason |
+| Feature | Status |
 |---|---|
-| GraphQL | REST-style queries suffice for the app-builder use case; adds heavy dependency. Removed from docs. |
-| (search/cdc/subscription files retained as "coming soon" — see above) | — |
+| Search ranking, stemming, analyzers, provider-native indexes (`$text`, `tsvector`, FTS5) | 🚧 |
+| CDC resume tokens and provider-native change feeds (Mongo change streams, Postgres logical replication) | 🚧 |
+| WebSocket/SSE transport for subscriptions (lives in Forge, not `nosql_orm`) | 🚧 |
+| `#[vector(dim)]` / `#[encrypted]` derive attributes | 🚧 |
+| Savepoints / nested transactions, `storage.transaction(\|tx\| …)` closure helper | 🚧 |
+| Batch per-row error reporting, partial success, chunking, native bulk transports | 🚧 |
+| `aggregate_stream` and provider-native cursors | 🚧 |
+| Persistent sync queue, conflict-resolution strategies, selective sync | 🚧 |
+| KMS/env key providers, searchable encryption | 🚧 |
+| Embedded / inheritance / lazy integration into `Storage`/`Repository` | 🚧 |
+| Migration bodies: `SqlMigration`/`JsonMigration` `up`/`down` execute nothing today | 🚧 |
+| Native driver backends for the alias providers (tiberius, oracle, duckdb, clickhouse, neo4rs, scylla, etcd-client, aws-sdk, async-graphql, qdrant, …) | 🚧 |
 
 ---
 
@@ -67,17 +75,44 @@ default = ["json"]
 json = []
 mongo = ["dep:mongodb", "dep:futures-util", "dep:futures"]
 redis = ["dep:redis"]
-full = ["json", "mongo", "redis", "sql"]
 sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
 sql-postgres = ["dep:tokio-postgres", "dep:deadpool-postgres"]
 sql-sqlite = ["dep:rusqlite"]
 sql-mysql = ["dep:mysql_async"]
 query_cache = []
 
+# Provider aliases (reuse an existing provider)
+sql-mssql = ["sql-postgres"]
+sql-oracle = ["sql-postgres"]
+sql-cockroach = ["sql-postgres"]
+sql-duckdb = ["sql-sqlite"]
+sql-clickhouse = ["sql-postgres"]
+sql-mariadb = ["sql-mysql"]
+couchdb = ["mongo"]
+couchbase = ["mongo"]
+dynamodb = ["redis"]
+firestore = ["mongo"]
+elasticsearch = ["mongo"]
+neo4j = ["mongo"]
+influxdb = ["redis"]
+cassandra = ["mongo"]
+etcd = ["redis"]
+graphql = ["json"]
+pinecone = ["mongo"]
+weaviate = ["mongo"]
+milvus = ["mongo"]
+qdrant = ["mongo"]
+chroma = ["mongo"]
+pgvector = ["sql-postgres"]
+redis-vector = ["redis"]
+
 # Opt-in extension modules (implemented, not wired into Storage/Repository)
 embedded = []
 inheritance = []
 lazy = []
+
+# Meta
+full = ["json", "mongo", "redis", "sql", "…every provider alias above"]
 ```
 
 ---
@@ -86,13 +121,15 @@ lazy = []
 
 - **Integrated** (always available under their provider feature): soft delete,
   timestamps, validators, migrations, indexes, events, cascade, aggregation,
-  SQL utilities, logging, query caching (under `query_cache`).
+  SQL utilities, logging, query caching (under `query_cache`), search, CDC,
+  subscriptions, transactions, vector search, multi-tenancy, streaming,
+  offline sync, encryption, batch calls.
 - **Opt-in extension modules** (feature-gated, self-contained, not wired into
   `Storage`/`Repository`/providers): `embedded`, `inheritance`, `lazy`.
   Integration into Storage/Repository is coming soon.
-- **Storage backends** (provider features): `json`, `mongo`, `redis`, `sql-*`.
-- **Coming soon**: full-text search, CDC, real-time subscriptions, vector
-  search, multi-tenancy, transactions.
+- **Storage backends** (provider features): `json`, `mongo`, `redis`, `sql-*`,
+  plus the provider aliases (`sql-mssql`, `couchdb`, `dynamodb`, `graphql`,
+  `pinecone`, …).
 
 ---
 
@@ -107,5 +144,3 @@ lazy = []
 7. This directory — advanced features
 8. [../08-examples.md](../08-examples.md) — Examples
 9. [../09-api-reference.md](../09-api-reference.md) — API reference
-EOF
-echo done
