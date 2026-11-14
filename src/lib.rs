@@ -25,12 +25,14 @@ pub mod schema;
 pub mod soft_delete;
 pub mod sql;
 pub mod tenant;
+pub mod vector_search;
 pub mod timestamps;
 pub mod utils;
 pub mod validators;
 
 pub use model_helper::{ModelHelper, WithValidation};
 pub use tenant::TenantStorage;
+pub use vector_search::{DistanceMetric, VectorSearchStorage};
 pub use cdc::{ChangeCaptureStorage, ChangeEvent, ChangeOp};
 pub use encryption::{EncryptedStorage, KeyProvider, StaticKeyProvider};
 pub use subscription::{SubscribedStorage, Subscription, SubscriptionFilter, SubscriptionManager};
