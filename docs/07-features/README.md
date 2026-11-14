@@ -36,6 +36,7 @@ This directory contains detailed documentation for the nosql_orm feature set.
 | Full-text search | [07l-search.md](07l-search.md) | ✅ `search()` on Storage trait (in-memory; providers can override) |
 | Change Data Capture | [07n-cdc.md](07n-cdc.md) | ✅ `ChangeCaptureStorage<P>` wrapper |
 | Real-time subscriptions | [07p-subscription.md](07p-subscription.md) | ✅ `SubscriptionManager` + `SubscribedStorage` |
+| Redis transactions | [07v-transactions.md](07v-transactions.md) | ✅ `RedisTxStorage` (write-buffer approach) |
 | Vector / semantic search | [07t-vector-search.md](07t-vector-search.md) | ✅ `VectorSearchStorage<P>` + `DistanceMetric` |
 | Multi-tenancy | [07u-multi-tenancy.md](07u-multi-tenancy.md) | ✅ `TenantStorage<P>` wrapper |
 | Transactions | [07v-transactions.md](07v-transactions.md) | ✅ JSON, SQLite, Postgres, MySQL (Mongo, Redis coming soon) |
