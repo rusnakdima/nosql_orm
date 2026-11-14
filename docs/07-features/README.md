@@ -2,7 +2,9 @@
 
 This directory contains detailed documentation for the nosql_orm feature set.
 
-## Feature list (actual modules present in `src/`)
+## Feature list
+
+### Implemented and integrated
 
 | Feature / module | File | Status |
 |---|---|---|
@@ -14,18 +16,36 @@ This directory contains detailed documentation for the nosql_orm feature set.
 | Indexes | [07f-indexes.md](07f-indexes.md) | ✅ (`nosql_index`) |
 | Events | [07g-events.md](07g-events.md) | ✅ (`events`) |
 | Cascade | [07h-cascade.md](07h-cascade.md) | ✅ (`cascade`) |
-| Lazy | [07i-lazy.md](07i-lazy.md) | ✅ opt-in (`lazy`) |
-| Embedded | [07j-embedded.md](07j-embedded.md) | ✅ opt-in (`embedded`) |
-| Inheritance | [07k-inheritance.md](07k-inheritance.md) | ✅ opt-in (`inheritance`) |
 | Aggregation | [07m-aggregation.md](07m-aggregation.md) | ✅ (`aggregation`) |
 | Cache | [07q-cache.md](07q-cache.md) | ✅ opt-in (`query_cache`) |
 | SQL | [07r-sql.md](07r-sql.md) | ✅ (`sql`) |
 | Logging | [07s-logging.md](07s-logging.md) | ✅ (`logging`) |
 
-There are **no** `search`, `cdc`, `graphql` or `subscription` modules in this
-crate, and no corresponding feature flags. Files `07l-search.md`,
-`07n-cdc.md`, `07o-graphql.md` and `07p-subscription.md` are stale and
-describe functionality that does not exist.
+### Implemented but not yet wired into Storage/Repository (opt-in)
+
+| Feature / module | File | Status |
+|---|---|---|
+| Embedded | [07j-embedded.md](07j-embedded.md) | 🔧 opt-in (`embedded`) — self-contained, integration coming soon |
+| Inheritance | [07k-inheritance.md](07k-inheritance.md) | 🔧 opt-in (`inheritance`) — self-contained, integration coming soon |
+| Lazy | [07i-lazy.md](07i-lazy.md) | 🔧 opt-in (`lazy`) — self-contained, integration coming soon |
+
+### Coming soon (not implemented)
+
+| Feature / module | File | Status |
+|---|---|---|
+| Full-text search | [07l-search.md](07l-search.md) | 🚧 coming soon (0.10.0) |
+| Change Data Capture | [07n-cdc.md](07n-cdc.md) | 🚧 coming soon (0.10.0) |
+| Real-time subscriptions | [07p-subscription.md](07p-subscription.md) | 🚧 coming soon (0.10.0) |
+| Vector / semantic search | [07t-vector-search.md](07t-vector-search.md) | 🚧 coming soon (0.11.0) |
+| Multi-tenancy | [07u-multi-tenancy.md](07u-multi-tenancy.md) | 🚧 coming soon (0.10.0) |
+| Transactions | [07v-transactions.md](07v-transactions.md) | 🚧 coming soon (0.10.0) |
+
+### Removed (not needed for this library)
+
+| Feature | Reason |
+|---|---|
+| GraphQL | REST-style queries suffice for the app-builder use case; adds heavy dependency. Removed from docs. |
+| (search/cdc/subscription files retained as "coming soon" — see above) | — |
 
 ---
 
@@ -59,7 +79,10 @@ lazy = []
   SQL utilities, logging, query caching (under `query_cache`).
 - **Opt-in extension modules** (feature-gated, self-contained, not wired into
   `Storage`/`Repository`/providers): `embedded`, `inheritance`, `lazy`.
+  Integration into Storage/Repository is coming soon.
 - **Storage backends** (provider features): `json`, `mongo`, `redis`, `sql-*`.
+- **Coming soon**: full-text search, CDC, real-time subscriptions, vector
+  search, multi-tenancy, transactions.
 
 ---
 
@@ -74,3 +97,5 @@ lazy = []
 7. This directory — advanced features
 8. [../08-examples.md](../08-examples.md) — Examples
 9. [../09-api-reference.md](../09-api-reference.md) — API reference
+EOF
+echo done

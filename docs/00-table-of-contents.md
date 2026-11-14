@@ -26,7 +26,9 @@
 - [07-features/07l-search.md](07-features/07l-search.md) - Full-text search
 - [07-features/07m-aggregation.md](07-features/07m-aggregation.md) - Aggregation pipeline
 - [07-features/07n-cdc.md](07-features/07n-cdc.md) - Change data capture
-- [07-features/07o-graphql.md](07-features/07o-graphql.md) - GraphQL integration
+- [07-features/07t-vector-search.md](07-features/07t-vector-search.md) - Vector / semantic search (coming soon)
+- [07-features/07u-multi-tenancy.md](07-features/07u-multi-tenancy.md) - Multi-tenancy (coming soon)
+- [07-features/07v-transactions.md](07-features/07v-transactions.md) - Transactions (coming soon)
 - [07-features/07p-subscription.md](07-features/07p-subscription.md) - Pub/Sub
 - [07-features/07q-cache.md](07-features/07q-cache.md) - Query caching
 - [07-features/07r-sql.md](07-features/07r-sql.md) - SQL utilities

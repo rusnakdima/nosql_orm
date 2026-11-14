@@ -16,6 +16,8 @@ Crate: `nosql_orm` 0.9.0. Derive crate: `nosql_orm_derive` (re-exported).
 - Indexes (Mongo + SQL), aggregation (JSON + Mongo)
 - Events, cascade delete, lazy loading, embedded, inheritance (opt-in)
 - Query caching (opt-in), query logging
+- Coming soon: full-text search, CDC, real-time subscriptions, vector search,
+  multi-tenancy, transactions
 
 ## Installation
 
@@ -30,8 +32,8 @@ nosql_orm = "0.9"                                          # JSON only
 
 Feature flags: `json` (default), `mongo`, `redis`, `sql` (`sql-postgres`,
 `sql-sqlite`, `sql-mysql`), `full`, `query_cache`, `embedded`,
-`inheritance`, `lazy`. There are no `graphql`/`cdc`/`subscription`/`search`
-features.
+`inheritance`, `lazy`. Search/CDC/subscriptions are documented as coming soon
+(see docs/07-features/). GraphQL is not planned.
 
 ## Quick start
 
