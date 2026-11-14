@@ -4,7 +4,7 @@ use crate::provider::Storage;
 use crate::relations::RelationDef;
 use crate::repository::Repository;
 use std::pin::Pin;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 type LoaderFuture<T> =
@@ -75,7 +75,7 @@ where
   E: Entity,
   P: Storage,
 {
-  repo: Weak<Repository<E, P>>,
+  repo: Arc<Repository<E, P>>,
   local_id: String,
   cached: Arc<RwLock<Option<Arc<Option<E>>>>>,
 }
@@ -86,8 +86,12 @@ where
   P: Storage,
 {
   pub fn new(repo: Arc<Repository<E, P>>, _relation: RelationDef, local_id: String) -> Self {
+    Self::by_id(repo, local_id)
+  }
+
+  pub fn by_id(repo: Arc<Repository<E, P>>, local_id: String) -> Self {
     Self {
-      repo: Arc::downgrade(&repo),
+      repo,
       local_id,
       cached: Arc::new(RwLock::new(None)),
     }
@@ -101,11 +105,7 @@ where
       }
     }
 
-    let repo = self
-      .repo
-      .upgrade()
-      .ok_or_else(|| crate::error::OrmError::Internal("Repository has been dropped".to_string()))?;
-    let result = repo.find_by_id(&self.local_id).await?;
+    let result = self.repo.find_by_id(&self.local_id).await?;
 
     // Return the value that was just fetched rather than reading the cache
     // back: `close()` can null the cache in the window between the write
@@ -119,6 +119,11 @@ where
     Ok(fetched)
   }
 
+  pub async fn is_loaded(&self) -> bool {
+    let read = self.cached.read().await;
+    read.is_some()
+  }
+
   pub fn close(&self) {
     let mut write = self.cached.blocking_write();
     *write = None;
@@ -130,7 +135,7 @@ where
   E: Entity,
   P: Storage,
 {
-  repo: Weak<Repository<E, P>>,
+  repo: Arc<Repository<E, P>>,
   relation: RelationDef,
   local_id: String,
   filter: Option<crate::query::Filter>,
@@ -144,7 +149,7 @@ where
 {
   pub fn new(repo: Arc<Repository<E, P>>, relation: RelationDef, local_id: String) -> Self {
     Self {
-      repo: Arc::downgrade(&repo),
+      repo,
       relation,
       local_id,
       filter: None,
@@ -165,11 +170,7 @@ where
       }
     }
 
-    let repo = self
-      .repo
-      .upgrade()
-      .ok_or_else(|| crate::error::OrmError::Internal("Repository has been dropped".to_string()))?;
-    let mut query = repo.query();
+    let mut query = self.repo.query();
 
     match self.relation.relation_type {
       crate::relations::RelationType::OneToMany => {
@@ -178,7 +179,9 @@ where
           serde_json::json!(&self.local_id),
         );
       }
-      crate::relations::RelationType::ManyToMany => {
+      // An explicit filter (the id list resolved from a join field) replaces
+      // the default back-reference lookup, which would AND with it.
+      crate::relations::RelationType::ManyToMany if self.filter.is_none() => {
         query = query.where_eq("ids", serde_json::json!([&self.local_id]));
       }
       _ => {}

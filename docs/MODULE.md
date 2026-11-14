@@ -77,13 +77,16 @@ insert/update. `capabilities()`: `Aggregation` + `Transactions`.
 ### `providers/sql/` (feature `sql-*`)
 
 `SqliteProvider` (560), `PostgresProvider` (580), `MySqlProvider` (601), plus
-`common` (178), `executor` (244), `row` (105), `utils` (64), `mod` (73).
+`common` (178), `executor` (244), `row` (107), `utils` (364), `mod` (73);
+plus the native drivers listed below and `postgres.rs` (629),
+`mysql.rs` (650), `sqlite.rs` (610).
 `capabilities()`: all three advertise `Indexes`, `Transactions`,
 `RawQueries`. Extra: `dialect()`, `query_builder()`, `build_select(...)`.
 
-Alias providers — one-line re-exports of an existing provider, each in its
-own file: `mssql.rs`, `oracle.rs`, `clickhouse.rs` → `PostgresProvider`;
-`duckdb.rs` → `SqliteProvider`.
+Native driver providers, each in its own file with its own connection
+handling: `duckdb.rs` (607), `mssql.rs` (671), `oracle.rs` (710),
+`clickhouse.rs` (823). Wire-compatible aliases stay one-line re-exports:
+`CockroachProvider` → `PostgresProvider`, `MariaDbProvider` → `MySqlProvider`.
 
 ### `providers/backend.rs` (227)
 
@@ -278,9 +281,10 @@ json, mongo, redis                    # base providers
 sql = ["sql-postgres", "sql-sqlite", "sql-mysql"]
 full = [everything above + every provider alias]
 
-# provider aliases (each enables the underlying driver feature)
-sql-mssql, sql-oracle, sql-cockroach, sql-clickhouse → sql-postgres
-sql-duckdb → sql-sqlite ; sql-mariadb → sql-mysql
+# provider features
+sql-mssql → tiberius + tokio-util ; sql-oracle → oracle
+sql-duckdb → duckdb ; sql-clickhouse → clickhouse
+sql-cockroach → sql-postgres ; sql-mariadb → sql-mysql
 couchdb, couchbase, firestore, elasticsearch, neo4j, cassandra → mongo
 dynamodb, influxdb, etcd → redis ; graphql → json
 pinecone, weaviate, milvus, qdrant, chroma → mongo

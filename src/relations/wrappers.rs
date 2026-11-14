@@ -92,6 +92,7 @@ impl<E: Entity> Serialize for WithLoaded<E> {
     let mut map = serializer.serialize_map(None)?;
 
     if let Ok(value) = self.entity.to_value() {
+      let value = crate::entity::expand_value::<E>(value);
       if let Some(obj) = value.as_object() {
         for (k, v) in obj {
           map.serialize_entry(k, v)?;

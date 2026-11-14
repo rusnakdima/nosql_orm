@@ -17,7 +17,7 @@ mod one_to_many;
 mod recursive;
 
 pub struct RelationLoader<P: Storage> {
-  provider: P,
+  pub(crate) provider: P,
 }
 
 #[allow(dead_code)]

@@ -164,7 +164,7 @@ where
     builder: QueryBuilder,
     relation_paths: &[&str],
   ) -> OrmResult<Vec<WithLoaded<E>>> {
-    let filter = builder.build_filter();
+    let filter = builder.build_filter().map(|f| f.for_entity::<E>());
     let (sort_field, sort_asc) = match &builder.order {
       Some(o) => (Some(o.field.clone()), o.direction == SortDirection::Asc),
       None => (None, true),

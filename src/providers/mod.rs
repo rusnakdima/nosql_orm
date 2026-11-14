@@ -100,7 +100,8 @@ pub mod redis;
 #[cfg(any(
   feature = "sql-postgres",
   feature = "sql-sqlite",
-  feature = "sql-mysql"
+  feature = "sql-mysql",
+  feature = "sql-mssql", feature = "sql-oracle", feature = "sql-duckdb", feature = "sql-clickhouse"
 ))]
 pub mod sql;
 pub use sync::{ConflictResolution, ProviderSync, SyncOptions};

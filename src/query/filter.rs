@@ -145,6 +145,24 @@ impl Filter {
   }
 }
 
+#[cfg(feature = "embedded")]
+impl Filter {
+  pub fn for_entity<E: crate::entity::Entity>(self) -> Self {
+    let fields = E::embedded_fields();
+    if fields.is_empty() {
+      return self;
+    }
+    crate::embedded::Embedder::rewrite_filter(&self, &fields)
+  }
+}
+
+#[cfg(not(feature = "embedded"))]
+impl Filter {
+  pub fn for_entity<E: crate::entity::Entity>(self) -> Self {
+    self
+  }
+}
+
 pub fn parse_field_filter(field: &str, value: &Value) -> OrmResult<Filter> {
   match value {
     Value::Object(obj) => {

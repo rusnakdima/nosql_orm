@@ -1,4 +1,10 @@
+#[cfg(any(feature = "sql-sqlite", feature = "sql-postgres"))]
 use crate::providers::sql::utils::base64_encode;
+#[cfg(any(
+  feature = "sql-sqlite",
+  feature = "sql-mysql",
+  feature = "sql-postgres"
+))]
 use serde_json::Value;
 
 #[cfg(feature = "sql-sqlite")]

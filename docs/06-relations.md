@@ -152,10 +152,22 @@ pub struct LazyLoader;                 // factory
 
 `Lazy::new(loader)`; `Lazy::get()`, `is_loaded()`, `reload()`.
 
-`RepositoryLazyExt` (implemented for `Repository<E, P>`) adds
+Handles resolve a relation by name and load on first `get()`:
+
+```rust
+repo.lazy_load::<User>(&post.to_value()?, "author")?    // → LazyRelation<User>
+repo.lazy_load_many::<Post>(&user.to_value()?, "posts")? // → LazyMany<Post>
+repo.lazy_find(id)                                      // → LazyRelation<E> on this repo
+loader.lazy_one::<User>(&doc, &relation_def)?           // RelationLoader equivalents
+loader.lazy_many::<Post>(&doc, &relation_def)?
+```
+
+`RepositoryLazyExt` (implemented for `Repository<E, P>`) adds the low-level
 `lazy_relation(self: Arc<Self>, relation, local_id)` and
-`lazy_many(self: Arc<Self>, relation, local_id)`. `LazyMany::with_filter(filter)`
-narrows the loaded set.
+`lazy_many(self: Arc<Self>, relation, local_id)` constructors.
+`LazyMany::with_filter(filter)` narrows the loaded set. Handles hold a strong
+`Arc<Repository>`, so they outlive the builder. See
+[07-features/07i-lazy.md](07-features/07i-lazy.md).
 
 ---
 
@@ -165,8 +177,15 @@ narrows the loaded set.
 pub trait Embedded { fn embedded_meta() -> EmbeddedMeta; }
 pub struct EmbeddedMeta { prefix: Option<String>, flatten: bool }
 pub trait EmbedExt { fn embed(&self, field) -> Value; fn unembed(&self, field) -> Value; }
-pub struct Embedder;  // flatten / unflatten helpers
+pub struct Embedder;  // flatten / unflatten / rewrite_filter helpers
 ```
+
+Entities declare embedded fields with `#[embedded(address)]` (derive) or
+`fn embedded_fields()` (manual `Entity` impl). `Entity::to_value` flattens
+them on write, `Entity::from_value` expands them on read, and filter paths
+like `address.city` are rewritten to the flat storage key — so `where_eq`,
+`count`, `delete_many`, `update_many` and query builders all work on nested
+paths. See [07-features/07j-embedded.md](07-features/07j-embedded.md).
 
 ---
 
@@ -174,12 +193,16 @@ pub struct Embedder;  // flatten / unflatten helpers
 
 ```rust
 pub enum InheritanceType { SingleTable, ClassTable, ConcreteTable }
-pub trait Inheritance { inheritance_type, discriminator_value, parent_entity, child_entities }
+pub trait Inheritance { inheritance_type, discriminator_value, discriminator_column, parent_entity, child_entities }
 pub struct Discriminator { column, values }
 pub trait Discriminated { discriminator_column, discriminator_value }
 ```
 
 `entity_inheritance!` macro generates `Inheritance` impls for STI/parent.
+`Repository<E: Inheritance>` gains `query_scoped` / `find_all_scoped` /
+`find_by_id_scoped` (own table + discriminator) and `query_in_parent` /
+`find_all_in_parent` / `find_all_grouped_in_parent` (explicit parent table).
+See [07-features/07k-inheritance.md](07-features/07k-inheritance.md).
 
 ---
 

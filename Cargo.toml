@@ -53,12 +53,15 @@ sql-sqlite = ["dep:rusqlite"]
 sql-mysql = ["dep:mysql_async"]
 query_cache = []
 
-# New SQL providers (reuse existing wire-compatible providers)
-sql-mssql = ["sql-postgres"]
-sql-oracle = ["sql-postgres"]
+# New SQL providers.
+# sql-mssql / sql-duckdb / sql-clickhouse / sql-oracle run on their own native
+# drivers. Oracle's driver vendors ODPI-C, so it compiles anywhere; only
+# `connect` needs the Oracle Client library at runtime (ODPI-C loads it).
+sql-mssql = ["dep:tiberius", "dep:tokio-util"]
+sql-oracle = ["dep:oracle"]
 sql-cockroach = ["sql-postgres"]
-sql-duckdb = ["sql-sqlite"]
-sql-clickhouse = ["sql-postgres"]
+sql-duckdb = ["dep:duckdb"]
+sql-clickhouse = ["dep:clickhouse"]
 sql-mariadb = ["sql-mysql"]
 
 # New NoSQL providers (reuse existing providers)
@@ -84,9 +87,12 @@ chroma = ["mongo"]
 pgvector = ["sql-postgres"]
 redis-vector = ["redis"]
 
-# Extension modules that no code path in Storage, Repository or the providers
-# reaches yet. They are opt-in so the default build carries only the storage
-# surface the crate actually integrates; each is documented in docs/07-features.
+# Opt-in extension modules wired into Repository behind their flag:
+# embedded flattens/expands documents and rewrites nested filter paths,
+# inheritance scopes queries by discriminator and reads parent tables,
+# lazy builds load-on-access relation handles. Kept off by default so the
+# default build carries only the storage surface the crate actually uses
+# out of the box; each is documented in docs/07-features.
 embedded = []
 inheritance = []
 lazy = []
@@ -111,6 +117,11 @@ deadpool-postgres = { version = "0.12", optional = true }
 mysql_async = { version = "0.33", optional = true }
 tokio-postgres = { version = "0.7", optional = true }
 rusqlite = { version = "0.33", optional = true, features = ["bundled"] }
+duckdb = { version = "1.20000", optional = true }
+clickhouse = { version = "0.15", optional = true }
+tiberius = { version = "0.13", optional = true, default-features = false, features = ["tds80", "native-tls"] }
+tokio-util = { version = "0.7", optional = true, features = ["compat"] }
+oracle = { version = "0.6", optional = true }
 base64 = { version = "0.22" }
 ring = "0.17"
 nosql_orm_derive = { path = "nosql_orm_derive" }
@@ -128,6 +139,11 @@ path = "tests/test_sqlite_integration.rs"
 required-features = ["sql-sqlite"]
 
 [[test]]
+name = "test_savepoints"
+path = "tests/test_savepoints.rs"
+required-features = ["sql-sqlite"]
+
+[[test]]
 name = "test_postgres_integration"
 path = "tests/test_postgres_integration.rs"
 required-features = ["sql-postgres"]
@@ -136,6 +152,26 @@ required-features = ["sql-postgres"]
 name = "test_mysql_integration"
 path = "tests/test_mysql_integration.rs"
 required-features = ["sql-mysql"]
+
+[[test]]
+name = "test_duckdb_integration"
+path = "tests/test_duckdb_integration.rs"
+required-features = ["sql-duckdb"]
+
+[[test]]
+name = "test_clickhouse_integration"
+path = "tests/test_clickhouse_integration.rs"
+required-features = ["sql-clickhouse"]
+
+[[test]]
+name = "test_mssql_integration"
+path = "tests/test_mssql_integration.rs"
+required-features = ["sql-mssql"]
+
+[[test]]
+name = "test_oracle_integration"
+path = "tests/test_oracle_integration.rs"
+required-features = ["sql-oracle"]
 
 [[test]]
 name = "test_redis_provider"

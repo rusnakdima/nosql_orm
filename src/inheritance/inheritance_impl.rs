@@ -10,6 +10,9 @@ pub enum InheritanceType {
 pub trait Inheritance: Send + Sync {
   fn inheritance_type() -> Option<InheritanceType>;
   fn discriminator_value() -> Option<DiscriminatorValue>;
+  fn discriminator_column() -> &'static str {
+    "type"
+  }
   fn parent_entity() -> Option<&'static str>;
   fn child_entities() -> Vec<&'static str>;
 }

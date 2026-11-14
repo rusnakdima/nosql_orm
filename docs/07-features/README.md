@@ -27,26 +27,26 @@ building and testing each feature flag individually (`cargo test --features
 | Full-text search | [07l-search.md](07l-search.md) | ✅ `Storage::search()` — in-memory baseline; ranking/stemming coming soon |
 | Change Data Capture | [07n-cdc.md](07n-cdc.md) | ✅ `ChangeCaptureStorage<P>` |
 | Real-time subscriptions | [07p-subscription.md](07p-subscription.md) | ✅ `SubscriptionManager` + `SubscribedStorage<P>` (in-process) |
-| Transactions | [07v-transactions.md](07v-transactions.md) | ✅ JSON, SQLite, Postgres, MySQL native; Mongo/Redis answer `NotSupported` |
+| Transactions | [07v-transactions.md](07v-transactions.md) | ✅ JSON, SQLite, Postgres, MySQL native (+ savepoints & `transaction(\|tx\| …)` closure helper on SQLite/Postgres/MySQL); Mongo/Redis answer `NotSupported` |
 | Vector / semantic search | [07t-vector-search.md](07t-vector-search.md) | ✅ `VectorSearchStorage<P>` + `DistanceMetric` |
 | Multi-tenancy | [07u-multi-tenancy.md](07u-multi-tenancy.md) | ✅ `TenantStorage<P>` |
 | Streaming results | [07x-streaming.md](07x-streaming.md) | ✅ `Storage::find_stream()` + `Repository::find_stream()` |
 | Offline-first sync | [07y-offline-sync.md](07y-offline-sync.md) | ✅ `SyncEngine<L, R>` (in-memory queue) |
-| Encryption at rest | [07z-encryption.md](07z-encryption.md) | ✅ `EncryptedStorage<P>` + `StaticKeyProvider` |
-| Batch operations | [07w-batch-operations.md](07w-batch-operations.md) | 🟡 `insert_many`/`update_many`/`upsert_many`/`delete_many`; per-row errors coming soon |
+| Encryption at rest | [07z-encryption.md](07z-encryption.md) | ✅ `EncryptedStorage<P>` + `StaticKeyProvider`/`EnvKeyProvider` + searchable (HMAC) equality on encrypted fields |
+| Batch operations | [07w-batch-operations.md](07w-batch-operations.md) | ✅ `insert_many`/`update_many`/`upsert_many`/`delete_many` + `BatchResult` per-row errors (`insert_many_detailed`/`insert_many_chunked`); native bulk transports coming soon |
 | pgvector | [08c-vector-dbs.md](08c-vector-dbs.md) | ✅ `PgVectorProvider` (reuses Postgres) |
-| New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | 🟡 alias: CockroachDB/MariaDB wire-compatible; MSSQL/Oracle/ClickHouse/DuckDB baseline (native drivers pending) |
+| New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | ✅ native drivers: MSSQL (tiberius), Oracle (oracle), DuckDB (duckdb), ClickHouse (clickhouse); 🟡 alias: CockroachDB/MariaDB wire-compatible |
 | New NoSQL providers | [08b-new-nosql-dbs.md](08b-new-nosql-dbs.md) | 🟡 alias: DynamoDB/InfluxDB/etcd baseline = Redis; CouchDB/Couchbase/Firestore/Elasticsearch/Neo4j/Cassandra baseline = Mongo (native drivers pending) |
 | GraphQL provider | [08c-graphql-provider.md](08c-graphql-provider.md) | 🟡 alias `GraphQLProvider` (= JSON provider; native endpoint client pending) |
 | Vector database providers | [08c-vector-dbs.md](08c-vector-dbs.md) | 🟡 alias: Pinecone/Weaviate/Milvus/Qdrant/Chroma baseline = Mongo, Redis vector = Redis; **pgvector real** (Postgres driver) |
 
-### Implemented but not yet wired into Storage/Repository (opt-in)
+### Opt-in modules (feature-gated, wired into Repository)
 
 | Feature / module | File | Status |
 |---|---|---|
-| Embedded | [07j-embedded.md](07j-embedded.md) | 🔧 opt-in (`embedded`) — self-contained, integration coming soon |
-| Inheritance | [07k-inheritance.md](07k-inheritance.md) | 🔧 opt-in (`inheritance`) — self-contained, integration coming soon |
-| Lazy | [07i-lazy.md](07i-lazy.md) | 🔧 opt-in (`lazy`) — self-contained, integration coming soon |
+| Embedded | [07j-embedded.md](07j-embedded.md) | ✅ opt-in (`embedded`) — flatten on write, expand on read, nested-path filters |
+| Inheritance | [07k-inheritance.md](07k-inheritance.md) | ✅ opt-in (`inheritance`) — discriminator-scoped queries and parent-table reads |
+| Lazy | [07i-lazy.md](07i-lazy.md) | ✅ opt-in (`lazy`) — load-on-access relation handles from `Repository`/`RelationLoader` |
 
 ### Coming soon (not implemented)
 
@@ -56,14 +56,12 @@ building and testing each feature flag individually (`cargo test --features
 | CDC resume tokens and provider-native change feeds (Mongo change streams, Postgres logical replication) | 🚧 |
 | WebSocket/SSE transport for subscriptions (lives in Forge, not `nosql_orm`) | 🚧 |
 | `#[vector(dim)]` / `#[encrypted]` derive attributes | 🚧 |
-| Savepoints / nested transactions, `storage.transaction(\|tx\| …)` closure helper | 🚧 |
-| Batch per-row error reporting, partial success, chunking, native bulk transports | 🚧 |
+| Provider-native bulk transports (Mongo `insertMany`, Postgres `COPY`, SQLite transaction batching) | 🚧 |
 | `aggregate_stream` and provider-native cursors | 🚧 |
 | Persistent sync queue, conflict-resolution strategies, selective sync | 🚧 |
-| KMS/env key providers, searchable encryption | 🚧 |
-| Embedded / inheritance / lazy integration into `Storage`/`Repository` | 🚧 |
+| Cloud KMS key provider (env-var keys and searchable encryption implemented) | 🚧 |
 | Migration bodies: `SqlMigration`/`JsonMigration` `up`/`down` execute nothing today | 🚧 |
-| Native driver backends for the alias providers (tiberius, oracle, duckdb, clickhouse, neo4rs, scylla, etcd-client, aws-sdk, async-graphql, qdrant, …) | 🚧 |
+| Native driver backends for the remaining alias providers (neo4rs, scylla, etcd-client, aws-sdk, async-graphql, qdrant, …) | 🚧 |
 
 ---
 
@@ -106,7 +104,7 @@ chroma = ["mongo"]
 pgvector = ["sql-postgres"]
 redis-vector = ["redis"]
 
-# Opt-in extension modules (implemented, not wired into Storage/Repository)
+# Opt-in extension modules (wired into Repository behind their feature flag)
 embedded = []
 inheritance = []
 lazy = []
@@ -124,9 +122,10 @@ full = ["json", "mongo", "redis", "sql", "…every provider alias above"]
   SQL utilities, logging, query caching (under `query_cache`), search, CDC,
   subscriptions, transactions, vector search, multi-tenancy, streaming,
   offline sync, encryption, batch calls.
-- **Opt-in extension modules** (feature-gated, self-contained, not wired into
-  `Storage`/`Repository`/providers): `embedded`, `inheritance`, `lazy`.
-  Integration into Storage/Repository is coming soon.
+- **Opt-in extension modules** (feature-gated, wired into `Repository`):
+  `embedded` (flatten/expand + nested-path filters), `inheritance`
+  (discriminator scoping, parent-table reads), `lazy` (load-on-access
+  relation handles). Each needs its feature flag at build time.
 - **Storage backends** (provider features): `json`, `mongo`, `redis`, `sql-*`,
   plus the provider aliases (`sql-mssql`, `couchdb`, `dynamodb`, `graphql`,
   `pinecone`, …).

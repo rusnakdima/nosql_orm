@@ -113,19 +113,19 @@ nosql_orm = { version = "0.10", features = ["full"] }
 | `sql-mysql` | `MySqlProvider` |
 | `full` | `json`, `mongo`, `redis`, `sql` **plus every provider alias below** |
 | `query_cache` | `cache::QueryCache` (off by default) |
-| `embedded` | `embedded` module (off by default, opt-in) |
-| `inheritance` | `inheritance` module (off by default, opt-in) |
-| `lazy` | `lazy` module (off by default, opt-in) |
+| `embedded` | `embedded` module (off by default, opt-in; wired into `Repository`) |
+| `inheritance` | `inheritance` module (off by default, opt-in; wired into `Repository`) |
+| `lazy` | `lazy` module (off by default, opt-in; wired into `Repository`) |
 
-**New SQL provider aliases** (each pulls the compatible base driver):
+**New SQL providers** (native drivers, except the two wire-compatible aliases):
 
 | Flag | Effect |
 |---|---|
-| `sql-mssql` | `MssqlProvider` (baseline = Postgres) |
-| `sql-oracle` | `OracleProvider` (baseline = Postgres) |
+| `sql-mssql` | `MssqlProvider` (native `tiberius` TDS driver) |
+| `sql-oracle` | `OracleProvider` (native `oracle` driver, ODPI-C) |
 | `sql-cockroach` | `CockroachProvider` (= Postgres) |
-| `sql-duckdb` | `DuckDbProvider` (baseline = SQLite) |
-| `sql-clickhouse` | `ClickHouseProvider` (baseline = Postgres) |
+| `sql-duckdb` | `DuckDbProvider` (native `duckdb` driver, embedded) |
+| `sql-clickhouse` | `ClickHouseProvider` (native `clickhouse` HTTP driver) |
 | `sql-mariadb` | `MariaDbProvider` (= MySQL) |
 
 **New NoSQL / GraphQL / vector provider aliases:**

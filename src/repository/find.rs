@@ -60,7 +60,7 @@ where
     let docs = self.provider.find_all(&Self::collection()).await?;
     let filtered: Vec<Value> = docs
       .into_iter()
-      .map(|doc| projection.apply_recursive(&doc))
+      .map(|doc| projection.apply_recursive(&crate::entity::expand_value::<E>(doc)))
       .collect();
     filtered.into_iter().map(E::from_value).collect()
   }
@@ -76,7 +76,7 @@ where
       .await?
     {
       Some(v) => {
-        let filtered = projection.apply_recursive(&v);
+        let filtered = projection.apply_recursive(&crate::entity::expand_value::<E>(v));
         Ok(Some(E::from_value(filtered)?))
       }
       None => Ok(None),

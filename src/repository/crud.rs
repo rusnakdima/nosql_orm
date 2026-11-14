@@ -27,7 +27,9 @@ where
     let stored = self.provider.insert(&Self::collection(), doc).await?;
     let result = E::from_value(stored)?;
     if let Some(ref events) = self.events {
-      events.dispatch_insert(&result.to_value()?).await?;
+      events
+        .dispatch_insert(&crate::entity::expand_value::<E>(result.to_value()?))
+        .await?;
     }
     Ok(result)
   }
@@ -46,9 +48,13 @@ where
     let stored = self.provider.update(&Self::collection(), &id, doc).await?;
     let result = E::from_value(stored)?;
     if let Some(ref events) = self.events {
-      let before_value = before_doc.clone().unwrap_or_else(|| serde_json::json!({}));
+      let before_value =
+        crate::entity::expand_value::<E>(before_doc.clone().unwrap_or_else(|| serde_json::json!({})));
       events
-        .dispatch_update(&before_value, &result.to_value()?)
+        .dispatch_update(
+          &before_value,
+          &crate::entity::expand_value::<E>(result.to_value()?),
+        )
         .await?;
     }
     Ok(result)
@@ -78,9 +84,13 @@ where
     let stored = self.provider.update(&Self::collection(), &id, doc).await?;
     let result = E::from_value(stored)?;
     if let Some(ref events) = self.events {
-      let before_value = before_doc_clone.unwrap_or_else(|| serde_json::json!({}));
+      let before_value =
+        crate::entity::expand_value::<E>(before_doc_clone.unwrap_or_else(|| serde_json::json!({})));
       events
-        .dispatch_update(&before_value, &result.to_value()?)
+        .dispatch_update(
+          &before_value,
+          &crate::entity::expand_value::<E>(result.to_value()?),
+        )
         .await?;
     }
     Ok(result)
@@ -115,6 +125,8 @@ where
   }
 
   pub async fn update_many(&self, filter: Option<Filter>, updates: Value) -> OrmResult<usize> {
+    let filter = filter.map(|f| f.for_entity::<E>());
+    let updates = crate::entity::flatten_value::<E>(updates);
     self
       .provider
       .update_many(&Self::collection(), filter, updates)
@@ -137,10 +149,12 @@ where
   }
 
   pub async fn delete_many(&self, filter: Option<Filter>) -> OrmResult<usize> {
+    let filter = filter.map(|f| f.for_entity::<E>());
     self.provider.delete_many(&Self::collection(), filter).await
   }
 
   pub async fn patch(&self, id: impl AsRef<str>, patch: Value) -> OrmResult<E> {
+    let patch = crate::entity::flatten_value::<E>(patch);
     let stored = self
       .provider
       .patch(&Self::collection(), id.as_ref(), patch)
@@ -176,7 +190,7 @@ where
       .ok_or_else(|| OrmError::InvalidQuery("Cannot update without id".to_string()))?
       .as_str()
       .ok_or_else(|| OrmError::InvalidQuery("Id must be string".to_string()))?;
-    let mut doc = value.clone();
+    let mut doc = crate::entity::flatten_value::<E>(value.clone());
     apply_timestamps(&mut doc, false);
     let stored = self.provider.update(&Self::collection(), id, doc).await?;
     E::from_value(stored)

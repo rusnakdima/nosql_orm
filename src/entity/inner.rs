@@ -43,7 +43,7 @@ pub trait FrontendProjection: Entity {
   }
 
   fn filter_for_frontend(&self) -> Value {
-    let mut value = self.to_value().unwrap_or(Value::Null);
+    let mut value = expand_value::<Self>(self.to_value().unwrap_or(Value::Null));
     let excluded = Self::frontend_excluded_fields();
     if excluded.is_empty() {
       return value;
@@ -69,14 +69,20 @@ pub trait Entity: Serialize + DeserializeOwned + Debug + Send + Sync + 'static {
   fn set_id(&mut self, id: String);
 
   fn to_value(&self) -> OrmResult<Value> {
-    serde_json::to_value(self).map_err(Into::into)
+    let value = serde_json::to_value(self)?;
+    Ok(flatten_value::<Self>(value))
   }
 
   fn from_value(value: Value) -> OrmResult<Self> {
+    let value = expand_value::<Self>(value);
     serde_json::from_value(with_booleans(value, &Self::boolean_fields())).map_err(Into::into)
   }
 
   fn boolean_fields() -> Vec<&'static str> {
+    Vec::new()
+  }
+
+  fn embedded_fields() -> Vec<&'static str> {
     Vec::new()
   }
 
@@ -101,6 +107,32 @@ pub fn extract_id(value: &Value, id_field: &str) -> Option<String> {
   value
     .get(id_field)
     .and_then(|v| v.as_str().map(ToString::to_string))
+}
+
+pub(crate) fn flatten_value<E: Entity>(value: Value) -> Value {
+  #[cfg(feature = "embedded")]
+  let value = {
+    let fields = E::embedded_fields();
+    if fields.is_empty() {
+      value
+    } else {
+      crate::embedded::Embedder::flatten(&value, &fields)
+    }
+  };
+  value
+}
+
+pub(crate) fn expand_value<E: Entity>(value: Value) -> Value {
+  #[cfg(feature = "embedded")]
+  let value = {
+    let fields = E::embedded_fields();
+    if fields.is_empty() {
+      value
+    } else {
+      crate::embedded::Embedder::unflatten(&value, &fields)
+    }
+  };
+  value
 }
 
 fn with_booleans(value: Value, boolean_fields: &[&str]) -> Value {

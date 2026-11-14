@@ -102,7 +102,7 @@ src/
     ├── redis.rs        Redis provider                  (feature = "redis")
     ├── sql/            Postgres, MySQL, SQLite         (feature = "sql-*")
     │   ├── postgres.rs / mysql.rs / sqlite.rs
-    │   ├── duckdb.rs / mssql.rs / oracle.rs  (aliases, feature-gated)
+    │   ├── duckdb.rs / mssql.rs / oracle.rs / clickhouse.rs  (native drivers, feature-gated)
     │   └── common.rs / executor.rs / row.rs / utils.rs
     ├── backend.rs      connect_backend, BackendKind, ConnectionParts
     ├── sync.rs         provider-to-provider sync
@@ -165,7 +165,7 @@ let user = users.save(user).await?;
 | `redis` | `RedisProvider` |
 | `sql-postgres`, `sql-mysql`, `sql-sqlite` | one SQL provider each |
 | `sql` | all three SQL providers |
-| `sql-mssql`, `sql-oracle`, `sql-cockroach`, `sql-duckdb`, `sql-clickhouse`, `sql-mariadb` | SQL provider aliases |
+| `sql-mssql`, `sql-oracle`, `sql-cockroach`, `sql-duckdb`, `sql-clickhouse`, `sql-mariadb` | SQL provider flags — MSSQL/Oracle/DuckDB/ClickHouse are native drivers, CockroachDB/MariaDB are wire-compatible aliases |
 | `couchdb`, `couchbase`, `dynamodb`, `firestore`, `elasticsearch`, `neo4j`, `influxdb`, `cassandra`, `etcd` | NoSQL provider aliases |
 | `graphql` | GraphQL provider (JSON reuse) |
 | `pinecone`, `weaviate`, `milvus`, `qdrant`, `chroma`, `redis-vector` | vector provider aliases |
@@ -193,9 +193,9 @@ flags alias an existing provider (`PostgresProvider`, `SqliteProvider`,
 | Backend-specific operations | Index management is `NotSupported` on Redis and a no-op/empty on JSON providers; `execute_raw` is `NotSupported` outside the SQL providers; aggregation is implemented only for JSON and Mongo. |
 | SQL transactions | PostgreSQL and MySQL run transactions over connections checked out of their own pools; SQLite holds one connection. |
 | Migrations | `SqlMigration` / `JsonMigration` `up`/`down` are no-ops; `MigrationRunner` records applied versions in a `_migrations` collection but does not execute the migration body. `SqlFileLoader` parses `--- DOWN ---`-separated SQL files but the resulting `SqlMigration` still does not run them. |
-| Extension modules | `embedded`, `inheritance`, `lazy` are implemented but not wired into `Storage`, `Repository` or providers. |
+| Extension modules | `embedded`, `inheritance`, `lazy` are opt-in (off by default) and wired into `Repository`; `find_stream` passes filters through without the embedded path rewrite, and there are no joined CTI child loads. |
 | SQL provider duplication | `providers/sql/{postgres,mysql}.rs` share helpers in `sql/common.rs` but are not one generic implementation. |
-| Lazy loading | `LazyRelation::get` fetches by `local_id` from its repository and ignores the relation descriptor. |
+| Lazy loading | `LazyRelation::get` fetches by `local_id` from its repository; the relation descriptor is validated when the handle is built (`lazy_load` vs `lazy_load_many`), not on each `get()`. |
 
 ## 9. Further reading
 

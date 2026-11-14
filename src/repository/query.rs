@@ -13,6 +13,7 @@ where
 {
   repo: &'r Repository<E, P>,
   builder: QueryBuilder,
+  table_override: Option<String>,
 }
 
 impl<'r, E, P> RepositoryQuery<'r, E, P>
@@ -73,8 +74,22 @@ where
     self
   }
 
+  pub fn table(&self) -> String {
+    self.table_override.clone().unwrap_or_else(E::table_name)
+  }
+
+  #[cfg(feature = "inheritance")]
+  pub fn with_table(mut self, table: impl Into<String>) -> Self {
+    self.table_override = Some(table.into());
+    self
+  }
+
+  fn entity_filter(&self) -> Option<Filter> {
+    self.builder.build_filter().map(|f| f.for_entity::<E>())
+  }
+
   pub async fn find(self) -> OrmResult<Vec<E>> {
-    let filter = self.builder.build_filter();
+    let filter = self.entity_filter();
     let (sort_field, sort_asc) = match &self.builder.order {
       Some(o) => (Some(o.field.as_str()), o.direction == SortDirection::Asc),
       None => (None, true),
@@ -83,7 +98,7 @@ where
       .repo
       .provider
       .find_many(
-        &E::table_name(),
+        &self.table(),
         filter.as_ref(),
         self.builder.skip,
         self.builder.limit,
@@ -96,6 +111,7 @@ where
   }
 
   pub async fn find_with_cursor(self, cursor: Option<Cursor>) -> OrmResult<PaginatedResult<E>> {
+    let table = self.table();
     let mut builder = self.builder;
 
     if let Some(c) = cursor {
@@ -103,7 +119,7 @@ where
       builder = builder.filter(cursor_filter);
     }
 
-    let filter = builder.build_filter();
+    let filter = builder.build_filter().map(|f| f.for_entity::<E>());
     let (sort_field, sort_asc) = match &builder.order {
       Some(o) => (Some(o.field.as_str()), o.direction == SortDirection::Asc),
       None => (Some("id"), true),
@@ -113,7 +129,7 @@ where
       .repo
       .provider
       .find_many(
-        &E::table_name(),
+        &table,
         filter.as_ref(),
         None,
         builder.limit,
@@ -148,7 +164,7 @@ where
   }
 
   pub async fn find_raw(self) -> OrmResult<Vec<Value>> {
-    let filter = self.builder.build_filter();
+    let filter = self.entity_filter();
     let (sort_field, sort_asc) = match &self.builder.order {
       Some(o) => (Some(o.field.as_str()), o.direction == SortDirection::Asc),
       None => (None, true),
@@ -157,7 +173,7 @@ where
       .repo
       .provider
       .find_many(
-        &E::table_name(),
+        &self.table(),
         filter.as_ref(),
         self.builder.skip,
         self.builder.limit,
@@ -168,11 +184,11 @@ where
   }
 
   pub async fn count(self) -> OrmResult<u64> {
-    let filter = self.builder.build_filter();
+    let filter = self.entity_filter();
     self
       .repo
       .provider
-      .count(&E::table_name(), filter.as_ref())
+      .count(&self.table(), filter.as_ref())
       .await
   }
 }
@@ -191,6 +207,17 @@ where
     RepositoryQuery {
       repo: self,
       builder,
+      table_override: None,
+    }
+  }
+
+  #[cfg(feature = "lazy")]
+  pub(crate) fn fork(&self) -> Repository<E, P> {
+    Repository {
+      provider: self.provider.clone(),
+      events: self.events.clone(),
+      query_timeout: self.query_timeout.clone(),
+      _phantom: std::marker::PhantomData,
     }
   }
 
@@ -198,6 +225,7 @@ where
     RepositoryQuery {
       repo: self,
       builder: QueryBuilder::new(),
+      table_override: None,
     }
   }
 }

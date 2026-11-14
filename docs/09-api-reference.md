@@ -84,9 +84,10 @@ Errors: `OrmError`, `OrmResult`.
 - `MySqlProvider::connect(uri)` / `from_config(&config)`
 - `connect_backend(kind, url)` / `connect_by_name(name, url)`
 
-Provider aliases (feature-gated, reuse an existing provider):
-`MssqlProvider`, `OracleProvider`, `ClickHouseProvider` (= Postgres),
-`DuckDbProvider` (= SQLite), `CockroachProvider` (= Postgres),
+Native driver providers (feature-gated): `MssqlProvider` (tiberius),
+`OracleProvider` (oracle), `DuckDbProvider` (duckdb),
+`ClickHouseProvider` (clickhouse). Wire-compatible aliases (feature-gated,
+reuse an existing provider): `CockroachProvider` (= Postgres),
 `MariaDbProvider` (= MySQL), `CouchDbProvider`, `CouchbaseProvider`,
 `FirestoreProvider`, `ElasticsearchProvider`, `Neo4jProvider`,
 `CassandraProvider` (= Mongo), `DynamoDbProvider`, `InfluxDbProvider`,

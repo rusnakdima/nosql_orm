@@ -11,7 +11,7 @@
 use crate::admin_types::IndexInfo;
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
-use crate::provider::{ProviderCapabilities, Storage};
+use crate::provider::{Capability, ProviderCapabilities, Storage};
 use crate::providers::sql::common::SqlProviderHelpers;
 use crate::query::Filter;
 use async_trait::async_trait;
@@ -32,8 +32,17 @@ pub trait SqlExecutor: SqlProviderHelpers + Send + Sync + Clone + 'static {
   // The backend's own index introspection (PRAGMA / SHOW / pg_indexes).
   async fn list_indexes_for(&self, collection: &str) -> OrmResult<Vec<IndexInfo>>;
 
-  // The backend's capability set (e.g. only SQLite claims Transactions).
-  fn sql_capabilities(&self) -> ProviderCapabilities;
+  // The backend's capability set. This default is what every
+  // connection-owning SQL backend (SQLite, DuckDB, SQL Server, Oracle)
+  // claims — indexes, transactions and raw queries through the shared body
+  // above. A backend that cannot honour one of them (ClickHouse has no
+  // interactive transactions) overrides this.
+  fn sql_capabilities(&self) -> ProviderCapabilities {
+    ProviderCapabilities::none()
+      .with(Capability::Indexes)
+      .with(Capability::Transactions)
+      .with(Capability::RawQueries)
+  }
 }
 
 #[async_trait]

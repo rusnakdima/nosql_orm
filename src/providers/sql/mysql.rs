@@ -1,8 +1,8 @@
 use crate::error::{map_err_connection, map_err_query, OrmError, OrmResult};
 use crate::provider::{
   AdminCommands, Capability, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  FieldInfo, IndexInfo, ProviderCapabilities, ProviderConfig, RawResult, SchemaIntrospection,
-  TransactionControl, TransactionId,
+  FieldInfo, IndexInfo, ProviderCapabilities, ProviderConfig, RawResult, SavepointControl,
+  SchemaIntrospection, TransactionControl, TransactionId,
 };
 use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::row;
@@ -597,5 +597,54 @@ impl TransactionControl for MySqlProvider {
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
     Ok(self.transaction_state.lock().await.is_some())
+  }
+}
+
+// Savepoints run on the dedicated transaction connection: the same pooled
+// connection that executed START TRANSACTION.
+#[async_trait]
+impl SavepointControl for MySqlProvider {
+  async fn savepoint(&self, name: &str) -> OrmResult<()> {
+    crate::provider::validate_savepoint_name(name)?;
+    let mut tx_conn = self.tx_connection.lock().await;
+    let conn = tx_conn
+      .as_mut()
+      .ok_or_else(|| OrmError::Transaction("no active transaction".to_string()))?;
+    let sql = format!("SAVEPOINT {}", name);
+    conn
+      .query_drop(sql.as_str())
+      .await
+      .map_err(|e| OrmError::Transaction(format!("savepoint {} failed: {}", name, e)))?;
+    Ok(())
+  }
+
+  async fn release_savepoint(&self, name: &str) -> OrmResult<()> {
+    crate::provider::validate_savepoint_name(name)?;
+    let mut tx_conn = self.tx_connection.lock().await;
+    let conn = tx_conn
+      .as_mut()
+      .ok_or_else(|| OrmError::Transaction("no active transaction".to_string()))?;
+    let sql = format!("RELEASE SAVEPOINT {}", name);
+    conn
+      .query_drop(sql.as_str())
+      .await
+      .map_err(|e| OrmError::Transaction(format!("release of savepoint {} failed: {}", name, e)))?;
+    Ok(())
+  }
+
+  async fn rollback_to_savepoint(&self, name: &str) -> OrmResult<()> {
+    crate::provider::validate_savepoint_name(name)?;
+    let mut tx_conn = self.tx_connection.lock().await;
+    let conn = tx_conn
+      .as_mut()
+      .ok_or_else(|| OrmError::Transaction("no active transaction".to_string()))?;
+    let sql = format!("ROLLBACK TO SAVEPOINT {}", name);
+    conn
+      .query_drop(sql.as_str())
+      .await
+      .map_err(|e| {
+        OrmError::Transaction(format!("rollback to savepoint {} failed: {}", name, e))
+      })?;
+    Ok(())
   }
 }

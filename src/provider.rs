@@ -1,3 +1,4 @@
+use crate::batch::BatchResult;
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::query::Filter;
@@ -5,6 +6,7 @@ use async_trait::async_trait;
 use futures::stream::{self, Stream, StreamExt};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -254,6 +256,47 @@ pub trait Storage: Send + Sync + Clone + 'static {
       count += 1;
     }
     Ok(count)
+  }
+
+  // Per-row variant of `insert_many`: every row is attempted, failures are
+  // collected with their index into `docs` instead of aborting the batch.
+  // A provider-level failure (connection gone) still returns Err.
+  async fn insert_many_detailed(
+    &self,
+    collection: &str,
+    docs: Vec<Value>,
+  ) -> OrmResult<BatchResult> {
+    let mut result = BatchResult::default();
+    for (index, doc) in docs.into_iter().enumerate() {
+      match self.insert(collection, doc).await {
+        Ok(_) => result.succeeded += 1,
+        Err(err) => result.failed.push((index, err)),
+      }
+    }
+    Ok(result)
+  }
+
+  // Chunked `insert_many_detailed`: rows are attempted in batches of
+  // `batch_size`, and the merged result keeps indices into the original
+  // `docs` order. A chunk-level (provider) error stops the run and is
+  // returned as Err; rows already written stay written.
+  async fn insert_many_chunked(
+    &self,
+    collection: &str,
+    docs: Vec<Value>,
+    batch_size: usize,
+  ) -> OrmResult<BatchResult> {
+    if batch_size == 0 {
+      return Err(OrmError::InvalidInput(
+        "batch_size must be greater than 0".to_string(),
+      ));
+    }
+    let mut result = BatchResult::default();
+    for (chunk_index, chunk) in docs.chunks(batch_size).enumerate() {
+      let chunk_result = self.insert_many_detailed(collection, chunk.to_vec()).await?;
+      result.absorb(chunk_result, chunk_index * batch_size);
+    }
+    Ok(result)
   }
 
   fn capabilities(&self) -> ProviderCapabilities {
@@ -562,6 +605,96 @@ pub trait TransactionControl: Send + Sync + Clone + 'static {
   async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()>;
   async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()>;
   async fn is_transaction_active(&self) -> OrmResult<bool>;
+
+  // Closure helper around begin/commit/rollback: `f` runs inside a fresh
+  // transaction, the result commits on Ok and the transaction rolls back on
+  // Err. The closure's own error is what the caller sees; a failing commit
+  // or rollback is reported alongside it, never swallowed.
+  async fn transaction<T, F, Fut>(&self, f: F) -> OrmResult<T>
+  where
+    T: Send,
+    F: FnOnce(TransactionId) -> Fut + Send,
+    Fut: Future<Output = OrmResult<T>> + Send,
+  {
+    let tx = self.begin_transaction().await?;
+    match f(tx.clone()).await {
+      Ok(value) => match self.commit_transaction(tx.clone()).await {
+        Ok(()) => Ok(value),
+        Err(commit_err) => {
+          let note = match self.rollback_transaction(tx).await {
+            Ok(()) => "rolled back".to_string(),
+            Err(rollback_err) => format!("rollback failed: {}", rollback_err),
+          };
+          Err(OrmError::Transaction(format!(
+            "commit failed: {} ({})",
+            commit_err, note
+          )))
+        }
+      },
+      Err(run_err) => {
+        if let Err(rollback_err) = self.rollback_transaction(tx).await {
+          return Err(OrmError::Transaction(format!(
+            "{}; rollback also failed: {}",
+            run_err, rollback_err
+          )));
+        }
+        Err(run_err)
+      }
+    }
+  }
+}
+
+// Savepoints are the nested-transaction primitive: a sub-operation gets its
+// own undo point inside an active transaction and the transaction itself
+// keeps going. The name is interpolated into SQL, so only identifier
+// characters are accepted — `validate_savepoint_name` is the gate.
+#[async_trait]
+pub trait SavepointControl: TransactionControl {
+  async fn savepoint(&self, name: &str) -> OrmResult<()>;
+  async fn release_savepoint(&self, name: &str) -> OrmResult<()>;
+  async fn rollback_to_savepoint(&self, name: &str) -> OrmResult<()>;
+
+  // Runs `f` between SAVEPOINT and RELEASE; on Err it rolls back to the
+  // savepoint and re-raises, leaving the outer transaction active.
+  async fn savepoint_transaction<T, F, Fut>(&self, name: &str, f: F) -> OrmResult<T>
+  where
+    T: Send,
+    F: FnOnce() -> Fut + Send,
+    Fut: Future<Output = OrmResult<T>> + Send,
+  {
+    validate_savepoint_name(name)?;
+    self.savepoint(name).await?;
+    match f().await {
+      Ok(value) => {
+        self.release_savepoint(name).await?;
+        Ok(value)
+      }
+      Err(run_err) => {
+        if let Err(rollback_err) = self.rollback_to_savepoint(name).await {
+          return Err(OrmError::Transaction(format!(
+            "{}; rollback to savepoint {} also failed: {}",
+            run_err, name, rollback_err
+          )));
+        }
+        Err(run_err)
+      }
+    }
+  }
+}
+
+// Savepoint names become SQL text: [A-Za-z_][A-Za-z0-9_] only.
+pub fn validate_savepoint_name(name: &str) -> OrmResult<()> {
+  let mut chars = name.chars();
+  let valid_start = chars
+    .next()
+    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+  if !valid_start || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    return Err(OrmError::InvalidInput(format!(
+      "invalid savepoint name {:?}: must match [A-Za-z_][A-Za-z0-9_]*",
+      name
+    )));
+  }
+  Ok(())
 }
 
 #[cfg(test)]

@@ -20,7 +20,8 @@ Crate: `nosql_orm` 0.10.0. Derive crate: `nosql_orm_derive` (re-exported).
   multi-tenancy, transactions (JSON, SQLite, Postgres, MySQL native; Mongo
   and Redis via `MongoTxStorage`/`RedisTxStorage` write-buffers), batch ops,
   streaming, offline sync, encryption
-- Implemented (via reuse): new SQL providers (MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB),
+- Implemented: new SQL providers — MSSQL, Oracle, DuckDB, ClickHouse on native
+  drivers; CockroachDB and MariaDB via wire-compatible reuse —
   new NoSQL providers (CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch, Neo4j, InfluxDB, Cassandra, etcd),
   GraphQL provider, vector database providers (Pinecone, Weaviate, Milvus, Qdrant, Chroma, pgvector, Redis vector)
 

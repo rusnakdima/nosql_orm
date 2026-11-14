@@ -52,6 +52,7 @@ pub fn derive_model_helper_macro(input: TokenStream) -> TokenStream {
     index,
     sql_column,
     frontend_exclude,
+    embedded,
     Relations,
     relations,
     counter
@@ -76,6 +77,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
     index,
     sql_column,
     frontend_exclude,
+    embedded,
     Relations,
     relations,
     counter
@@ -100,6 +102,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
     index,
     sql_column,
     frontend_exclude,
+    embedded,
     Relations,
     relations,
     counter

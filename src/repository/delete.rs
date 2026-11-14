@@ -31,7 +31,9 @@ where
 
     if let Some(ref events) = self.events {
       if let Some(entity) = self.find_by_id(id_str).await? {
-        events.dispatch_delete(&entity.to_value()?).await?;
+        events
+          .dispatch_delete(&crate::entity::expand_value::<E>(entity.to_value()?))
+          .await?;
       }
     }
 

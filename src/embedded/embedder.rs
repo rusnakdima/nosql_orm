@@ -1,3 +1,4 @@
+use crate::query::Filter;
 use serde_json::Value;
 
 pub struct Embedder;
@@ -63,5 +64,71 @@ impl Embedder {
     }
 
     result
+  }
+
+  pub fn rewrite_filter(filter: &Filter, embedded_fields: &[&str]) -> Filter {
+    if embedded_fields.is_empty() {
+      return filter.clone();
+    }
+    match filter {
+      Filter::Eq(field, value) => Filter::Eq(map_embedded_path(field, embedded_fields), value.clone()),
+      Filter::Ne(field, value) => Filter::Ne(map_embedded_path(field, embedded_fields), value.clone()),
+      Filter::Gt(field, value) => Filter::Gt(map_embedded_path(field, embedded_fields), value.clone()),
+      Filter::Gte(field, value) => Filter::Gte(map_embedded_path(field, embedded_fields), value.clone()),
+      Filter::Lt(field, value) => Filter::Lt(map_embedded_path(field, embedded_fields), value.clone()),
+      Filter::Lte(field, value) => Filter::Lte(map_embedded_path(field, embedded_fields), value.clone()),
+      Filter::In(field, values) => Filter::In(map_embedded_path(field, embedded_fields), values.clone()),
+      Filter::NotIn(field, values) => Filter::NotIn(map_embedded_path(field, embedded_fields), values.clone()),
+      Filter::ArrayContains(field, value) => {
+        Filter::ArrayContains(map_embedded_path(field, embedded_fields), value.clone())
+      }
+      Filter::Contains(field, sub) => Filter::Contains(map_embedded_path(field, embedded_fields), sub.clone()),
+      Filter::StartsWith(field, prefix) => {
+        Filter::StartsWith(map_embedded_path(field, embedded_fields), prefix.clone())
+      }
+      Filter::EndsWith(field, suffix) => {
+        Filter::EndsWith(map_embedded_path(field, embedded_fields), suffix.clone())
+      }
+      Filter::Like(field, pattern) => {
+        Filter::Like(map_embedded_path(field, embedded_fields), pattern.clone())
+      }
+      Filter::IsNull(field) => Filter::IsNull(map_embedded_path(field, embedded_fields)),
+      Filter::IsNotNull(field) => Filter::IsNotNull(map_embedded_path(field, embedded_fields)),
+      Filter::Between(field, min, max) => Filter::Between(
+        map_embedded_path(field, embedded_fields),
+        min.clone(),
+        max.clone(),
+      ),
+      Filter::And(filters) => Filter::And(
+        filters
+          .iter()
+          .map(|f| Self::rewrite_filter(f, embedded_fields))
+          .collect(),
+      ),
+      Filter::Or(filters) => Filter::Or(
+        filters
+          .iter()
+          .map(|f| Self::rewrite_filter(f, embedded_fields))
+          .collect(),
+      ),
+      Filter::Not(inner) => {
+        Filter::Not(Box::new(Self::rewrite_filter(inner, embedded_fields)))
+      }
+    }
+  }
+}
+
+fn map_embedded_path(field: &str, embedded_fields: &[&str]) -> String {
+  let mut parts = field.splitn(2, '.');
+  let head = match parts.next() {
+    Some(head) => head,
+    None => return field.to_string(),
+  };
+  if !embedded_fields.contains(&head) {
+    return field.to_string();
+  }
+  match parts.next() {
+    Some(tail) => format!("{}_{}", head, tail),
+    None => field.to_string(),
   }
 }

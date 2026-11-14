@@ -17,6 +17,7 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
   let mut indexes: Vec<proc_macro2::TokenStream> = Vec::new();
   let mut sql_columns: Vec<proc_macro2::TokenStream> = Vec::new();
   let mut frontend_excluded_fields: Vec<String> = Vec::new();
+  let mut embedded_fields: Vec<String> = Vec::new();
   let mut timestamps = false;
   let has_deleted_at_field = false;
   let _has_created_at_field = false;
@@ -76,6 +77,19 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
           }) = &nv.value
           {
             frontend_excluded_fields.push(s.value());
+          }
+        } else if ident == "embedded" {
+          if let syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(s),
+            ..
+          }) = &nv.value
+          {
+            for field in s.value().split(',') {
+              let field = field.trim().trim_matches('"').trim().to_string();
+              if !field.is_empty() {
+                embedded_fields.push(field);
+              }
+            }
           }
         } else if ident == "entity" {
           if let syn::Expr::Lit(syn::ExprLit {
@@ -138,6 +152,14 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
               frontend_excluded_fields.push(field);
             }
           }
+        } else if ident == "embedded" {
+          let ts_str = list.tokens.to_string();
+          for field in ts_str.split(',') {
+            let field = field.trim().trim_matches('"').trim().to_string();
+            if !field.is_empty() {
+              embedded_fields.push(field);
+            }
+          }
         } else if ident == "Relations" || ident == "relations" {
           let rels = parse_relations_attr(&list.tokens);
           relations.extend(rels);
@@ -182,6 +204,11 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
   } else {
     quote! { vec![#(#boolean_fields),*] }
   };
+  let embedded_fields_method = if embedded_fields.is_empty() {
+    quote! {}
+  } else {
+    quote! { fn embedded_fields() -> Vec<&'static str> { vec![#(#embedded_fields),*] } }
+  };
   let entity_impl = quote! {
       impl #impl_generics ::nosql_orm::Entity for #name #ty_generics #where_clause {
           fn meta() -> ::nosql_orm::EntityMeta {
@@ -193,6 +220,7 @@ pub fn generate_orm_entity(input: &DeriveInput, is_orm_entity: bool) -> TokenStr
           fn indexes() -> Vec<::nosql_orm::nosql_index::NosqlIndex> { #indexes_impl }
           fn sql_columns() -> Vec<::nosql_orm::sql::SqlColumnDef> { #sql_columns_impl }
           fn boolean_fields() -> Vec<&'static str> { #boolean_fields_impl }
+          #embedded_fields_method
       }
   };
   all_outputs.push(entity_impl);
