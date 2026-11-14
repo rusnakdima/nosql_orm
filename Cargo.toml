@@ -28,10 +28,10 @@ query_cache = []
 # New SQL providers (stubs — full implementation coming)
 sql-mssql = []
 sql-oracle = []
-sql-cockroach = []
+sql-cockroach = ["sql-postgres"]
 sql-duckdb = []
 sql-clickhouse = []
-sql-mariadb = []
+sql-mariadb = ["sql-mysql"]
 
 # New NoSQL providers (stubs — full implementation coming)
 couchdb = []

@@ -45,7 +45,7 @@ This directory contains detailed documentation for the nosql_orm feature set.
 | Streaming results | [07x-streaming.md](07x-streaming.md) | ✅ `find_stream()` on Storage trait |
 | Offline-first sync | [07y-offline-sync.md](07y-offline-sync.md) | ✅ `SyncEngine<L, R>` |
 | Encryption at rest | [07z-encryption.md](07z-encryption.md) | ✅ `EncryptedStorage<P>` + `StaticKeyProvider` |
-| New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | 🚧 coming soon (0.11.0–0.12.0) |
+| New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | ✅ CockroachDB (Postgres alias), MariaDB (MySQL alias), pgvector (Postgres) |
 | New NoSQL providers | [08b-new-nosql-dbs.md](08b-new-nosql-dbs.md) | 🚧 coming soon (0.11.0–0.12.0) |
 | GraphQL provider | [08c-graphql-provider.md](08c-graphql-provider.md) | 🚧 coming soon (0.12.0) |
 | Vector database providers | [08c-vector-dbs.md](08c-vector-dbs.md) | 🚧 coming soon (0.11.0) |
