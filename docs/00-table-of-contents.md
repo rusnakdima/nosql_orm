@@ -31,6 +31,8 @@
 - [07-features/07v-transactions.md](07-features/07v-transactions.md) - Transactions (coming soon)
 - [07-features/08a-new-sql-dbs.md](07-features/08a-new-sql-dbs.md) - New SQL providers (coming soon)
 - [07-features/08b-new-nosql-dbs.md](07-features/08b-new-nosql-dbs.md) - New NoSQL providers (coming soon)
+- [07-features/08c-graphql-provider.md](07-features/08c-graphql-provider.md) - GraphQL provider (coming soon)
+- [07-features/08c-vector-dbs.md](07-features/08c-vector-dbs.md) - Vector database providers (coming soon)
 - [07-features/07p-subscription.md](07-features/07p-subscription.md) - Pub/Sub
 - [07-features/07q-cache.md](07-features/07q-cache.md) - Query caching
 - [07-features/07r-sql.md](07-features/07r-sql.md) - SQL utilities

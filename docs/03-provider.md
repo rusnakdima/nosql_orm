@@ -213,6 +213,8 @@ See `docs/07-features/08a-new-sql-dbs.md` and
 **SQL:** MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB.
 **NoSQL:** CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch/OpenSearch,
 Neo4j, InfluxDB, Cassandra/ScyllaDB, etcd.
+**GraphQL:** GraphQL provider (storage backend + generated API).
+**Vector DBs:** Pinecone, Weaviate, Milvus, Qdrant, Chroma, pgvector, Redis vector.
 
 The `Storage` trait is designed to be extended; no core changes are needed to
 add a provider. Each provider implements `Storage` + `SchemaIntrospection` +

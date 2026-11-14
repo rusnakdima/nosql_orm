@@ -20,7 +20,9 @@ Crate: `nosql_orm` 0.9.0. Derive crate: `nosql_orm_derive` (re-exported).
   multi-tenancy, transactions, batch ops, streaming, offline sync, encryption,
   new SQL providers (MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB),
   new NoSQL providers (CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch,
-  Neo4j, InfluxDB, Cassandra, etcd)
+  Neo4j, InfluxDB, Cassandra, etcd),
+  GraphQL provider, vector database providers (Pinecone, Weaviate, Milvus,
+  Qdrant, Chroma, pgvector, Redis vector)
 
 ## Installation
 
