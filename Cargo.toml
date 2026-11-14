@@ -25,11 +25,40 @@ sql-sqlite = ["dep:rusqlite"]
 sql-mysql = ["dep:mysql_async"]
 query_cache = []
 
+# New SQL providers (stubs — full implementation coming)
+sql-mssql = []
+sql-oracle = []
+sql-cockroach = []
+sql-duckdb = []
+sql-clickhouse = []
+sql-mariadb = []
+
+# New NoSQL providers (stubs — full implementation coming)
+couchdb = []
+couchbase = []
+dynamodb = []
+firestore = []
+elasticsearch = []
+neo4j = []
+influxdb = []
+cassandra = []
+etcd = []
+
+# GraphQL provider (stub)
+graphql = []
+
+# Vector database providers (stubs)
+pinecone = []
+weaviate = []
+milvus = []
+qdrant = []
+chroma = []
+pgvector = []
+redis-vector = []
+
 # Extension modules that no code path in Storage, Repository or the providers
 # reaches yet. They are opt-in so the default build carries only the storage
 # surface the crate actually integrates; each is documented in docs/07-features.
-# (cdc/graphql/search/subscription were removed 2026-11-06 — zero callers in
-# this workspace; see roadmap register A8.)
 embedded = []
 inheritance = []
 lazy = []

@@ -16,13 +16,12 @@ Crate: `nosql_orm` 0.9.0. Derive crate: `nosql_orm_derive` (re-exported).
 - Indexes (Mongo + SQL), aggregation (JSON + Mongo)
 - Events, cascade delete, lazy loading, embedded, inheritance (opt-in)
 - Query caching (opt-in), query logging
-- Coming soon: full-text search, CDC, real-time subscriptions, vector search,
-  multi-tenancy, transactions, batch ops, streaming, offline sync, encryption,
-  new SQL providers (MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB),
-  new NoSQL providers (CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch,
-  Neo4j, InfluxDB, Cassandra, etcd),
-  GraphQL provider, vector database providers (Pinecone, Weaviate, Milvus,
-  Qdrant, Chroma, pgvector, Redis vector)
+- Implemented: full-text search, CDC, real-time subscriptions, vector search,
+  multi-tenancy, transactions (JSON, SQLite, Postgres, MySQL, Mongo, Redis),
+  batch ops, streaming, offline sync, encryption, vector/semantic search
+- Coming soon: new SQL providers (MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB) — stubs added,
+  new NoSQL providers (CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch, Neo4j, InfluxDB, Cassandra, etcd) — stubs added,
+  GraphQL provider (stub), vector database providers (Pinecone, Weaviate, Milvus, Qdrant, Chroma, pgvector, Redis vector) — stubs added
 
 ## Installation
 

@@ -39,10 +39,10 @@ This directory contains detailed documentation for the nosql_orm feature set.
 | Redis transactions | [07v-transactions.md](07v-transactions.md) | ✅ `RedisTxStorage` (write-buffer approach) |
 | Vector / semantic search | [07t-vector-search.md](07t-vector-search.md) | ✅ `VectorSearchStorage<P>` + `DistanceMetric` |
 | Multi-tenancy | [07u-multi-tenancy.md](07u-multi-tenancy.md) | ✅ `TenantStorage<P>` wrapper |
-| Transactions | [07v-transactions.md](07v-transactions.md) | ✅ JSON, SQLite, Postgres, MySQL (Mongo, Redis coming soon) |
+| Transactions | [07v-transactions.md](07v-transactions.md) | ✅ JSON, SQLite, Postgres, MySQL, Mongo (write-buffer), Redis (write-buffer) |
 | Batch operations | [07w-batch-operations.md](07w-batch-operations.md) | 🚧 coming soon (0.10.0) |
 | Streaming results | [07x-streaming.md](07x-streaming.md) | ✅ `find_stream()` on Storage trait |
-| Offline-first sync | [07y-offline-sync.md](07y-offline-sync.md) | 🚧 coming soon (0.11.0) |
+| Offline-first sync | [07y-offline-sync.md](07y-offline-sync.md) | ✅ `SyncEngine<L, R>` |
 | Encryption at rest | [07z-encryption.md](07z-encryption.md) | ✅ `EncryptedStorage<P>` + `StaticKeyProvider` |
 | New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | 🚧 coming soon (0.11.0–0.12.0) |
 | New NoSQL providers | [08b-new-nosql-dbs.md](08b-new-nosql-dbs.md) | 🚧 coming soon (0.11.0–0.12.0) |

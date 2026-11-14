@@ -25,6 +25,7 @@ pub mod schema;
 pub mod soft_delete;
 pub mod sql;
 pub mod redis_tx;
+pub mod sync;
 pub mod tenant;
 pub mod vector_search;
 pub mod timestamps;
@@ -32,7 +33,9 @@ pub mod utils;
 pub mod validators;
 
 pub use model_helper::{ModelHelper, WithValidation};
+pub use mongo_tx::MongoTxStorage;
 pub use redis_tx::RedisTxStorage;
+pub use sync::SyncEngine;
 pub use tenant::TenantStorage;
 pub use vector_search::{DistanceMetric, VectorSearchStorage};
 pub use cdc::{ChangeCaptureStorage, ChangeEvent, ChangeOp};
@@ -56,6 +59,8 @@ pub use providers::FallbackProvider;
 #[cfg(feature = "query_cache")]
 pub mod cache;
 pub mod cdc;
+pub mod mongo_tx;
+pub mod new_providers;
 pub mod encryption;
 pub mod subscription;
 
