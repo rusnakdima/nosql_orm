@@ -42,7 +42,7 @@ This directory contains detailed documentation for the nosql_orm feature set.
 | Batch operations | [07w-batch-operations.md](07w-batch-operations.md) | 🚧 coming soon (0.10.0) |
 | Streaming results | [07x-streaming.md](07x-streaming.md) | ✅ `find_stream()` on Storage trait |
 | Offline-first sync | [07y-offline-sync.md](07y-offline-sync.md) | 🚧 coming soon (0.11.0) |
-| Encryption at rest | [07z-encryption.md](07z-encryption.md) | 🚧 coming soon (0.11.0) |
+| Encryption at rest | [07z-encryption.md](07z-encryption.md) | ✅ `EncryptedStorage<P>` + `StaticKeyProvider` |
 | New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | 🚧 coming soon (0.11.0–0.12.0) |
 | New NoSQL providers | [08b-new-nosql-dbs.md](08b-new-nosql-dbs.md) | 🚧 coming soon (0.11.0–0.12.0) |
 | GraphQL provider | [08c-graphql-provider.md](08c-graphql-provider.md) | 🚧 coming soon (0.12.0) |

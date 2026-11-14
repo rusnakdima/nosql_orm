@@ -32,6 +32,7 @@ pub mod validators;
 pub use model_helper::{ModelHelper, WithValidation};
 pub use tenant::TenantStorage;
 pub use cdc::{ChangeCaptureStorage, ChangeEvent, ChangeOp};
+pub use encryption::{EncryptedStorage, KeyProvider, StaticKeyProvider};
 pub use subscription::{SubscribedStorage, Subscription, SubscriptionFilter, SubscriptionManager};
 
 pub use entity::Entity;
@@ -51,6 +52,7 @@ pub use providers::FallbackProvider;
 #[cfg(feature = "query_cache")]
 pub mod cache;
 pub mod cdc;
+pub mod encryption;
 pub mod subscription;
 
 pub use nosql_orm_derive::Model;

@@ -38,6 +38,9 @@ pub enum OrmError {
   #[error("Transaction error: {0}")]
   Transaction(String),
 
+  #[error("Encryption error: {0}")]
+  Encryption(String),
+
   #[error("Cascade delete restricted: cannot delete {entity} because it has related entities in relation '{relation}'")]
   CascadeRestricted { entity: String, relation: String },
 
