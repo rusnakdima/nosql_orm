@@ -53,7 +53,7 @@ weaviate = []
 milvus = []
 qdrant = []
 chroma = []
-pgvector = []
+pgvector = ["sql-postgres"]
 redis-vector = []
 
 # Extension modules that no code path in Storage, Repository or the providers

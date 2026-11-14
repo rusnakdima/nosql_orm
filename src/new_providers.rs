@@ -9,14 +9,19 @@
 pub struct MssqlProvider;
 #[cfg(feature = "sql-oracle")]
 pub struct OracleProvider;
+
+// CockroachDB reuses PostgresProvider (same wire protocol)
 #[cfg(feature = "sql-cockroach")]
-pub struct CockroachProvider;
+pub type CockroachProvider = crate::providers::sql::postgres::PostgresProvider;
+
+// MariaDB reuses MySqlProvider (same wire protocol)
+#[cfg(feature = "sql-mariadb")]
+pub type MariaDbProvider = crate::providers::sql::mysql::MySqlProvider;
+
 #[cfg(feature = "sql-duckdb")]
 pub struct DuckDbProvider;
 #[cfg(feature = "sql-clickhouse")]
 pub struct ClickHouseProvider;
-#[cfg(feature = "sql-mariadb")]
-pub struct MariaDbProvider;
 
 // --- New NoSQL providers ---
 

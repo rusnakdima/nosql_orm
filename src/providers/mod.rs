@@ -103,7 +103,6 @@ pub mod redis;
   feature = "sql-mysql"
 ))]
 pub mod sql;
-
 pub use sync::{ConflictResolution, ProviderSync, SyncOptions};
 
 #[cfg(feature = "json")]

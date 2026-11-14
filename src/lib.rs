@@ -36,6 +36,8 @@ pub use model_helper::{ModelHelper, WithValidation};
 pub use mongo_tx::MongoTxStorage;
 pub use redis_tx::RedisTxStorage;
 pub use sync::SyncEngine;
+#[cfg(feature = "pgvector")]
+pub use pgvector::PgVectorProvider;
 pub use tenant::TenantStorage;
 pub use vector_search::{DistanceMetric, VectorSearchStorage};
 pub use cdc::{ChangeCaptureStorage, ChangeEvent, ChangeOp};
@@ -61,6 +63,8 @@ pub mod cache;
 pub mod cdc;
 pub mod mongo_tx;
 pub mod new_providers;
+#[cfg(feature = "pgvector")]
+pub mod pgvector;
 pub mod encryption;
 pub mod subscription;
 
