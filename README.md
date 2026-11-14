@@ -17,7 +17,10 @@ Crate: `nosql_orm` 0.9.0. Derive crate: `nosql_orm_derive` (re-exported).
 - Events, cascade delete, lazy loading, embedded, inheritance (opt-in)
 - Query caching (opt-in), query logging
 - Coming soon: full-text search, CDC, real-time subscriptions, vector search,
-  multi-tenancy, transactions
+  multi-tenancy, transactions, batch ops, streaming, offline sync, encryption,
+  new SQL providers (MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB),
+  new NoSQL providers (CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch,
+  Neo4j, InfluxDB, Cassandra, etcd)
 
 ## Installation
 

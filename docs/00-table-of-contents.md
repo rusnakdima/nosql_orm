@@ -29,6 +29,8 @@
 - [07-features/07t-vector-search.md](07-features/07t-vector-search.md) - Vector / semantic search (coming soon)
 - [07-features/07u-multi-tenancy.md](07-features/07u-multi-tenancy.md) - Multi-tenancy (coming soon)
 - [07-features/07v-transactions.md](07-features/07v-transactions.md) - Transactions (coming soon)
+- [07-features/08a-new-sql-dbs.md](07-features/08a-new-sql-dbs.md) - New SQL providers (coming soon)
+- [07-features/08b-new-nosql-dbs.md](07-features/08b-new-nosql-dbs.md) - New NoSQL providers (coming soon)
 - [07-features/07p-subscription.md](07-features/07p-subscription.md) - Pub/Sub
 - [07-features/07q-cache.md](07-features/07q-cache.md) - Query caching
 - [07-features/07r-sql.md](07-features/07r-sql.md) - SQL utilities

@@ -203,3 +203,17 @@ Used for provider-to-provider replication. See `src/providers/sync.rs`.
 
 - [04-repository.md](04-repository.md) — Repository CRUD
 - [07-features/](07-features/) — Feature modules
+---
+
+## Planned providers (coming soon)
+
+See `docs/07-features/08a-new-sql-dbs.md` and
+`docs/07-features/08b-new-nosql-dbs.md`.
+
+**SQL:** MSSQL, Oracle, CockroachDB, DuckDB, ClickHouse, MariaDB.
+**NoSQL:** CouchDB, Couchbase, DynamoDB, Firestore, Elasticsearch/OpenSearch,
+Neo4j, InfluxDB, Cassandra/ScyllaDB, etcd.
+
+The `Storage` trait is designed to be extended; no core changes are needed to
+add a provider. Each provider implements `Storage` + `SchemaIntrospection` +
+`AdminCommands` and translates filters/queries to its native dialect.

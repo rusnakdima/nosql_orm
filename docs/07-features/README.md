@@ -43,6 +43,8 @@ This directory contains detailed documentation for the nosql_orm feature set.
 | Streaming results | [07x-streaming.md](07x-streaming.md) | 🚧 coming soon (0.10.0) |
 | Offline-first sync | [07y-offline-sync.md](07y-offline-sync.md) | 🚧 coming soon (0.11.0) |
 | Encryption at rest | [07z-encryption.md](07z-encryption.md) | 🚧 coming soon (0.11.0) |
+| New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | 🚧 coming soon (0.11.0–0.12.0) |
+| New NoSQL providers | [08b-new-nosql-dbs.md](08b-new-nosql-dbs.md) | 🚧 coming soon (0.11.0–0.12.0) |
 
 ### Removed (not needed for this library)
 
