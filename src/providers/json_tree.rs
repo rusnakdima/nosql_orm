@@ -378,19 +378,13 @@ impl Storage for JsonTreeProvider {
   }
 
   async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the JSON tree provider stores documents in files and has no index engine".to_string(),
-    ))
+    Ok(())
   }
   async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the JSON tree provider stores documents in files and has no index engine".to_string(),
-    ))
+    Ok(())
   }
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Err(OrmError::NotSupported(
-      "the JSON tree provider stores documents in files and has no index engine".to_string(),
-    ))
+    Ok(Vec::new())
   }
 
   fn capabilities(&self) -> ProviderCapabilities {
@@ -489,9 +483,7 @@ impl SchemaIntrospection for JsonTreeProvider {
     Ok(self.base_dir.to_string_lossy().to_string())
   }
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Err(OrmError::NotSupported(
-      "the JSON tree provider stores documents in files and has no index engine".to_string(),
-    ))
+    Ok(Vec::new())
   }
 }
 

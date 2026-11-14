@@ -474,21 +474,17 @@ impl Storage for JsonProvider {
   }
 
   async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the JSON provider stores documents in files and has no index engine".to_string(),
-    ))
+    // The JSON provider has no index engine: index declarations are accepted
+    // as no-ops so content that declares them does not fail to load.
+    Ok(())
   }
 
   async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the JSON provider stores documents in files and has no index engine".to_string(),
-    ))
+    Ok(())
   }
 
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Err(OrmError::NotSupported(
-      "the JSON provider stores documents in files and has no index engine".to_string(),
-    ))
+    Ok(Vec::new())
   }
 
   fn capabilities(&self) -> ProviderCapabilities {
@@ -637,9 +633,7 @@ impl SchemaIntrospection for JsonProvider {
   }
 
   async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Err(OrmError::NotSupported(
-      "the JSON provider stores documents in files and has no index engine".to_string(),
-    ))
+    Ok(Vec::new())
   }
 
   async fn get_database_name(&self) -> OrmResult<String> {

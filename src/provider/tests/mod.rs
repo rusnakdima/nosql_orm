@@ -54,13 +54,18 @@ mod json {
     assert!(!provider.capabilities().names().contains(&"transactions"));
 
     let index = NosqlIndex::single("name", 1).name("idx_test_records_name");
-    expect_not_supported(provider.create_index("test_records", &index).await);
-    expect_not_supported(
-      provider
-        .drop_index("test_records", "idx_test_records_name")
-        .await,
-    );
-    expect_not_supported(Storage::list_indexes(&provider, "test_records").await);
+    provider
+    .create_index("test_records", &index)
+    .await
+    .expect("create_index is a no-op");
+    provider
+      .drop_index("test_records", "idx_test_records_name")
+      .await
+      .expect("drop_index is a no-op");
+    let listed = Storage::list_indexes(&provider, "test_records")
+      .await
+      .expect("list_indexes is a no-op");
+    assert!(listed.is_empty());
     expect_not_supported(provider.begin_transaction().await);
     expect_not_supported(
       provider
