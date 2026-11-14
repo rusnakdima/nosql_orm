@@ -39,6 +39,10 @@ This directory contains detailed documentation for the nosql_orm feature set.
 | Vector / semantic search | [07t-vector-search.md](07t-vector-search.md) | 🚧 coming soon (0.11.0) |
 | Multi-tenancy | [07u-multi-tenancy.md](07u-multi-tenancy.md) | 🚧 coming soon (0.10.0) |
 | Transactions | [07v-transactions.md](07v-transactions.md) | 🚧 coming soon (0.10.0) |
+| Batch operations | [07w-batch-operations.md](07w-batch-operations.md) | 🚧 coming soon (0.10.0) |
+| Streaming results | [07x-streaming.md](07x-streaming.md) | 🚧 coming soon (0.10.0) |
+| Offline-first sync | [07y-offline-sync.md](07y-offline-sync.md) | 🚧 coming soon (0.11.0) |
+| Encryption at rest | [07z-encryption.md](07z-encryption.md) | 🚧 coming soon (0.11.0) |
 
 ### Removed (not needed for this library)
 
