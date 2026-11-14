@@ -21,6 +21,10 @@ pub struct PostgresProvider {
   pool: Pool,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
+  // Transaction state: (transaction_id, client). None when no transaction active.
+  // Uses Arc<Mutex> for shared mutable state across clones.
+  transaction_state: std::sync::Arc<tokio::sync::Mutex<Option<TransactionId>>>,
+  tx_connection: std::sync::Arc<tokio::sync::Mutex<Option<deadpool_postgres::Object>>>,
 }
 
 impl PostgresProvider {
@@ -44,6 +48,8 @@ impl PostgresProvider {
       pool,
       dialect: SqlDialect::PostgreSQL,
       query_builder: SqlQueryBuilder::new(SqlDialect::PostgreSQL),
+      transaction_state: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+      tx_connection: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
@@ -149,26 +155,42 @@ fn determine_index_type(indexdef: &str) -> String {
 #[async_trait]
 impl crate::providers::sql::SqlExecutor for PostgresProvider {
   async fn execute(&self, sql: &str, params: Vec<Value>) -> OrmResult<u64> {
-    let client = map_err_connection(self.pool.get().await)?;
     let owned: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
       params.iter().map(to_postgres_param).collect();
     let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned
       .iter()
       .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
       .collect();
-    Ok(map_err_query(client.execute(sql, &refs).await)?)
+
+    // Use transaction connection if active, otherwise pool
+    let tx_guard = self.tx_connection.lock().await;
+    if let Some(client) = tx_guard.as_ref() {
+      Ok(map_err_query(client.execute(sql, &refs).await)?)
+    } else {
+      drop(tx_guard);
+      let client = map_err_connection(self.pool.get().await)?;
+      Ok(map_err_query(client.execute(sql, &refs).await)?)
+    }
   }
 
   async fn query(&self, sql: &str, params: Vec<Value>) -> OrmResult<Vec<Value>> {
-    let client = map_err_connection(self.pool.get().await)?;
     let owned: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
       params.iter().map(to_postgres_param).collect();
     let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = owned
       .iter()
       .map(|param| param.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
       .collect();
-    let rows = map_err_query(client.query(sql, &refs).await)?;
-    Ok(rows.iter().map(row::row_to_json_postgres).collect())
+
+    let tx_guard = self.tx_connection.lock().await;
+    if let Some(client) = tx_guard.as_ref() {
+      let rows = map_err_query(client.query(sql, &refs).await)?;
+      Ok(rows.iter().map(row::row_to_json_postgres).collect())
+    } else {
+      drop(tx_guard);
+      let client = map_err_connection(self.pool.get().await)?;
+      let rows = map_err_query(client.query(sql, &refs).await)?;
+      Ok(rows.iter().map(row::row_to_json_postgres).collect())
+    }
   }
 
   async fn list_indexes_for(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
@@ -207,6 +229,7 @@ impl crate::providers::sql::SqlExecutor for PostgresProvider {
     ProviderCapabilities::none()
       .with(Capability::Indexes)
       .with(Capability::RawQueries)
+      .with(Capability::Transactions)
   }
 }
 
@@ -470,32 +493,88 @@ impl AdminCommands for PostgresProvider {
   }
 }
 
-// Every operation takes a fresh connection from the pool, so BEGIN and COMMIT
-// would land on different clients and no statement would actually be inside
-// the transaction. A real implementation has to hand back a transaction-scoped
-// provider; until then this is NotSupported rather than a false promise.
 #[async_trait]
 impl TransactionControl for PostgresProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    Err(OrmError::NotSupported(
-      "the PostgreSQL provider uses a connection pool: a transaction needs one dedicated connection"
-        .to_string(),
-    ))
+    let mut state = self.transaction_state.lock().await;
+    if state.is_some() {
+      return Err(OrmError::Transaction(
+        "A transaction is already active".to_string(),
+      ));
+    }
+    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
+
+    // Acquire a dedicated connection from the pool
+    let mut client = map_err_connection(self.pool.get().await)?;
+    // Execute BEGIN
+    client
+      .execute("BEGIN", &[])
+      .await
+      .map_err(|e| OrmError::Transaction(format!("Failed to begin transaction: {}", e)))?;
+
+    *self.tx_connection.lock().await = Some(client);
+    *state = Some(id.clone());
+    Ok(id)
   }
 
-  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the PostgreSQL provider cannot commit a transaction".to_string(),
-    ))
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut state = self.transaction_state.lock().await;
+    match state.as_ref() {
+      Some(active_id) if active_id == &id => {}
+      Some(_) => {
+        return Err(OrmError::Transaction(
+          "Transaction ID mismatch".to_string(),
+        ))
+      }
+      None => {
+        return Err(OrmError::Transaction(
+          "No active transaction".to_string(),
+        ))
+      }
+    }
+
+    // Execute COMMIT on the dedicated connection
+    let mut tx_conn = self.tx_connection.lock().await;
+    if let Some(client) = tx_conn.as_mut() {
+      client
+        .execute("COMMIT", &[])
+        .await
+        .map_err(|e| OrmError::Transaction(format!("Failed to commit: {}", e)))?;
+    }
+    *tx_conn = None;
+    *state = None;
+    Ok(())
   }
 
-  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the PostgreSQL provider cannot roll back a transaction".to_string(),
-    ))
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut state = self.transaction_state.lock().await;
+    match state.as_ref() {
+      Some(active_id) if active_id == &id => {}
+      Some(_) => {
+        return Err(OrmError::Transaction(
+          "Transaction ID mismatch".to_string(),
+        ))
+      }
+      None => {
+        return Err(OrmError::Transaction(
+          "No active transaction".to_string(),
+        ))
+      }
+    }
+
+    let mut tx_conn = self.tx_connection.lock().await;
+    if let Some(client) = tx_conn.as_mut() {
+      client
+        .execute("ROLLBACK", &[])
+        .await
+        .map_err(|e| OrmError::Transaction(format!("Failed to rollback: {}", e)))?;
+    }
+    *tx_conn = None;
+    *state = None;
+    Ok(())
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(false)
+    Ok(self.transaction_state.lock().await.is_some())
   }
 }

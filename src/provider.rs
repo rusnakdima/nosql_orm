@@ -2,8 +2,10 @@ use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::query::Filter;
 use async_trait::async_trait;
+use futures::stream::{self, Stream, StreamExt};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 
 pub use crate::admin_types::{
@@ -168,6 +170,49 @@ pub trait Storage: Send + Sync + Clone + 'static {
     self
       .find_many(collection, None, None, None, None, true)
       .await
+  }
+
+  /// Full-text search across the given fields. Default implementation filters
+  /// in memory; providers can override for native full-text search.
+  async fn search(
+    &self,
+    collection: &str,
+    fields: &[&str],
+    query: &str,
+  ) -> OrmResult<Vec<Value>> {
+    let docs = self.find_all(collection).await?;
+    let query_lower = query.to_lowercase();
+    let results: Vec<Value> = docs
+      .into_iter()
+      .filter(|doc| {
+        fields.iter().any(|field| {
+          doc
+            .get(field)
+            .and_then(Value::as_str)
+            .map(|s| s.to_lowercase().contains(&query_lower))
+            .unwrap_or(false)
+        })
+      })
+      .collect();
+    Ok(results)
+  }
+
+  /// Stream results lazily. Default implementation collects all and streams;
+  /// providers can override for native cursor support.
+  fn find_stream(
+    &self,
+    collection: &str,
+    filter: Option<Filter>,
+  ) -> Pin<Box<dyn Stream<Item = OrmResult<Value>> + Send>> {
+    let provider = self.clone();
+    let collection = collection.to_string();
+    let filter = filter.clone();
+    Box::pin(stream::once(async move {
+      match provider.find_many(&collection, filter.as_ref(), None, None, None, true).await {
+        Ok(docs) => docs.into_iter().map(Ok).collect::<Vec<_>>(),
+        Err(e) => vec![Err(e)],
+      }
+    }).flat_map(stream::iter))
   }
 
   async fn find_all_typed<T: serde::de::DeserializeOwned + Send>(

@@ -396,7 +396,7 @@ mod json_backend {
     assert_storage_contract(&provider, "json_docs").await?;
     assert_collection_is_listed(&provider, "json_docs").await?;
     assert_failed_write_leaves_no_partial_writes(&provider, "json_docs").await?;
-    assert_no_transaction_surface(&provider).await
+    assert_rollback_leaves_no_partial_writes(&provider, "json_docs").await
   }
 
   #[tokio::test]
@@ -505,7 +505,7 @@ mod postgres_backend {
     assert_storage_contract(&provider, "postgres_docs").await?;
     assert_collection_is_listed(&provider, "postgres_docs").await?;
     assert_failed_write_leaves_no_partial_writes(&provider, "postgres_docs").await?;
-    assert_no_transaction_surface(&provider).await
+    assert_rollback_leaves_no_partial_writes(&provider, "postgres_docs").await
   }
 
   #[ignore = "needs a running PostgreSQL — set POSTGRES_CONNECTION"]
@@ -559,7 +559,7 @@ mod mysql_backend {
     assert_storage_contract(&provider, "mysql_docs").await?;
     assert_collection_is_listed(&provider, "mysql_docs").await?;
     assert_failed_write_leaves_no_partial_writes(&provider, "mysql_docs").await?;
-    assert_no_transaction_surface(&provider).await
+    assert_rollback_leaves_no_partial_writes(&provider, "mysql_docs").await
   }
 
   #[ignore = "needs a running MySQL — set MYSQL_CONNECTION"]

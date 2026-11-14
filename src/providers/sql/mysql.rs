@@ -21,6 +21,8 @@ pub struct MySqlProvider {
   pool: Pool,
   dialect: SqlDialect,
   query_builder: SqlQueryBuilder,
+  transaction_state: std::sync::Arc<tokio::sync::Mutex<Option<TransactionId>>>,
+  tx_connection: std::sync::Arc<tokio::sync::Mutex<Option<mysql_async::conn::Conn>>>,
 }
 
 impl MySqlProvider {
@@ -35,6 +37,8 @@ impl MySqlProvider {
       pool,
       dialect: SqlDialect::MySQL,
       query_builder: SqlQueryBuilder::new(SqlDialect::MySQL),
+      transaction_state: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+      tx_connection: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
     })
   }
 
@@ -212,28 +216,49 @@ fn convert_params(params: Vec<JsonValue>) -> Vec<mysql_async::Value> {
 #[async_trait]
 impl crate::providers::sql::SqlExecutor for MySqlProvider {
   async fn execute(&self, sql: &str, params: Vec<JsonValue>) -> OrmResult<u64> {
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
     let values = convert_params(params);
-    // The affected-row count is read off the connection after the drop —
-    // the same pattern the old per-provider delete/update_many used.
-    if values.is_empty() {
-      map_err_query(conn.exec_drop(sql, ()).await)?;
+    let mut tx_guard = self.tx_connection.lock().await;
+    if let Some(conn) = tx_guard.as_mut() {
+      if values.is_empty() {
+        map_err_query(conn.exec_drop(sql, ()).await)?;
+      } else {
+        map_err_query(conn.exec_drop(sql, &values).await)?;
+      }
+      Ok(conn.affected_rows())
     } else {
-      map_err_query(conn.exec_drop(sql, &values).await)?;
+      drop(tx_guard);
+      let mut conn = map_err_connection(self.pool.get_conn().await)?;
+      if values.is_empty() {
+        map_err_query(conn.exec_drop(sql, ()).await)?;
+      } else {
+        map_err_query(conn.exec_drop(sql, &values).await)?;
+      }
+      Ok(conn.affected_rows())
     }
-    Ok(conn.affected_rows())
   }
 
   async fn query(&self, sql: &str, params: Vec<JsonValue>) -> OrmResult<Vec<JsonValue>> {
-    let mut conn = map_err_connection(self.pool.get_conn().await)?;
     let values = convert_params(params);
-    let mut result = if values.is_empty() {
-      map_err_query(conn.exec_iter(sql, ()).await)?
+    let mut tx_guard = self.tx_connection.lock().await;
+    if let Some(conn) = tx_guard.as_mut() {
+      let mut result = if values.is_empty() {
+        map_err_query(conn.exec_iter(sql, ()).await)?
+      } else {
+        map_err_query(conn.exec_iter(sql, &values).await)?
+      };
+      let rows: Vec<Row> = map_err_query(result.collect().await)?;
+      Ok(rows.into_iter().map(row::row_to_json_mysql).collect())
     } else {
-      map_err_query(conn.exec_iter(sql, &values).await)?
-    };
-    let rows: Vec<Row> = map_err_query(result.collect().await)?;
-    Ok(rows.into_iter().map(row::row_to_json_mysql).collect())
+      drop(tx_guard);
+      let mut conn = map_err_connection(self.pool.get_conn().await)?;
+      let mut result = if values.is_empty() {
+        map_err_query(conn.exec_iter(sql, ()).await)?
+      } else {
+        map_err_query(conn.exec_iter(sql, &values).await)?
+      };
+      let rows: Vec<Row> = map_err_query(result.collect().await)?;
+      Ok(rows.into_iter().map(row::row_to_json_mysql).collect())
+    }
   }
 
   async fn list_indexes_for(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
@@ -244,6 +269,7 @@ impl crate::providers::sql::SqlExecutor for MySqlProvider {
     ProviderCapabilities::none()
       .with(Capability::Indexes)
       .with(Capability::RawQueries)
+      .with(Capability::Transactions)
   }
 }
 
@@ -503,25 +529,73 @@ impl AdminCommands for MySqlProvider {
 #[async_trait]
 impl TransactionControl for MySqlProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    Err(OrmError::NotSupported(
-      "the MySQL provider uses a connection pool: a transaction needs one dedicated connection"
-        .to_string(),
-    ))
+    let mut state = self.transaction_state.lock().await;
+    if state.is_some() {
+      return Err(OrmError::Transaction(
+        "A transaction is already active".to_string(),
+      ));
+    }
+    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
+
+    let mut conn = map_err_connection(self.pool.get_conn().await)?;
+    map_err_query(conn.query_drop("START TRANSACTION").await)?;
+
+    *self.tx_connection.lock().await = Some(conn);
+    *state = Some(id.clone());
+    Ok(id)
   }
 
-  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the MySQL provider cannot commit a transaction".to_string(),
-    ))
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut state = self.transaction_state.lock().await;
+    match state.as_ref() {
+      Some(active_id) if active_id == &id => {}
+      Some(_) => {
+        return Err(OrmError::Transaction(
+          "Transaction ID mismatch".to_string(),
+        ))
+      }
+      None => {
+        return Err(OrmError::Transaction(
+          "No active transaction".to_string(),
+        ))
+      }
+    }
+
+    let mut tx_conn = self.tx_connection.lock().await;
+    if let Some(conn) = tx_conn.as_mut() {
+      map_err_query(conn.query_drop("COMMIT").await)?;
+    }
+    *tx_conn = None;
+    *state = None;
+    Ok(())
   }
 
-  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the MySQL provider cannot roll back a transaction".to_string(),
-    ))
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut state = self.transaction_state.lock().await;
+    match state.as_ref() {
+      Some(active_id) if active_id == &id => {}
+      Some(_) => {
+        return Err(OrmError::Transaction(
+          "Transaction ID mismatch".to_string(),
+        ))
+      }
+      None => {
+        return Err(OrmError::Transaction(
+          "No active transaction".to_string(),
+        ))
+      }
+    }
+
+    let mut tx_conn = self.tx_connection.lock().await;
+    if let Some(conn) = tx_conn.as_mut() {
+      map_err_query(conn.query_drop("ROLLBACK").await)?;
+    }
+    *tx_conn = None;
+    *state = None;
+    Ok(())
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(false)
+    Ok(self.transaction_state.lock().await.is_some())
   }
 }

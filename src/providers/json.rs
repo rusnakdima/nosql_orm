@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
@@ -98,6 +98,8 @@ pub struct JsonProvider {
   cache: Store,
   cache_config: JsonCacheConfig,
   access_order: Arc<RwLock<HashMap<String, VecDeque<String>>>>,
+  // Transaction state: (transaction_id, backup_dir). None when no transaction active.
+  transaction_state: Arc<Mutex<Option<(TransactionId, PathBuf)>>>,
 }
 
 impl JsonProvider {
@@ -113,6 +115,7 @@ impl JsonProvider {
       cache: Arc::new(RwLock::new(HashMap::new())),
       cache_config: config.cache_config,
       access_order: Arc::new(RwLock::new(HashMap::new())),
+      transaction_state: Arc::new(Mutex::new(None)),
     })
   }
 
@@ -488,7 +491,9 @@ impl Storage for JsonProvider {
   }
 
   fn capabilities(&self) -> ProviderCapabilities {
-    ProviderCapabilities::none().with(Capability::Aggregation)
+    ProviderCapabilities::none()
+      .with(Capability::Aggregation)
+      .with(Capability::Transactions)
   }
 
   async fn health_check(&self) -> OrmResult<bool> {
@@ -718,24 +723,109 @@ impl AdminCommands for JsonProvider {
 #[async_trait]
 impl TransactionControl for JsonProvider {
   async fn begin_transaction(&self) -> OrmResult<TransactionId> {
-    Err(OrmError::NotSupported(
-      "the JSON provider cannot open a transaction: writes are persisted per call".to_string(),
-    ))
+    let mut state = self.transaction_state.lock().await;
+    if state.is_some() {
+      return Err(OrmError::Transaction(
+        "A transaction is already active".to_string(),
+      ));
+    }
+    let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
+    // Create a backup directory for rollback
+    let backup_dir = self.base_dir.join(format!(".tx_backup_{}", id.0));
+    tokio::fs::create_dir_all(&backup_dir).await.map_err(|e| {
+      OrmError::Transaction(format!("Failed to create backup dir: {}", e))
+    })?;
+    // Copy all existing .json collection files to backup
+    if let Ok(mut entries) = tokio::fs::read_dir(&self.base_dir).await {
+      while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
+          let file_name = path.file_name().unwrap();
+          let backup_path = backup_dir.join(file_name);
+          tokio::fs::copy(&path, &backup_path).await.map_err(|e| {
+            OrmError::Transaction(format!("Failed to backup {}: {}", path.display(), e))
+          })?;
+        }
+      }
+    }
+    *state = Some((id.clone(), backup_dir));
+    Ok(id)
   }
 
-  async fn commit_transaction(&self, _id: TransactionId) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the JSON provider cannot commit a transaction".to_string(),
-    ))
+  async fn commit_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut state = self.transaction_state.lock().await;
+    match state.as_ref() {
+      Some((active_id, _)) if active_id == &id => {}
+      Some(_) => {
+        return Err(OrmError::Transaction(
+          "Transaction ID mismatch".to_string(),
+        ))
+      }
+      None => {
+        return Err(OrmError::Transaction(
+          "No active transaction".to_string(),
+        ))
+      }
+    }
+    // Remove backup directory
+    if let Some((_, backup_dir)) = state.take() {
+      let _ = tokio::fs::remove_dir_all(&backup_dir).await;
+    }
+    Ok(())
   }
 
-  async fn rollback_transaction(&self, _id: TransactionId) -> OrmResult<()> {
-    Err(OrmError::NotSupported(
-      "the JSON provider cannot roll back a transaction".to_string(),
-    ))
+  async fn rollback_transaction(&self, id: TransactionId) -> OrmResult<()> {
+    let mut state = self.transaction_state.lock().await;
+    let (_active_id, backup_dir) = match state.as_ref() {
+      Some((aid, bd)) if aid == &id => (aid.clone(), bd.clone()),
+      Some(_) => {
+        return Err(OrmError::Transaction(
+          "Transaction ID mismatch".to_string(),
+        ))
+      }
+      None => {
+        return Err(OrmError::Transaction(
+          "No active transaction".to_string(),
+        ))
+      }
+    };
+    // Restore all .json files from backup
+    if backup_dir.exists() {
+      // Remove current .json files
+      if let Ok(mut entries) = tokio::fs::read_dir(&self.base_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+          let path = entry.path();
+          if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
+            let _ = tokio::fs::remove_file(&path).await;
+          }
+        }
+      }
+      // Restore from backup
+      if let Ok(mut entries) = tokio::fs::read_dir(&backup_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+          let path = entry.path();
+          if path.is_file() {
+            let file_name = path.file_name().unwrap();
+            let target = self.base_dir.join(file_name);
+            tokio::fs::copy(&path, &target).await.map_err(|e| {
+              OrmError::Transaction(format!("Failed to restore {}: {}", path.display(), e))
+            })?;
+          }
+        }
+      }
+      // Remove backup dir
+      let _ = tokio::fs::remove_dir_all(&backup_dir).await;
+    }
+    *state = None;
+    // Clear in-memory cache
+    let mut cache = self.cache.write().await;
+    cache.clear();
+    let mut access = self.access_order.write().await;
+    access.clear();
+    Ok(())
   }
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
-    Ok(false)
+    Ok(self.transaction_state.lock().await.is_some())
   }
 }

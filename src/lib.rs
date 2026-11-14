@@ -24,11 +24,13 @@ pub mod repository;
 pub mod schema;
 pub mod soft_delete;
 pub mod sql;
+pub mod tenant;
 pub mod timestamps;
 pub mod utils;
 pub mod validators;
 
 pub use model_helper::{ModelHelper, WithValidation};
+pub use tenant::TenantStorage;
 
 pub use entity::Entity;
 pub use entity::EntityMeta;

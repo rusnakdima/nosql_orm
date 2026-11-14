@@ -49,9 +49,9 @@ mod json {
     let provider = JsonProvider::new(dir.path()).await.expect("json provider");
 
     assert!(!provider.supports(Capability::Indexes));
-    assert!(!provider.supports(Capability::Transactions));
+    assert!(provider.supports(Capability::Transactions));
     assert!(provider.supports(Capability::Aggregation));
-    assert!(!provider.capabilities().names().contains(&"transactions"));
+    assert!(provider.capabilities().names().contains(&"transactions"));
 
     let index = NosqlIndex::single("name", 1).name("idx_test_records_name");
     provider
@@ -66,17 +66,9 @@ mod json {
       .await
       .expect("list_indexes is a no-op");
     assert!(listed.is_empty());
-    expect_not_supported(provider.begin_transaction().await);
-    expect_not_supported(
-      provider
-        .commit_transaction(crate::admin_types::TransactionId::new("tx"))
-        .await,
-    );
-    expect_not_supported(
-      provider
-        .rollback_transaction(crate::admin_types::TransactionId::new("tx"))
-        .await,
-    );
+    // Transactions are now supported for the JSON provider.
+    let tx_id = provider.begin_transaction().await.expect("begin_transaction");
+    provider.commit_transaction(tx_id).await.expect("commit_transaction");
   }
 
   #[tokio::test]
