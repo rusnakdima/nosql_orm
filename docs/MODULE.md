@@ -46,10 +46,24 @@ DTOs: `CollectionMeta`, `CollectionSchema`, `CollectionStats`,
 
 ## 2. Concrete providers — `providers/`
 
-### `providers/mod.rs` (127)
+### `providers/mod.rs` (56)
+
+Module map only: declares each provider under its feature flag and
+re-exports it. `FallbackProvider<P1, P2>` moved to its own child file.
+
+### `providers/fallback.rs` (80)
 
 `FallbackProvider<P1, P2>` with `find_with_fallback` and
-`find_all_with_fallback`. Re-exports each provider under its feature flag.
+`find_all_with_fallback` — tries the primary, falls back on error/timeout.
+
+### `providers/etcd.rs` (698) — etcd key-value store (feature `etcd`, native)
+
+`EtcdProvider` over `etcd-client` (gRPC). Collection = key prefix
+`{prefix}{collection}/{id}`; `/` is rejected in collection names so the
+prefix stays unambiguous. `insert` is compare-and-swap insert-if-absent,
+`update` requires an existing document, `rename_collection` moves keys.
+`capabilities()`: none. Indexes, `execute_raw` and transactions all answer
+`NotSupported` (etcd's `Txn` is one atomic request, not a session).
 
 ### `providers/json.rs` (837) — JSON file storage (feature `json`, default)
 
@@ -286,7 +300,7 @@ sql-mssql → tiberius + tokio-util ; sql-oracle → oracle
 sql-duckdb → duckdb ; sql-clickhouse → clickhouse
 sql-cockroach → sql-postgres ; sql-mariadb → sql-mysql
 couchdb, couchbase, firestore, elasticsearch, neo4j, cassandra → mongo
-dynamodb, influxdb, etcd → redis ; graphql → json
+dynamodb, influxdb → redis ; etcd → etcd-client (native) ; graphql → json
 pinecone, weaviate, milvus, qdrant, chroma → mongo
 pgvector → sql-postgres ; redis-vector → redis
 
@@ -296,17 +310,22 @@ query_cache, embedded, inheritance, lazy
 
 ## 13. Tests
 
-- 29 integration suites in `tests/`; `tests/test_new_features.rs` covers
+- 41 integration suites in `tests/`; `tests/test_new_features.rs` covers
   transactions, CDC, subscriptions, encryption, vector search, tenant
   isolation, streaming and full-text search (9 tests, hermetic).
 - `tests/test_provider_conformance.rs` holds every provider to the same
   `Storage` contract plus rollback behaviour; server-backed suites are
   `#[ignore]`d and skip when the server is unreachable.
+- `tests/test_etcd_integration.rs` (9 tests) runs the real contract against
+  a live etcd: duplicate rejection, update-requires-existence, bulk counts,
+  introspection, capability/transaction honesty, name validation, rename.
+  It skips when no server answers:
+  `ETCD_ENDPOINTS=http://127.0.0.1:2379 cargo test --features etcd --test test_etcd_integration -- --include-ignored`
 - `tests/test_new_provider_conformance.rs` asserts every provider alias
   satisfies `Storage + SchemaIntrospection + AdminCommands +
   TransactionControl` (compile-time, per feature flag).
 - All 36 feature flags build and pass `cargo test` individually
-  (measured 2026-11-14): `json mongo redis sql sql-postgres sql-sqlite
+  (measured 2026-11-15): `json mongo redis sql sql-postgres sql-sqlite
   sql-mysql sql-mssql sql-oracle sql-cockroach sql-duckdb sql-clickhouse
   sql-mariadb couchdb couchbase dynamodb firestore elasticsearch neo4j
   influxdb cassandra etcd graphql pinecone weaviate milvus qdrant chroma

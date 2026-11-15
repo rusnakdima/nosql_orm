@@ -29,11 +29,11 @@ pub type ElasticsearchProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "neo4j")]
 pub type Neo4jProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "influxdb")]
-pub type InfluxDbProvider = crate::providers::redis::RedisProvider;
+pub type InfluxDbProvider = crate::providers::influxdb::InfluxDbProvider;
 #[cfg(feature = "cassandra")]
 pub type CassandraProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "etcd")]
-pub type EtcdProvider = crate::providers::redis::RedisProvider;
+pub type EtcdProvider = crate::providers::etcd::EtcdProvider;
 
 #[cfg(feature = "graphql")]
 pub type GraphQLProvider = crate::providers::json::JsonProvider;

@@ -64,16 +64,18 @@ sql-duckdb = ["dep:duckdb"]
 sql-clickhouse = ["dep:clickhouse"]
 sql-mariadb = ["sql-mysql"]
 
-# New NoSQL providers (reuse existing providers)
+# New NoSQL providers.
+# etcd and InfluxDB run on their own native drivers; the rest still reuse an
+# existing provider as a baseline (native drivers pending).
+etcd = ["dep:etcd-client"]
 couchdb = ["mongo"]
 couchbase = ["mongo"]
 dynamodb = ["redis"]
 firestore = ["mongo"]
 elasticsearch = ["mongo"]
 neo4j = ["mongo"]
-influxdb = ["redis"]
+influxdb = ["dep:influxdb"]
 cassandra = ["mongo"]
-etcd = ["redis"]
 
 # GraphQL provider
 graphql = ["json"]
@@ -122,6 +124,8 @@ clickhouse = { version = "0.15", optional = true }
 tiberius = { version = "0.13", optional = true, default-features = false, features = ["tds80", "native-tls"] }
 tokio-util = { version = "0.7", optional = true, features = ["compat"] }
 oracle = { version = "0.6", optional = true }
+etcd-client = { version = "0.21", optional = true }
+influxdb = { version = "0.8", optional = true }
 base64 = { version = "0.22" }
 ring = "0.17"
 nosql_orm_derive = { path = "nosql_orm_derive" }
@@ -172,6 +176,16 @@ required-features = ["sql-mssql"]
 name = "test_oracle_integration"
 path = "tests/test_oracle_integration.rs"
 required-features = ["sql-oracle"]
+
+[[test]]
+name = "test_influxdb_integration"
+path = "tests/test_influxdb_integration.rs"
+required-features = ["influxdb"]
+
+[[test]]
+name = "test_etcd_integration"
+path = "tests/test_etcd_integration.rs"
+required-features = ["etcd"]
 
 [[test]]
 name = "test_redis_provider"

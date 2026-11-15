@@ -166,7 +166,9 @@ let user = users.save(user).await?;
 | `sql-postgres`, `sql-mysql`, `sql-sqlite` | one SQL provider each |
 | `sql` | all three SQL providers |
 | `sql-mssql`, `sql-oracle`, `sql-cockroach`, `sql-duckdb`, `sql-clickhouse`, `sql-mariadb` | SQL provider flags — MSSQL/Oracle/DuckDB/ClickHouse are native drivers, CockroachDB/MariaDB are wire-compatible aliases |
-| `couchdb`, `couchbase`, `dynamodb`, `firestore`, `elasticsearch`, `neo4j`, `influxdb`, `cassandra`, `etcd` | NoSQL provider aliases |
+| `etcd` | native NoSQL provider — `EtcdProvider` (`etcd-client`) |
+| `influxdb` | native NoSQL provider — `InfluxDbProvider` (`influxdb`) |
+| `couchdb`, `couchbase`, `dynamodb`, `firestore`, `elasticsearch`, `neo4j`, `cassandra` | NoSQL provider aliases (native drivers pending) |
 | `graphql` | GraphQL provider (JSON reuse) |
 | `pinecone`, `weaviate`, `milvus`, `qdrant`, `chroma`, `redis-vector` | vector provider aliases |
 | `full` | `json`, `mongo`, `redis`, `sql` plus all provider aliases |

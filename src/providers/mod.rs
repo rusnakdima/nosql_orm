@@ -19,6 +19,15 @@ pub mod mongo;
 #[cfg(feature = "redis")]
 pub mod redis;
 
+#[cfg(any(feature = "redis", feature = "etcd", feature = "influxdb"))]
+pub mod kv_common;
+
+#[cfg(feature = "etcd")]
+pub mod etcd;
+
+#[cfg(feature = "influxdb")]
+pub mod influxdb;
+
 #[cfg(any(
   feature = "sql-postgres",
   feature = "sql-sqlite",
@@ -39,6 +48,12 @@ pub use mongo::MongoProvider;
 
 #[cfg(feature = "redis")]
 pub use redis::RedisProvider;
+
+#[cfg(feature = "etcd")]
+pub use etcd::EtcdProvider;
+
+#[cfg(feature = "influxdb")]
+pub use influxdb::InfluxDbProvider;
 
 #[cfg(feature = "sql-postgres")]
 pub use sql::PostgresProvider;

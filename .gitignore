@@ -1,5 +1,9 @@
 /target
 
 *.md
+!docs/**/*.md
 
-!docs/**/*
+# leftover junk from subagent
+src/providers/_influxdb_junk/
+src/providers/_influxdb_junk*
+src/providers/.etcd_junk/

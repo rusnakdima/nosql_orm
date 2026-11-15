@@ -79,6 +79,8 @@ Errors: `OrmError`, `OrmResult`.
 - `JsonTreeProvider::new(base_dir)`
 - `MongoProvider::connect(uri, db_name)` / `from_config(&config)`
 - `RedisProvider::new(conn_str)` / `with_prefix(prefix)`
+- `EtcdProvider::connect(endpoints)` / `from_config(&config)` / `with_prefix(prefix)`
+- `InfluxDbProvider::connect(url, database)` / `from_config(&config)`
 - `SqliteProvider::connect(path)` / `from_config(&config)`
 - `PostgresProvider::connect(uri)` / `from_config(&config)`
 - `MySqlProvider::connect(uri)` / `from_config(&config)`
