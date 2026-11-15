@@ -157,7 +157,12 @@ async fn update_and_patch_keep_storage_flat() {
   updated.address.city = "Lviv".to_string();
   f.repo.update(updated).await.unwrap();
 
-  let raw = f.provider.find_by_id("embedded_user", &id).await.unwrap().unwrap();
+  let raw = f
+    .provider
+    .find_by_id("embedded_user", &id)
+    .await
+    .unwrap()
+    .unwrap();
   assert!(raw.get("address").is_none());
   assert_eq!(
     raw.get("address_city").and_then(|v| v.as_str()),
@@ -168,7 +173,12 @@ async fn update_and_patch_keep_storage_flat() {
     .patch(&id, json!({ "address": { "city": "Odesa" } }))
     .await
     .unwrap();
-  let raw = f.provider.find_by_id("embedded_user", &id).await.unwrap().unwrap();
+  let raw = f
+    .provider
+    .find_by_id("embedded_user", &id)
+    .await
+    .unwrap()
+    .unwrap();
   assert!(raw.get("address").is_none());
   assert_eq!(
     raw.get("address_city").and_then(|v| v.as_str()),
@@ -203,10 +213,7 @@ async fn delete_many_accepts_nested_path_filters() {
 
   let deleted = f
     .repo
-    .delete_many(Some(Filter::Eq(
-      "address.city".to_string(),
-      json!("Kyiv"),
-    )))
+    .delete_many(Some(Filter::Eq("address.city".to_string(), json!("Kyiv"))))
     .await
     .unwrap();
   assert_eq!(deleted, 1);
@@ -236,7 +243,11 @@ async fn streams_rewrite_nested_filters_manually() {
   // file carrying it is not writable in this workspace); callers adapt the
   // filter with the public `Filter::for_entity` helper instead.
   let filter = Filter::Eq("address.city".to_string(), json!("Lviv")).for_entity::<EmbeddedUser>();
-  let mut stream = f.repo.find_stream(Some(filter), None, None, None, true).await.unwrap();
+  let mut stream = f
+    .repo
+    .find_stream(Some(filter), None, None, None, true)
+    .await
+    .unwrap();
   let mut hits = Vec::new();
   while let Some(entity) = stream.next_item().await.unwrap() {
     hits.push(entity);
@@ -276,10 +287,7 @@ async fn entity_without_embedded_fields_is_untouched() {
     .await
     .unwrap()
     .unwrap();
-  assert_eq!(
-    raw.get("label").and_then(|v| v.as_str()),
-    Some("plain")
-  );
+  assert_eq!(raw.get("label").and_then(|v| v.as_str()), Some("plain"));
 
   let found = repo
     .find_by_id(saved.id.as_deref().unwrap())

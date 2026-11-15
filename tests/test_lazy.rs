@@ -4,8 +4,8 @@ use nosql_orm::entity::{Entity, EntityMeta};
 use nosql_orm::error::OrmResult;
 use nosql_orm::lazy::lazy_loader::RepositoryLazyExt;
 use nosql_orm::lazy::Lazy;
-use nosql_orm::providers::json::JsonProvider;
 use nosql_orm::provider::Storage;
+use nosql_orm::providers::json::JsonProvider;
 use nosql_orm::relations::{RelationDef, RelationLoader, WithRelations};
 use nosql_orm::repository::Repository;
 use nosql_orm::validators::Validate;
@@ -35,11 +35,7 @@ impl Entity for LazyUser {
 
 impl WithRelations for LazyUser {
   fn relations() -> Vec<RelationDef> {
-    vec![RelationDef::one_to_many(
-      "posts",
-      "lazy_posts",
-      "author_id",
-    )]
+    vec![RelationDef::one_to_many("posts", "lazy_posts", "author_id")]
   }
 }
 
@@ -172,7 +168,10 @@ async fn lazy_load_resolves_single_relation_on_access() {
   let loaded = handle.get().await.unwrap();
   assert!(handle.is_loaded().await);
   assert_eq!((*loaded).as_ref().unwrap().name, "Alice");
-  assert_eq!((*loaded).as_ref().unwrap().id.as_deref(), Some(user_id.as_str()));
+  assert_eq!(
+    (*loaded).as_ref().unwrap().id.as_deref(),
+    Some(user_id.as_str())
+  );
 }
 
 #[tokio::test]
@@ -263,7 +262,10 @@ async fn relation_loader_builds_lazy_handles() {
     .lazy_one::<LazyUser>(&post.to_value().unwrap(), &author_rel)
     .unwrap();
   let author = one.get().await.unwrap();
-  assert_eq!((*author).as_ref().unwrap().id.as_deref(), Some(user_id.as_str()));
+  assert_eq!(
+    (*author).as_ref().unwrap().id.as_deref(),
+    Some(user_id.as_str())
+  );
 
   let user = f.user_repo.find_by_id(&user_id).await.unwrap().unwrap();
   let posts_rel = RelationDef::one_to_many("posts", "lazy_posts", "author_id");
@@ -323,8 +325,7 @@ async fn repository_lazy_ext_still_builds_handles() {
   let f = fixture().await;
   let (user_id, _) = seed(&f).await;
 
-  let arc: Arc<Repository<LazyPost, JsonProvider>> =
-    Arc::new(Repository::new(f.provider.clone()));
+  let arc: Arc<Repository<LazyPost, JsonProvider>> = Arc::new(Repository::new(f.provider.clone()));
   let rel = RelationDef::one_to_many("posts", "lazy_posts", "author_id");
   let handle = arc.clone().lazy_many(rel, user_id.clone());
   let posts = handle.get().await.unwrap();

@@ -26,8 +26,6 @@ use etcd_client::{Client, Compare, CompareOp, DeleteOptions, GetOptions, PutOpti
 use serde_json::Value;
 use std::collections::HashMap;
 
-
-
 // Collection names become part of a key prefix, so a name containing `/` would
 // make the prefix ambiguous. Everything else is left alone.
 fn validate_collection(collection: &str) -> OrmResult<()> {
@@ -43,7 +41,6 @@ fn validate_collection(collection: &str) -> OrmResult<()> {
   }
   Ok(())
 }
-
 
 #[derive(Clone)]
 pub struct EtcdProvider {

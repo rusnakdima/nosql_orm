@@ -119,7 +119,9 @@ async fn influxdb_satisfies_the_storage_contract() -> OrmResult<()> {
   assert_eq!(reloaded["name"], "Zed");
   assert_eq!(reloaded["score"], 5);
 
-  let patched = provider.patch("docs", "c-1", json!({"tier": "gold"})).await?;
+  let patched = provider
+    .patch("docs", "c-1", json!({"tier": "gold"}))
+    .await?;
   assert_eq!(patched["name"], "Zed");
   assert_eq!(patched["score"], 5);
   assert_eq!(patched["tier"], "gold");
@@ -368,7 +370,10 @@ async fn influxdb_reports_unsupported_capabilities_honestly() -> OrmResult<()> {
 
   assert!(matches!(
     provider
-      .create_index("docs", &nosql_orm::nosql_index::NosqlIndex::single("name", 1))
+      .create_index(
+        "docs",
+        &nosql_orm::nosql_index::NosqlIndex::single("name", 1)
+      )
       .await,
     Err(OrmError::NotSupported(_))
   ));

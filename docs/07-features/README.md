@@ -36,7 +36,7 @@ building and testing each feature flag individually (`cargo test --features
 | Batch operations | [07w-batch-operations.md](07w-batch-operations.md) | ✅ `insert_many`/`update_many`/`upsert_many`/`delete_many` + `BatchResult` per-row errors (`insert_many_detailed`/`insert_many_chunked`); native bulk transports coming soon |
 | pgvector | [08c-vector-dbs.md](08c-vector-dbs.md) | ✅ `PgVectorProvider` (reuses Postgres) |
 | New SQL providers | [08a-new-sql-dbs.md](08a-new-sql-dbs.md) | ✅ native drivers: MSSQL (tiberius), Oracle (oracle), DuckDB (duckdb), ClickHouse (clickhouse); 🟡 alias: CockroachDB/MariaDB wire-compatible |
-| New NoSQL providers | [08b-new-nosql-dbs.md](08b-new-nosql-dbs.md) | 🟡 **etcd native** (`etcd-client`), **InfluxDB native** (`influxdb`); alias: DynamoDB baseline = Redis, CouchDB/Couchbase/Firestore/Elasticsearch/Neo4j/Cassandra baseline = Mongo (native drivers pending) |
+| New NoSQL providers | [08b-new-nosql-dbs.md](08b-new-nosql-dbs.md) | 🟡 **etcd native** (`etcd-client`), **InfluxDB native** (`influxdb`), **CouchDB native** (`reqwest`), **DynamoDB native** (`reqwest`), **Elasticsearch native** (`reqwest`); alias: Couchbase/Firestore/Neo4j/Cassandra baseline = Mongo (native drivers pending) |
 | GraphQL provider | [08c-graphql-provider.md](08c-graphql-provider.md) | 🟡 alias `GraphQLProvider` (= JSON provider; native endpoint client pending) |
 | Vector database providers | [08c-vector-dbs.md](08c-vector-dbs.md) | 🟡 alias: Pinecone/Weaviate/Milvus/Qdrant/Chroma baseline = Mongo, Redis vector = Redis; **pgvector real** (Postgres driver) |
 

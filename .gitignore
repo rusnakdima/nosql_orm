@@ -7,3 +7,4 @@
 src/providers/_influxdb_junk/
 src/providers/_influxdb_junk*
 src/providers/.etcd_junk/
+src/providers/.influxdb_junk2/

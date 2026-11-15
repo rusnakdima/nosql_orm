@@ -40,8 +40,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-
-
 // A measurement name is embedded in every query, so it is wrapped in double
 // quotes with `\` and `"` escaped. Quoting also lets a name carry the `-`
 // and `.` characters that InfluxQL would otherwise reject unquoted.
@@ -130,15 +128,6 @@ impl influxdb::Query for LineProtocol {
 
 // Collection names must be non-empty; anything else is safe because every
 // use goes through `quote_measurement`/`quote_literal`.
-fn validate_collection(collection: &str) -> OrmResult<()> {
-  if collection.is_empty() {
-    return Err(OrmError::InvalidInput(
-      "Collection name cannot be empty".to_string(),
-    ));
-  }
-  Ok(())
-}
-
 
 fn now_nanos() -> u128 {
   SystemTime::now()
@@ -211,8 +200,7 @@ fn docs_from_last_series(series: Vec<InfluxSeries>) -> OrmResult<Vec<Value>> {
         Value::String(t) => t.clone(),
         other => other.to_string(),
       };
-      let mut doc: Value =
-        serde_json::from_str(&text).map_err(|e| OrmError::Serialization(e))?;
+      let mut doc: Value = serde_json::from_str(&text).map_err(|e| OrmError::Serialization(e))?;
       // The tag is authoritative for identity: a document written before an
       // `id` field existed still reads back under the right key.
       if let (Some(id), Some(obj)) = (id.as_ref(), doc.as_object_mut()) {
@@ -284,7 +272,7 @@ impl InfluxDbProvider {
 
   // Read every document in a collection, newest point per id.
   async fn read_all(&self, collection: &str) -> OrmResult<Vec<Value>> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
     let sql = format!(
       "SELECT LAST(doc) FROM {} GROUP BY id",
       quote_measurement(collection)
@@ -298,7 +286,7 @@ impl InfluxDbProvider {
   }
 
   async fn write_doc(&self, collection: &str, id: &str, doc: &Value) -> OrmResult<()> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
     let text = serde_json::to_string(doc)?;
 
     let line = format!(
@@ -320,7 +308,7 @@ impl InfluxDbProvider {
   }
 
   async fn exists_id(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
     let sql = format!(
       "SELECT LAST(doc) FROM {} WHERE id={} GROUP BY id",
       quote_measurement(collection),
@@ -338,7 +326,7 @@ impl InfluxDbProvider {
 #[async_trait]
 impl Storage for InfluxDbProvider {
   async fn insert(&self, collection: &str, doc: Value) -> OrmResult<Value> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
 
     let id = kv_common::document_id_or_new(&doc);
     let mut doc_with_id = doc;
@@ -360,7 +348,7 @@ impl Storage for InfluxDbProvider {
   }
 
   async fn find_by_id(&self, collection: &str, id: &str) -> OrmResult<Option<Value>> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
     let sql = format!(
       "SELECT LAST(doc) FROM {} WHERE id={} GROUP BY id",
       quote_measurement(collection),
@@ -391,7 +379,7 @@ impl Storage for InfluxDbProvider {
   }
 
   async fn update(&self, collection: &str, id: &str, doc: Value) -> OrmResult<Value> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
 
     if !self.exists_id(collection, id).await? {
       return Err(OrmError::NotFound(format!("{}/{}", collection, id)));
@@ -430,7 +418,7 @@ impl Storage for InfluxDbProvider {
   }
 
   async fn delete(&self, collection: &str, id: &str) -> OrmResult<bool> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
 
     // `DELETE` reports nothing about how many points it removed, so the
     // existence check comes first to answer `true`/`false` honestly.
@@ -502,7 +490,7 @@ impl Storage for InfluxDbProvider {
   }
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
 
     // Unfiltered: count distinct ids server-side. The subquery applies the
     // same LAST-per-id dedup the reads use, so the two always agree.
@@ -616,7 +604,7 @@ impl SchemaIntrospection for InfluxDbProvider {
         continue;
       };
       for (name, value) in obj {
-        let kind = value_kind(value);
+        let kind = crate::utils::value_kind(value);
         match fields.get_mut(name) {
           Some(info) if info.field_type != kind && info.field_type != "mixed" => {
             info.field_type = "mixed".to_string();
@@ -648,7 +636,7 @@ impl SchemaIntrospection for InfluxDbProvider {
   }
 
   async fn get_collection_stats(&self, collection: &str) -> OrmResult<CollectionStats> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
     let document_count = self.count(collection, None).await?;
     Ok(CollectionStats {
       name: collection.to_string(),
@@ -740,11 +728,11 @@ impl AdminCommands for InfluxDbProvider {
   ) -> OrmResult<()> {
     // A measurement is created by its first write, so there is nothing to
     // create up front — validating the name is the useful part.
-    validate_collection(collection)
+    crate::utils::validate_collection_simple(collection)
   }
 
   async fn drop_collection(&self, collection: &str) -> OrmResult<()> {
-    validate_collection(collection)?;
+    crate::utils::validate_collection_simple(collection)?;
     let sql = format!("DROP MEASUREMENT {}", quote_measurement(collection));
     // POST, which InfluxDB requires for DROP (a GET is read-only).
     self
@@ -756,8 +744,8 @@ impl AdminCommands for InfluxDbProvider {
   }
 
   async fn rename_collection(&self, from: &str, to: &str) -> OrmResult<()> {
-    validate_collection(from)?;
-    validate_collection(to)?;
+    crate::utils::validate_collection_simple(from)?;
+    crate::utils::validate_collection_simple(to)?;
 
     // InfluxDB has no RENAME, so copy then drop. The copy reuses the same
     // write path, which re-stamps each point with a fresh timestamp.
@@ -829,17 +817,6 @@ impl TransactionControl for InfluxDbProvider {
 
   async fn is_transaction_active(&self) -> OrmResult<bool> {
     Ok(false)
-  }
-}
-
-fn value_kind(value: &Value) -> &'static str {
-  match value {
-    Value::Null => "null",
-    Value::Bool(_) => "boolean",
-    Value::Number(_) => "number",
-    Value::String(_) => "string",
-    Value::Array(_) => "array",
-    Value::Object(_) => "object",
   }
 }
 

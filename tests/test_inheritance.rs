@@ -2,9 +2,7 @@
 
 use nosql_orm::entity::{Entity, EntityMeta};
 use nosql_orm::error::OrmResult;
-use nosql_orm::inheritance::{
-  Discriminator, DiscriminatorValue, Inheritance, InheritanceType,
-};
+use nosql_orm::inheritance::{Discriminator, DiscriminatorValue, Inheritance, InheritanceType};
 use nosql_orm::provider::Storage;
 use nosql_orm::providers::json::JsonProvider;
 use nosql_orm::repository::Repository;
@@ -145,11 +143,7 @@ async fn find_by_id_scoped_rejects_wrong_type_rows() {
   let person_id = person.id.unwrap();
   let student_id = stu.id.unwrap();
 
-  let found = f
-    .student_repo
-    .find_by_id_scoped(&student_id)
-    .await
-    .unwrap();
+  let found = f.student_repo.find_by_id_scoped(&student_id).await.unwrap();
   assert!(found.is_some());
 
   // Same id space, wrong discriminator: the child must not see the parent row.
@@ -236,10 +230,7 @@ async fn parent_table_reads_group_rows_by_entity_type() {
   let discriminator = Discriminator::new("type")
     .add_value("student", "InhStudent")
     .add_value("teacher", "Teacher");
-  assert_eq!(
-    discriminator.get_entity_type("student"),
-    Some("InhStudent")
-  );
+  assert_eq!(discriminator.get_entity_type("student"), Some("InhStudent"));
 
   let groups = f
     .student_repo

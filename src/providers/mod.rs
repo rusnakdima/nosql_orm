@@ -19,7 +19,7 @@ pub mod mongo;
 #[cfg(feature = "redis")]
 pub mod redis;
 
-#[cfg(any(feature = "redis", feature = "etcd", feature = "influxdb"))]
+#[cfg(any(feature = "redis", feature = "etcd", feature = "influxdb", feature = "couchdb", feature = "dynamodb", feature = "elasticsearch"))]
 pub mod kv_common;
 
 #[cfg(feature = "etcd")]
@@ -27,6 +27,15 @@ pub mod etcd;
 
 #[cfg(feature = "influxdb")]
 pub mod influxdb;
+
+#[cfg(feature = "couchdb")]
+pub mod couchdb;
+
+#[cfg(feature = "dynamodb")]
+pub mod dynamodb;
+
+#[cfg(feature = "elasticsearch")]
+pub mod elasticsearch;
 
 #[cfg(any(
   feature = "sql-postgres",
@@ -54,6 +63,15 @@ pub use etcd::EtcdProvider;
 
 #[cfg(feature = "influxdb")]
 pub use influxdb::InfluxDbProvider;
+
+#[cfg(feature = "couchdb")]
+pub use couchdb::CouchDbProvider;
+
+#[cfg(feature = "dynamodb")]
+pub use dynamodb::DynamoDbProvider;
+
+#[cfg(feature = "elasticsearch")]
+pub use elasticsearch::ElasticsearchProvider;
 
 #[cfg(feature = "sql-postgres")]
 pub use sql::PostgresProvider;

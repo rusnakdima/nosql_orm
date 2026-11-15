@@ -114,8 +114,12 @@ fn batch_result_absorb_shifts_indices_by_offset() {
 
   let mut chunk = BatchResult::default();
   chunk.succeeded = 2;
-  chunk.failed.push((0, OrmError::Duplicate("row".to_string())));
-  chunk.failed.push((1, OrmError::InvalidInput("bad".to_string())));
+  chunk
+    .failed
+    .push((0, OrmError::Duplicate("row".to_string())));
+  chunk
+    .failed
+    .push((1, OrmError::InvalidInput("bad".to_string())));
 
   merged.absorb(chunk, 4);
 

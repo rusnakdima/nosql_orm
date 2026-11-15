@@ -1,6 +1,7 @@
 // Searchable encryption: deterministic HMAC tags for equality lookups on
 // encrypted fields, plus the env-var key provider (B3.8).
 
+use base64::Engine;
 use nosql_orm::encryption::{
   token_field, EncryptedStorage, EnvKeyProvider, KeyProvider, StaticKeyProvider,
 };
@@ -8,7 +9,6 @@ use nosql_orm::error::OrmError;
 use nosql_orm::provider::Storage;
 use nosql_orm::providers::JsonProvider;
 use nosql_orm::query::Filter;
-use base64::Engine;
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -94,7 +94,10 @@ async fn stored_value_is_ciphertext_and_token_is_deterministic() {
     .insert("users", json!({"id": "3", "email": "bob@example.com"}))
     .await
     .unwrap();
-  assert!(other.get("email__token").is_none(), "read result carries no token");
+  assert!(
+    other.get("email__token").is_none(),
+    "read result carries no token"
+  );
 }
 
 #[tokio::test]
@@ -195,7 +198,10 @@ async fn searchable_index_is_declared_and_validated() {
 
   // Indexing a searchable field succeeds (the JSON provider accepts index
   // declarations as no-ops); a field that is not searchable is refused.
-  store.create_searchable_index("users", "email").await.unwrap();
+  store
+    .create_searchable_index("users", "email")
+    .await
+    .unwrap();
   let err = store
     .create_searchable_index("users", "team")
     .await

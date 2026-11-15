@@ -132,8 +132,11 @@ nosql_orm = { version = "0.10", features = ["full"] }
 
 | Flag | Effect |
 |---|---|
-| `couchdb`, `couchbase`, `firestore`, `elasticsearch`, `neo4j`, `cassandra` | document-store aliases (baseline = Mongo) |
-| `dynamodb`, `influxdb`, `etcd` | key-value aliases (baseline = Redis) |
+| `couchbase`, `firestore`, `neo4j`, `cassandra` | document-store aliases (baseline = Mongo) |
+| `couchdb` | native CouchDB driver (`reqwest`) |
+| `elasticsearch` | native Elasticsearch driver (`reqwest`) |
+| `dynamodb` | native DynamoDB driver (`reqwest`) |
+| `influxdb`, `etcd` | native drivers |
 | `graphql` | `GraphQLProvider` (baseline = JSON) |
 | `pinecone`, `weaviate`, `milvus`, `qdrant`, `chroma` | vector aliases (baseline = Mongo) |
 | `pgvector` | `PgVectorProvider` (real: Postgres + vector search) |

@@ -55,3 +55,25 @@ pub fn compare_values(a: Option<&Value>, b: Option<&Value>) -> std::cmp::Orderin
     _ => Ordering::Equal,
   }
 }
+
+// Shared helper: validate a collection name is non-empty.
+pub fn validate_collection_simple(collection: &str) -> crate::error::OrmResult<()> {
+  if collection.is_empty() {
+    return Err(crate::error::OrmError::InvalidInput(
+      "Collection name cannot be empty".to_string(),
+    ));
+  }
+  Ok(())
+}
+
+// Shared helper: classify a JSON value's kind as a static string.
+pub fn value_kind(value: &serde_json::Value) -> &'static str {
+  match value {
+    serde_json::Value::Null => "null",
+    serde_json::Value::Bool(_) => "boolean",
+    serde_json::Value::Number(_) => "number",
+    serde_json::Value::String(_) => "string",
+    serde_json::Value::Array(_) => "array",
+    serde_json::Value::Object(_) => "object",
+  }
+}

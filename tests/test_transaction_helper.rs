@@ -58,7 +58,11 @@ async fn transaction_rolls_back_and_reraises_the_closure_error() {
   assert!(err.to_string().contains("boom"));
 
   // The write is gone and no transaction was left dangling.
-  assert!(provider.find_by_id("items", "ghost").await.unwrap().is_none());
+  assert!(provider
+    .find_by_id("items", "ghost")
+    .await
+    .unwrap()
+    .is_none());
   assert!(!provider.is_transaction_active().await.unwrap());
   let base = provider.find_by_id("items", "base").await.unwrap();
   assert!(base.is_some());

@@ -68,11 +68,11 @@ sql-mariadb = ["sql-mysql"]
 # etcd and InfluxDB run on their own native drivers; the rest still reuse an
 # existing provider as a baseline (native drivers pending).
 etcd = ["dep:etcd-client"]
-couchdb = ["mongo"]
+couchdb = ["dep:reqwest"]
 couchbase = ["mongo"]
-dynamodb = ["redis"]
+dynamodb = ["dep:reqwest"]
 firestore = ["mongo"]
-elasticsearch = ["mongo"]
+elasticsearch = ["dep:reqwest"]
 neo4j = ["mongo"]
 influxdb = ["dep:influxdb"]
 cassandra = ["mongo"]
@@ -126,6 +126,7 @@ tokio-util = { version = "0.7", optional = true, features = ["compat"] }
 oracle = { version = "0.6", optional = true }
 etcd-client = { version = "0.21", optional = true }
 influxdb = { version = "0.8", optional = true }
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
 base64 = { version = "0.22" }
 ring = "0.17"
 nosql_orm_derive = { path = "nosql_orm_derive" }
@@ -220,3 +221,19 @@ required-features = ["sql-postgres"]
 name = "sql_mysql_example"
 path = "examples/sql_mysql_example.rs"
 required-features = ["sql-mysql"]
+
+
+[[test]]
+name = "test_couchdb_integration"
+path = "tests/test_couchdb_integration.rs"
+required-features = ["couchdb"]
+
+[[test]]
+name = "test_dynamodb_integration"
+path = "tests/test_dynamodb_integration.rs"
+required-features = ["dynamodb"]
+
+[[test]]
+name = "test_elasticsearch_integration"
+path = "tests/test_elasticsearch_integration.rs"
+required-features = ["elasticsearch"]

@@ -1,8 +1,8 @@
 # New NoSQL database providers
 
 > Status: **partially implemented natively** — 0.10.0+.
-> etcd and InfluxDB run on their own drivers; the rest are still aliases over
-> an existing provider, with native drivers pending.
+> etcd, InfluxDB, CouchDB, DynamoDB and Elasticsearch run on their own drivers;
+> the rest are still aliases over an existing provider, with native drivers pending.
 
 Extend the NoSQL provider family beyond MongoDB/Redis.
 
@@ -14,11 +14,11 @@ Extend the NoSQL provider family beyond MongoDB/Redis.
 |---|---|---|
 | etcd | `etcd` | ✅ **native** — `etcd-client` (gRPC) |
 | InfluxDB | `influxdb` | ✅ **native** — `influxdb` (HTTP) |
-| CouchDB | `couchdb` | 🟡 alias over `MongoProvider` |
+| CouchDB | `couchdb` | ✅ **native** — `reqwest` (HTTP) |
 | Couchbase | `couchbase` | 🟡 alias over `MongoProvider` |
-| DynamoDB | `dynamodb` | 🟡 alias over `RedisProvider` |
+| DynamoDB | `dynamodb` | ✅ **native** — `reqwest` (AWS JSON + SigV4) |
 | Firestore | `firestore` | 🟡 alias over `MongoProvider` |
-| Elasticsearch / OpenSearch | `elasticsearch` | 🟡 alias over `MongoProvider` |
+| Elasticsearch / OpenSearch | `elasticsearch` | ✅ **native** — `reqwest` (HTTP) |
 | Neo4j | `neo4j` | 🟡 alias over `MongoProvider` |
 | InfluxDB | `influxdb` | ✅ **native** — `influxdb` (HTTP) |
 | Cassandra / ScyllaDB | `cassandra` | 🟡 alias over `MongoProvider` |

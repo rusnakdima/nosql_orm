@@ -1,10 +1,10 @@
 use super::{
   escape_field_string, escape_measurement, escape_tag, quote_literal, quote_measurement,
-  validate_collection, value_kind,
 };
 use crate::error::OrmError;
 use crate::providers::kv_common::{document_id, document_id_or_new, select_documents};
 use crate::query::Filter;
+use crate::utils::{validate_collection_simple as validate_collection, value_kind};
 use serde_json::json;
 
 // The escaping helpers are the bug-prone part of this provider: a tag that is
