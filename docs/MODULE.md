@@ -7,14 +7,15 @@ LOC counts in parentheses, measured 2026-11-14.
 
 ## 1. Provider trait layer
 
-### `provider.rs` (568)
+### `provider.rs` (730)
 
 ```text
 ProviderConfig       → connection string + db name + option bag
 Capability           → Transactions / Indexes / Aggregation / RawQueries
 Storage              → insert / find_by_id / find_many / update / patch /
                        delete / delete_many / update_many / count / aggregate /
-                       search / find_stream / insert_many
+                       search / search_ranked / search_with_analyzer /
+                       find_stream / insert_many
 StorageBackend       → object-safe subset of Storage
 SchemaIntrospection  → list_collections / describe_collection / stats /
                        list_indexes / get_database_name / list_databases
@@ -23,13 +24,16 @@ AdminCommands        → execute_raw / create_collection / drop_collection /
                        health_check_detailed
 TransactionControl   → begin_transaction / commit_transaction /
                        rollback_transaction / is_transaction_active
+SavepointControl     → begin_savepoint / release_savepoint /
+                       rollback_savepoint (SQL providers)
 ```
 
 - `Storage: Send + Sync + Clone + 'static`. Default impls for `exists`,
   `find_all`, `find_all_typed<T>`, `index_exists`, `aggregate`
   (defaults to `NotSupported`), `health_check` (defaults `true`),
-  `insert_many` (loops `insert`), `search` (in-memory substring match) and
-  `find_stream` (collect-then-stream).
+  `insert_many` (loops `insert`), `find_stream` (collect-then-stream) and
+  the three search methods (analysed and ranked in memory — see
+  `search.rs`).
 - `StorageBackend: Send + Sync`. Blanket impl forwards it to any provider that
   is also `SchemaIntrospection + AdminCommands`; `impl Storage for
   Arc<dyn StorageBackend>` bridges it back to `Repository`.
@@ -302,6 +306,7 @@ Tracked as coming soon in `07-features/README.md`.
 | `sync` | `src/sync.rs` (143) | `SyncEngine<L, R>`, `SyncOp`, `SyncEntry`, `SyncStatus` — offline write queue drained to a remote store. |
 | `encryption` | `src/encryption.rs` (204) | `EncryptedStorage<P>`, `KeyProvider`, `StaticKeyProvider` — AES-256-GCM field encryption. |
 | `vector_search` | `src/vector_search.rs` (184) | `VectorSearchStorage<P>`, `DistanceMetric` (Cosine/Euclidean/DotProduct). |
+| `search` | `src/search.rs` (209) | `Analyzer`, `SimpleAnalyzer`, `rank_documents`, `SearchHit` — tokenise, stem, stop-words, field-weighted ranking. Backs `Storage::search*`. |
 | `mongo_tx` | `src/mongo_tx.rs` (175) | `MongoTxStorage` — write-buffer transactions for Mongo. |
 | `redis_tx` | `src/redis_tx.rs` (174) | `RedisTxStorage` — write-buffer transactions for Redis. |
 | `pgvector` | `src/pgvector.rs` (170) | `PgVectorProvider` — Postgres + `vector` extension (feature `pgvector`). |
@@ -357,6 +362,11 @@ query_cache, embedded, inheritance, lazy
   metrics, a custom embedding field, malformed vectors being skipped, and
   the inherited Redis storage contract. It skips when no server answers:
   `cargo test --features redis-vector --test test_redis_vector_integration -- --include-ignored`
+- `src/search/tests/mod.rs` (16 tests) covers the analysis and scoring
+  directly — tokenising, stop-words, stemming (including the
+  doubled-consonant collapse), field weighting, one-count-per-term,
+  deterministic ties and non-string fields. `tests/test_search_ranking.rs`
+  (8 tests) drives the same behaviour through a real provider.
 - `tests/test_new_provider_conformance.rs` asserts every provider alias
   satisfies `Storage + SchemaIntrospection + AdminCommands +
   TransactionControl` (compile-time, per feature flag).

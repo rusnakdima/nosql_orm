@@ -24,7 +24,7 @@ building and testing each feature flag individually (`cargo test --features
 | Cache | [07q-cache.md](07q-cache.md) | ✅ opt-in (`query_cache`) |
 | SQL | [07r-sql.md](07r-sql.md) | ✅ (`sql`) |
 | Logging | [07s-logging.md](07s-logging.md) | ✅ (`logging`) |
-| Full-text search | [07l-search.md](07l-search.md) | ✅ `Storage::search()` — in-memory baseline; ranking/stemming coming soon |
+| Full-text search | [07l-search.md](07l-search.md) | ✅ `search()` + `search_ranked()` + `search_with_analyzer()` — analysis, stemming, field-weighted ranking; provider-native indexes coming soon |
 | Change Data Capture | [07n-cdc.md](07n-cdc.md) | ✅ `ChangeCaptureStorage<P>` |
 | Real-time subscriptions | [07p-subscription.md](07p-subscription.md) | ✅ `SubscriptionManager` + `SubscribedStorage<P>` (in-process) |
 | Transactions | [07v-transactions.md](07v-transactions.md) | ✅ JSON, SQLite, Postgres, MySQL native (+ savepoints & `transaction(\|tx\| …)` closure helper on SQLite/Postgres/MySQL); Mongo/Redis answer `NotSupported` |
@@ -52,7 +52,7 @@ building and testing each feature flag individually (`cargo test --features
 
 | Feature | Status |
 |---|---|
-| Search ranking, stemming, analyzers, provider-native indexes (`$text`, `tsvector`, FTS5) | 🚧 |
+| Provider-native search indexes (`$text`, `tsvector`, FTS5) and highlight snippets | 🚧 |
 | CDC resume tokens and provider-native change feeds (Mongo change streams, Postgres logical replication) | 🚧 |
 | WebSocket/SSE transport for subscriptions (lives in Forge, not `nosql_orm`) | 🚧 |
 | `#[vector(dim)]` / `#[encrypted]` derive attributes | 🚧 |

@@ -123,6 +123,11 @@ Each is exported at the crate root and under `nosql_orm::new_providers`.
 - `PgVectorProvider` — Postgres + vector extension
   (`connect(uri)`, `with_embedding_field(f)`, `setup_vector()`,
   `search_similar(collection, embedding, top_k)`)
+- `Analyzer` / `SimpleAnalyzer` / `rank_documents` / `SearchHit` — full-text
+  analysis and ranking (`nosql_orm::search`); on `Storage`:
+  `search(collection, fields, query)` (best-first),
+  `search_ranked(collection, &[(field, weight)], query)`,
+  `search_with_analyzer(collection, fields, query, &analyzer)`)
 - `ChangeCaptureStorage` events flow into `SubscriptionManager` via
   `SubscribedStorage::poll_changes()`
 

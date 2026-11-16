@@ -20,31 +20,32 @@ pub mod model_helper;
 pub mod nosql_index;
 pub mod provider;
 pub mod query;
+pub mod redis_tx;
 pub mod relations;
 pub mod repository;
 pub mod schema;
+pub mod search;
 pub mod soft_delete;
 pub mod sql;
-pub mod redis_tx;
 pub mod sync;
 pub mod tenant;
-pub mod vector_search;
 pub mod timestamps;
 pub mod utils;
 pub mod validators;
+pub mod vector_search;
 
 pub use batch::BatchResult;
-pub use model_helper::{ModelHelper, WithValidation};
-pub use mongo_tx::MongoTxStorage;
-pub use redis_tx::RedisTxStorage;
-pub use sync::SyncEngine;
-#[cfg(feature = "pgvector")]
-pub use pgvector::PgVectorProvider;
-pub use tenant::TenantStorage;
-pub use vector_search::{DistanceMetric, VectorSearchStorage};
 pub use cdc::{ChangeCaptureStorage, ChangeEvent, ChangeOp};
 pub use encryption::{EncryptedStorage, EnvKeyProvider, KeyProvider, StaticKeyProvider};
+pub use model_helper::{ModelHelper, WithValidation};
+pub use mongo_tx::MongoTxStorage;
+#[cfg(feature = "pgvector")]
+pub use pgvector::PgVectorProvider;
+pub use redis_tx::RedisTxStorage;
 pub use subscription::{SubscribedStorage, Subscription, SubscriptionFilter, SubscriptionManager};
+pub use sync::SyncEngine;
+pub use tenant::TenantStorage;
+pub use vector_search::{DistanceMetric, VectorSearchStorage};
 
 pub use entity::Entity;
 pub use entity::EntityMeta;

@@ -174,29 +174,53 @@ pub trait Storage: Send + Sync + Clone + 'static {
       .await
   }
 
-  // Full-text search across the given fields. Default implementation filters
-  // in memory; providers can override for native full-text search.
-  async fn search(
+  // Full-text search across the given fields, best match first.
+  //
+  // The default implementation analyses and ranks in memory so every
+  // provider answers the same way; a provider with a native index (`$text`,
+  // `tsvector`, FTS5) overrides this. Fields are weighted equally here —
+  // use `search_ranked` when one field should outrank another.
+  async fn search(&self, collection: &str, fields: &[&str], query: &str) -> OrmResult<Vec<Value>> {
+    let weighted: Vec<(&str, f64)> = fields.iter().map(|f| (*f, 1.0)).collect();
+    let hits = self.search_ranked(collection, &weighted, query).await?;
+    Ok(hits.into_iter().map(|(doc, _)| doc).collect())
+  }
+
+  // The scored form of `search`: the same matching, but each field carries a
+  // weight and results come back `(document, score)` best-first. A score of
+  // zero never appears — a document matching no term is not a result.
+  async fn search_ranked(
     &self,
     collection: &str,
-    fields: &[&str],
+    fields: &[(&str, f64)],
     query: &str,
-  ) -> OrmResult<Vec<Value>> {
+  ) -> OrmResult<Vec<(Value, f64)>> {
     let docs = self.find_all(collection).await?;
-    let query_lower = query.to_lowercase();
-    let results: Vec<Value> = docs
-      .into_iter()
-      .filter(|doc| {
-        fields.iter().any(|field| {
-          doc
-            .get(field)
-            .and_then(Value::as_str)
-            .map(|s| s.to_lowercase().contains(&query_lower))
-            .unwrap_or(false)
-        })
-      })
-      .collect();
-    Ok(results)
+    let analyzer = crate::search::SimpleAnalyzer::new();
+    Ok(
+      crate::search::rank_documents(docs, fields, query, &analyzer)
+        .into_iter()
+        .map(|hit| (hit.document, hit.score))
+        .collect(),
+    )
+  }
+
+  // As `search_ranked`, but with a caller-supplied analyzer — stemming off,
+  // a different stop-list, or a real implementation behind the trait.
+  async fn search_with_analyzer(
+    &self,
+    collection: &str,
+    fields: &[(&str, f64)],
+    query: &str,
+    analyzer: &dyn crate::search::Analyzer,
+  ) -> OrmResult<Vec<(Value, f64)>> {
+    let docs = self.find_all(collection).await?;
+    Ok(
+      crate::search::rank_documents(docs, fields, query, analyzer)
+        .into_iter()
+        .map(|hit| (hit.document, hit.score))
+        .collect(),
+    )
   }
 
   // Stream results lazily. Default implementation collects all and streams;
@@ -209,12 +233,18 @@ pub trait Storage: Send + Sync + Clone + 'static {
     let provider = self.clone();
     let collection = collection.to_string();
     let filter = filter.clone();
-    Box::pin(stream::once(async move {
-      match provider.find_many(&collection, filter.as_ref(), None, None, None, true).await {
-        Ok(docs) => docs.into_iter().map(Ok).collect::<Vec<_>>(),
-        Err(e) => vec![Err(e)],
-      }
-    }).flat_map(stream::iter))
+    Box::pin(
+      stream::once(async move {
+        match provider
+          .find_many(&collection, filter.as_ref(), None, None, None, true)
+          .await
+        {
+          Ok(docs) => docs.into_iter().map(Ok).collect::<Vec<_>>(),
+          Err(e) => vec![Err(e)],
+        }
+      })
+      .flat_map(stream::iter),
+    )
   }
 
   async fn find_all_typed<T: serde::de::DeserializeOwned + Send>(
@@ -293,7 +323,9 @@ pub trait Storage: Send + Sync + Clone + 'static {
     }
     let mut result = BatchResult::default();
     for (chunk_index, chunk) in docs.chunks(batch_size).enumerate() {
-      let chunk_result = self.insert_many_detailed(collection, chunk.to_vec()).await?;
+      let chunk_result = self
+        .insert_many_detailed(collection, chunk.to_vec())
+        .await?;
       result.absorb(chunk_result, chunk_index * batch_size);
     }
     Ok(result)
