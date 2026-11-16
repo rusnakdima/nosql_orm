@@ -505,5 +505,3 @@ impl TransactionControl for MongoProvider {
     Ok(false)
   }
 }
-
-#[cfg(test)]
