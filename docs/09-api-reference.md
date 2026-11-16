@@ -81,6 +81,9 @@ Errors: `OrmError`, `OrmResult`.
 - `RedisProvider::new(conn_str)` / `with_prefix(prefix)`
 - `EtcdProvider::connect(endpoints)` / `from_config(&config)` / `with_prefix(prefix)`
 - `InfluxDbProvider::connect(url, database)` / `from_config(&config)`
+- `RedisVectorProvider::connect(url)` / `new(url)` / `from_config(&config)` /
+  `with_prefix` / `with_embedding_field` / `with_metric` /
+  `upsert_with_embedding` / `search_similar`
 - `SqliteProvider::connect(path)` / `from_config(&config)`
 - `PostgresProvider::connect(uri)` / `from_config(&config)`
 - `MySqlProvider::connect(uri)` / `from_config(&config)`

@@ -189,6 +189,11 @@ path = "tests/test_etcd_integration.rs"
 required-features = ["etcd"]
 
 [[test]]
+name = "test_redis_vector_integration"
+path = "tests/test_redis_vector_integration.rs"
+required-features = ["redis-vector"]
+
+[[test]]
 name = "test_redis_provider"
 path = "tests/test_redis_provider.rs"
 required-features = ["redis"]

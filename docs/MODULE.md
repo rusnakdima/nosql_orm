@@ -88,6 +88,35 @@ insert/update. `capabilities()`: `Aggregation` + `Transactions`.
 `NotSupported`. Transactions `NotSupported` (see `RedisTxStorage`). Extra:
 `publish`.
 
+### `providers/kv_common.rs` (50)
+
+Shared helpers for the key-value providers: `document_id`,
+`document_id_or_new`, `select_documents`. Every KV provider filters, sorts
+and paginates in memory after the read, so the logic lives here once
+instead of being copied per provider.
+
+### `providers/redis_vector.rs` (267) (feature `redis-vector`, native)
+
+`RedisVectorProvider` — Redis storage plus `upsert_with_embedding` /
+`search_similar`. Delegates all four contract traits to `RedisProvider` and
+delegates the scoring to `VectorSearchStorage`, so the distance maths stays
+in one tested place. Works against a plain `redis-server`; no RediSearch.
+
+### `providers/couchdb.rs` (647) (feature `couchdb`, native)
+
+`CouchDbProvider` over `reqwest` — database per collection, `_all_docs` for
+reads, basic auth parsed out of the connection URL.
+
+### `providers/dynamodb.rs` (667) (feature `dynamodb`, native)
+
+`DynamoDbProvider` over `reqwest` — partition/sort key model, filter
+expressions mapped onto `Filter`.
+
+### `providers/elasticsearch.rs` (694) (feature `elasticsearch`, native)
+
+`ElasticsearchProvider` over `reqwest` — index per collection, `_search`
+for reads.
+
 ### `providers/sql/` (feature `sql-*`)
 
 `SqliteProvider` (560), `PostgresProvider` (580), `MySqlProvider` (601), plus
@@ -299,10 +328,12 @@ full = [everything above + every provider alias]
 sql-mssql → tiberius + tokio-util ; sql-oracle → oracle
 sql-duckdb → duckdb ; sql-clickhouse → clickhouse
 sql-cockroach → sql-postgres ; sql-mariadb → sql-mysql
-couchdb, couchbase, firestore, elasticsearch, neo4j, cassandra → mongo
-dynamodb, influxdb → redis ; etcd → etcd-client (native) ; graphql → json
+couchdb, elasticsearch → reqwest ; dynamodb → reqwest
+etcd → etcd-client ; influxdb → influxdb (all native)
+couchbase, firestore, neo4j, cassandra → mongo
+graphql → json
 pinecone, weaviate, milvus, qdrant, chroma → mongo
-pgvector → sql-postgres ; redis-vector → redis
+pgvector → sql-postgres ; redis-vector → redis (native wrapper)
 
 # opt-in extensions
 query_cache, embedded, inheritance, lazy
@@ -321,11 +352,16 @@ query_cache, embedded, inheritance, lazy
   introspection, capability/transaction honesty, name validation, rename.
   It skips when no server answers:
   `ETCD_ENDPOINTS=http://127.0.0.1:2379 cargo test --features etcd --test test_etcd_integration -- --include-ignored`
+- `tests/test_redis_vector_integration.rs` (6 tests) runs against a live
+  Redis: nearest-first ordering, `top_k` truncation, all three distance
+  metrics, a custom embedding field, malformed vectors being skipped, and
+  the inherited Redis storage contract. It skips when no server answers:
+  `cargo test --features redis-vector --test test_redis_vector_integration -- --include-ignored`
 - `tests/test_new_provider_conformance.rs` asserts every provider alias
   satisfies `Storage + SchemaIntrospection + AdminCommands +
   TransactionControl` (compile-time, per feature flag).
 - All 36 feature flags build and pass `cargo test` individually
-  (measured 2026-11-15): `json mongo redis sql sql-postgres sql-sqlite
+  (measured 2026-11-16): `json mongo redis sql sql-postgres sql-sqlite
   sql-mysql sql-mssql sql-oracle sql-cockroach sql-duckdb sql-clickhouse
   sql-mariadb couchdb couchbase dynamodb firestore elasticsearch neo4j
   influxdb cassandra etcd graphql pinecone weaviate milvus qdrant chroma

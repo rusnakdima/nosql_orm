@@ -170,7 +170,8 @@ let user = users.save(user).await?;
 | `influxdb` | native NoSQL provider — `InfluxDbProvider` (`influxdb`) |
 | `couchdb`, `couchbase`, `dynamodb`, `firestore`, `elasticsearch`, `neo4j`, `cassandra` | NoSQL provider aliases (native drivers pending) |
 | `graphql` | GraphQL provider (JSON reuse) |
-| `pinecone`, `weaviate`, `milvus`, `qdrant`, `chroma`, `redis-vector` | vector provider aliases |
+| `pinecone`, `weaviate`, `milvus`, `qdrant`, `chroma` | vector provider aliases (native drivers pending) |
+| `redis-vector` | native vector provider — `RedisVectorProvider` (embedding stored with the doc, in-process scoring) |
 | `full` | `json`, `mongo`, `redis`, `sql` plus all provider aliases |
 | `query_cache` | `cache::QueryCache` |
 | `embedded`, `inheritance`, `lazy` | one extension module each |

@@ -19,6 +19,9 @@ pub mod mongo;
 #[cfg(feature = "redis")]
 pub mod redis;
 
+#[cfg(feature = "redis-vector")]
+pub mod redis_vector;
+
 #[cfg(any(feature = "redis", feature = "etcd", feature = "influxdb", feature = "couchdb", feature = "dynamodb", feature = "elasticsearch"))]
 pub mod kv_common;
 
@@ -57,6 +60,9 @@ pub use mongo::MongoProvider;
 
 #[cfg(feature = "redis")]
 pub use redis::RedisProvider;
+
+#[cfg(feature = "redis-vector")]
+pub use redis_vector::RedisVectorProvider;
 
 #[cfg(feature = "etcd")]
 pub use etcd::EtcdProvider;

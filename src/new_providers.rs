@@ -49,4 +49,4 @@ pub type QdrantProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "chroma")]
 pub type ChromaProvider = crate::providers::mongo::MongoProvider;
 #[cfg(feature = "redis-vector")]
-pub type RedisVectorProvider = crate::providers::redis::RedisProvider;
+pub type RedisVectorProvider = crate::providers::redis_vector::RedisVectorProvider;
