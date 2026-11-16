@@ -1,8 +1,9 @@
 use nosql_orm::error::OrmResult;
-use nosql_orm::migrations::migration::{Migration, MigrationMeta, SqlMigration};
+use nosql_orm::migrations::migration::{JsonMigration, Migration, MigrationMeta, SqlMigration};
 use nosql_orm::migrations::runner::MigrationRunner;
 use nosql_orm::provider::Storage;
 use nosql_orm::providers::json::JsonProvider;
+use serde_json::json;
 
 async fn create_runner() -> (MigrationRunner<JsonProvider>, tempfile::TempDir) {
   let temp_dir = tempfile::TempDir::new().unwrap();
@@ -160,37 +161,6 @@ async fn test_sql_migration_trait() {
 }
 
 #[tokio::test]
-async fn test_sql_migration_up_sql() {
-  let temp_dir = tempfile::TempDir::new().unwrap();
-  let provider = JsonProvider::new(temp_dir.path()).await.unwrap();
-
-  let migration = SqlMigration::new(
-    1,
-    "insert_test",
-    "INSERT INTO test (id, data) VALUES ('1', 'test');",
-    "DELETE FROM test WHERE id = '1';",
-  );
-
-  migration.up(&provider).await.unwrap();
-}
-
-#[tokio::test]
-async fn test_sql_migration_down_sql() {
-  let temp_dir = tempfile::TempDir::new().unwrap();
-  let provider = JsonProvider::new(temp_dir.path()).await.unwrap();
-
-  let migration = SqlMigration::new(
-    1,
-    "insert_test",
-    "INSERT INTO test (id, data) VALUES ('1', 'test');",
-    "DELETE FROM test WHERE id = '1';",
-  );
-
-  migration.up(&provider).await.unwrap();
-  migration.down(&provider).await.unwrap();
-}
-
-#[tokio::test]
 async fn test_run_all_pending_empty() {
   let (runner, _temp_dir) = create_runner().await;
   let results = runner.run_all_pending().await.unwrap();
@@ -201,24 +171,33 @@ async fn test_run_all_pending_empty() {
 async fn test_run_all_pending_with_migrations() {
   let temp_dir = tempfile::TempDir::new().unwrap();
   let provider = JsonProvider::new(temp_dir.path()).await.unwrap();
-  let mut runner = MigrationRunner::new(provider);
+  let mut runner = MigrationRunner::new(provider.clone());
 
-  runner.add_migration(SqlMigration::new(
+  // JsonMigration rather than SqlMigration: the JSON provider has no query
+  // language, so a SQL body would honestly answer `NotSupported` here.
+  // SqlMigration execution is covered by tests/test_migration_sql.rs.
+  runner.add_migration(JsonMigration::new(
     1,
-    "create_users",
-    "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT);",
-    "DROP TABLE users;",
+    "create_settings",
+    json!([{"op": "insert", "collection": "settings",
+             "doc": {"id": "app", "theme": "dark"}}]),
+    json!([{"op": "delete", "collection": "settings", "id": "app"}]),
   ));
 
-  runner.add_migration(SqlMigration::new(
+  runner.add_migration(JsonMigration::new(
     2,
-    "create_posts",
-    "CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT);",
-    "DROP TABLE posts;",
+    "add_email",
+    json!([{"op": "insert", "collection": "contacts",
+             "doc": {"id": "c1", "email": ""}}]),
+    json!([{"op": "delete", "collection": "contacts", "id": "c1"}]),
   ));
 
   let results = runner.run_all_pending().await.unwrap();
   assert_eq!(results.len(), 2);
+
+  // The bodies must really have run — this is the whole point of the fix.
+  assert_eq!(provider.count("settings", None).await.unwrap(), 1);
+  assert_eq!(provider.count("contacts", None).await.unwrap(), 1);
 }
 
 #[tokio::test]
@@ -227,19 +206,74 @@ async fn test_run_all_pending_skips_already_applied() {
   let provider = JsonProvider::new(temp_dir.path()).await.unwrap();
   let mut runner = MigrationRunner::new(provider.clone());
 
-  runner.add_migration(SqlMigration::new(
+  runner.add_migration(JsonMigration::new(
     1,
-    "create_users",
-    "CREATE TABLE users (id TEXT PRIMARY KEY);",
-    "DROP TABLE users;",
+    "create_settings",
+    json!([{"op": "insert", "collection": "settings",
+             "doc": {"id": "app", "theme": "dark"}}]),
+    json!([{"op": "delete", "collection": "settings", "id": "app"}]),
   ));
 
   runner.run_all_pending().await.unwrap();
   runner.run_all_pending().await.unwrap();
   runner.run_all_pending().await.unwrap();
 
+  // One body execution, so a duplicate insert would have failed loudly.
+  assert_eq!(provider.count("settings", None).await.unwrap(), 1);
+
+  // `_schema` bookkeeping row + one migration record.
   let docs = provider.find_all("_migrations").await.unwrap();
   assert_eq!(docs.len(), 2);
+}
+
+// Rollback must undo the body *and* delete the applied record, otherwise the
+// migration stays "applied" forever and can never run again.
+#[tokio::test]
+async fn test_rollback_removes_the_record_so_the_migration_can_rerun() {
+  let temp_dir = tempfile::TempDir::new().unwrap();
+  let provider = JsonProvider::new(temp_dir.path()).await.unwrap();
+  let mut runner = MigrationRunner::new(provider.clone());
+
+  runner.add_migration(JsonMigration::new(
+    1,
+    "create_settings",
+    json!([{"op": "insert", "collection": "settings",
+             "doc": {"id": "app", "theme": "dark"}}]),
+    json!([{"op": "delete", "collection": "settings", "id": "app"}]),
+  ));
+
+  runner.run_all_pending().await.unwrap();
+  assert_eq!(provider.count("settings", None).await.unwrap(), 1);
+  assert_eq!(runner.status().await.unwrap().len(), 1);
+
+  runner.rollback(1).await.unwrap();
+  assert_eq!(
+    provider.count("settings", None).await.unwrap(),
+    0,
+    "rollback must run the down script"
+  );
+  assert_eq!(
+    runner.status().await.unwrap().len(),
+    0,
+    "rollback must delete the applied record"
+  );
+
+  let reapplied = runner.run_all_pending().await.unwrap();
+  assert_eq!(reapplied.len(), 1, "a rolled-back migration must re-run");
+  assert_eq!(provider.count("settings", None).await.unwrap(), 1);
+}
+
+// The `_schema` bookkeeping row is not a migration: it must not show up in
+// `status()` as a phantom version 0.
+#[tokio::test]
+async fn test_status_excludes_the_schema_marker() {
+  let (runner, _temp_dir) = create_runner().await;
+  let status = runner.status().await.unwrap();
+  assert!(
+    status.is_empty(),
+    "status must not report the _schema marker, got {:?}",
+    status
+  );
 }
 
 #[tokio::test]

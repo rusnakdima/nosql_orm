@@ -57,6 +57,7 @@ Errors: `OrmError`, `OrmResult`.
   `SqlTableDef` / `SqlPrimaryKey` / `SqlIndexDef` / `SqlIndexType` /
   `SqlOnDelete`
 - `Migration` / `MigrationMeta` / `SqlMigration` / `JsonMigration` /
+  `JsonMigrationOp` / `JsonPatchOp` /
   `MigrationRunner` / `MigrationSource` / `MigrationLoader` / `SqlFileLoader`
 - `OrmError` / `OrmResult<T>`
 

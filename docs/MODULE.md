@@ -259,16 +259,28 @@ introspection.rs (49)     → TableIntrospector, build_select
 
 ```text
 mod.rs (3)                → re-exports
-migration.rs (103)        → Migration trait, MigrationMeta, SqlMigration, JsonMigration
-runner.rs (100)           → MigrationRunner
-source.rs (67)            → MigrationSource, MigrationLoader, SqlFileLoader
+migration.rs (340)        → Migration trait, MigrationMeta, SqlMigration,
+                            JsonMigration + JsonMigrationOp, JsonPatchOp
+runner.rs (174)           → MigrationRunner
+source.rs (70)            → MigrationSource, MigrationLoader, SqlFileLoader
 ```
 
 `Migration<P: Storage>`: `version()`, `name()`, `up(&P)`, `down(&P)`.
-`MigrationRunner`: `run_all_pending`, `rollback`, `status`.
-**Known gap:** `SqlMigration`/`JsonMigration` `up`/`down` are no-ops — the
-runner records applied versions but does not execute the migration body.
-Tracked as coming soon in `07-features/README.md`.
+`MigrationRunner<P: Storage + AdminCommands>`: `run_all_pending`, `rollback`,
+`status`.
+
+- `SqlMigration` executes its SQL via `execute_raw`; empty statements are
+  skipped. Its impl needs `AdminCommands`, so a provider with no query
+  language answers `NotSupported` instead of silently no-opping.
+- `JsonMigration` runs an ordered ops script (`JsonMigrationOp`) whose
+  `patch` op applies an RFC 6902 subset (`JsonPatchOp`).
+- `rollback` runs `down` **and** deletes the applied record, so the
+  migration can run again; it errors on an unregistered version rather than
+  leaving the record behind.
+- A record's `id` is the serialised `MigrationMeta`: SQL providers' own
+  `create_collection` only guarantees an `id` column, so `version`/`name`/
+  `applied_at` cannot be separate columns without dialect-specific DDL.
+  Older field-per-column records are still read.
 
 ## 10. Error layer — `error.rs` (97)
 

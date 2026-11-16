@@ -195,7 +195,7 @@ flags alias an existing provider (`PostgresProvider`, `SqliteProvider`,
 |---|---|
 | Backend-specific operations | Index management is `NotSupported` on Redis and a no-op/empty on JSON providers; `execute_raw` is `NotSupported` outside the SQL providers; aggregation is implemented only for JSON and Mongo. |
 | SQL transactions | PostgreSQL and MySQL run transactions over connections checked out of their own pools; SQLite holds one connection. |
-| Migrations | `SqlMigration` / `JsonMigration` `up`/`down` are no-ops; `MigrationRunner` records applied versions in a `_migrations` collection but does not execute the migration body. `SqlFileLoader` parses `--- DOWN ---`-separated SQL files but the resulting `SqlMigration` still does not run them. |
+| Migrations | `SqlMigration` runs `up_sql`/`down_sql` through `execute_raw`; `JsonMigration` runs an ordered ops script (`insert`/`update`/`patch`/`delete`/`create_collection`/`drop_collection`, plus an RFC 6902 subset for `patch`). `rollback` runs `down` **and** deletes the applied record, so a rolled-back migration re-runs. A record's `id` carries the serialised meta, because SQL providers only guarantee an `id` column. |
 | Extension modules | `embedded`, `inheritance`, `lazy` are opt-in (off by default) and wired into `Repository`; `find_stream` passes filters through without the embedded path rewrite, and there are no joined CTI child loads. |
 | SQL provider duplication | `providers/sql/{postgres,mysql}.rs` share helpers in `sql/common.rs` but are not one generic implementation. |
 | Lazy loading | `LazyRelation::get` fetches by `local_id` from its repository; the relation descriptor is validated when the handle is built (`lazy_load` vs `lazy_load_many`), not on each `get()`. |

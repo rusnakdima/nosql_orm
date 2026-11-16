@@ -16,7 +16,7 @@ building and testing each feature flag individually (`cargo test --features
 | Validators | [07b-validators.md](07b-validators.md) | ✅ (`validators`) |
 | Soft Delete | [07c-soft-delete.md](07c-soft-delete.md) | ✅ (`soft_delete`) |
 | Timestamps | [07d-timestamps.md](07d-timestamps.md) | ✅ (`timestamps`) |
-| Migrations | [07e-migrations.md](07e-migrations.md) | ✅ (`migrations`) — runner records versions; `SqlMigration`/`JsonMigration` bodies are no-ops |
+| Migrations | [07e-migrations.md](07e-migrations.md) | ✅ (`migrations`) — bodies really execute (`SqlMigration` runs SQL, `JsonMigration` runs an ops script); `rollback` undoes body + record |
 | Indexes | [07f-indexes.md](07f-indexes.md) | ✅ (`nosql_index`) |
 | Events | [07g-events.md](07g-events.md) | ✅ (`events`) |
 | Cascade | [07h-cascade.md](07h-cascade.md) | ✅ (`cascade`) |
@@ -60,7 +60,6 @@ building and testing each feature flag individually (`cargo test --features
 | `aggregate_stream` and provider-native cursors | 🚧 |
 | Persistent sync queue, conflict-resolution strategies, selective sync | 🚧 |
 | Cloud KMS key provider (env-var keys and searchable encryption implemented) | 🚧 |
-| Migration bodies: `SqlMigration`/`JsonMigration` `up`/`down` execute nothing today | 🚧 |
 | Native driver backends for the remaining alias providers (neo4rs, scylla, aws-sdk, async-graphql, qdrant, …) | 🚧 |
 
 ---

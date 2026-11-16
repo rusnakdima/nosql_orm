@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::error::OrmResult;
 use crate::migrations::migration::Migration;
-use crate::provider::Storage;
+use crate::provider::{AdminCommands, Storage};
 use std::marker::PhantomData;
 
 pub enum MigrationSource {
@@ -29,7 +29,10 @@ impl<P: Storage> SqlFileLoader<P> {
   }
 }
 
-impl<P: Storage> MigrationLoader<P> for SqlFileLoader<P> {
+// The `AdminCommands` bound is what lets the loaded `SqlMigration`s actually
+// run their SQL; a loader over a provider with no query language would
+// otherwise hand back migrations that can only ever no-op.
+impl<P: Storage + AdminCommands> MigrationLoader<P> for SqlFileLoader<P> {
   fn load_migrations(&self) -> OrmResult<Vec<Box<dyn Migration<P>>>> {
     let mut migrations: Vec<Box<dyn Migration<P>>> = Vec::new();
     let entries = std::fs::read_dir(&self.path)?;
