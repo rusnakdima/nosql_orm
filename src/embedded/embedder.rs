@@ -71,18 +71,36 @@ impl Embedder {
       return filter.clone();
     }
     match filter {
-      Filter::Eq(field, value) => Filter::Eq(map_embedded_path(field, embedded_fields), value.clone()),
-      Filter::Ne(field, value) => Filter::Ne(map_embedded_path(field, embedded_fields), value.clone()),
-      Filter::Gt(field, value) => Filter::Gt(map_embedded_path(field, embedded_fields), value.clone()),
-      Filter::Gte(field, value) => Filter::Gte(map_embedded_path(field, embedded_fields), value.clone()),
-      Filter::Lt(field, value) => Filter::Lt(map_embedded_path(field, embedded_fields), value.clone()),
-      Filter::Lte(field, value) => Filter::Lte(map_embedded_path(field, embedded_fields), value.clone()),
-      Filter::In(field, values) => Filter::In(map_embedded_path(field, embedded_fields), values.clone()),
-      Filter::NotIn(field, values) => Filter::NotIn(map_embedded_path(field, embedded_fields), values.clone()),
+      Filter::Eq(field, value) => {
+        Filter::Eq(map_embedded_path(field, embedded_fields), value.clone())
+      }
+      Filter::Ne(field, value) => {
+        Filter::Ne(map_embedded_path(field, embedded_fields), value.clone())
+      }
+      Filter::Gt(field, value) => {
+        Filter::Gt(map_embedded_path(field, embedded_fields), value.clone())
+      }
+      Filter::Gte(field, value) => {
+        Filter::Gte(map_embedded_path(field, embedded_fields), value.clone())
+      }
+      Filter::Lt(field, value) => {
+        Filter::Lt(map_embedded_path(field, embedded_fields), value.clone())
+      }
+      Filter::Lte(field, value) => {
+        Filter::Lte(map_embedded_path(field, embedded_fields), value.clone())
+      }
+      Filter::In(field, values) => {
+        Filter::In(map_embedded_path(field, embedded_fields), values.clone())
+      }
+      Filter::NotIn(field, values) => {
+        Filter::NotIn(map_embedded_path(field, embedded_fields), values.clone())
+      }
       Filter::ArrayContains(field, value) => {
         Filter::ArrayContains(map_embedded_path(field, embedded_fields), value.clone())
       }
-      Filter::Contains(field, sub) => Filter::Contains(map_embedded_path(field, embedded_fields), sub.clone()),
+      Filter::Contains(field, sub) => {
+        Filter::Contains(map_embedded_path(field, embedded_fields), sub.clone())
+      }
       Filter::StartsWith(field, prefix) => {
         Filter::StartsWith(map_embedded_path(field, embedded_fields), prefix.clone())
       }
@@ -111,9 +129,7 @@ impl Embedder {
           .map(|f| Self::rewrite_filter(f, embedded_fields))
           .collect(),
       ),
-      Filter::Not(inner) => {
-        Filter::Not(Box::new(Self::rewrite_filter(inner, embedded_fields)))
-      }
+      Filter::Not(inner) => Filter::Not(Box::new(Self::rewrite_filter(inner, embedded_fields))),
     }
   }
 }

@@ -112,8 +112,7 @@ impl JsonProvider {
     let indexes_path = config.base_dir.join("_indexes.json");
     let indexes = if indexes_path.exists() {
       let content = tokio::fs::read_to_string(&indexes_path).await?;
-      serde_json::from_str::<HashMap<String, Vec<IndexInfo>>>(&content)
-        .unwrap_or_default()
+      serde_json::from_str::<HashMap<String, Vec<IndexInfo>>>(&content).unwrap_or_default()
     } else {
       HashMap::new()
     };
@@ -785,9 +784,9 @@ impl TransactionControl for JsonProvider {
     let id = TransactionId::new(uuid::Uuid::new_v4().to_string());
     // Create a backup directory for rollback
     let backup_dir = self.base_dir.join(format!(".tx_backup_{}", id.0));
-    tokio::fs::create_dir_all(&backup_dir).await.map_err(|e| {
-      OrmError::Transaction(format!("Failed to create backup dir: {}", e))
-    })?;
+    tokio::fs::create_dir_all(&backup_dir)
+      .await
+      .map_err(|e| OrmError::Transaction(format!("Failed to create backup dir: {}", e)))?;
     // Copy all existing .json collection files to backup
     if let Ok(mut entries) = tokio::fs::read_dir(&self.base_dir).await {
       while let Ok(Some(entry)) = entries.next_entry().await {
@@ -812,16 +811,8 @@ impl TransactionControl for JsonProvider {
     let mut state = self.transaction_state.lock().await;
     match state.as_ref() {
       Some((active_id, _)) if active_id == &id => {}
-      Some(_) => {
-        return Err(OrmError::Transaction(
-          "Transaction ID mismatch".to_string(),
-        ))
-      }
-      None => {
-        return Err(OrmError::Transaction(
-          "No active transaction".to_string(),
-        ))
-      }
+      Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => return Err(OrmError::Transaction("No active transaction".to_string())),
     }
     // Remove backup directory
     if let Some((_, backup_dir)) = state.take() {
@@ -834,16 +825,8 @@ impl TransactionControl for JsonProvider {
     let mut state = self.transaction_state.lock().await;
     let (_active_id, backup_dir) = match state.as_ref() {
       Some((aid, bd)) if aid == &id => (aid.clone(), bd.clone()),
-      Some(_) => {
-        return Err(OrmError::Transaction(
-          "Transaction ID mismatch".to_string(),
-        ))
-      }
-      None => {
-        return Err(OrmError::Transaction(
-          "No active transaction".to_string(),
-        ))
-      }
+      Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => return Err(OrmError::Transaction("No active transaction".to_string())),
     };
     // Restore all .json files from backup
     if backup_dir.exists() {
@@ -862,9 +845,9 @@ impl TransactionControl for JsonProvider {
           let path = entry.path();
           if path.is_file() {
             let file_name = match path.file_name() {
-            Some(name) => name,
-            None => continue,
-          };
+              Some(name) => name,
+              None => continue,
+            };
             let target = self.base_dir.join(file_name);
             tokio::fs::copy(&path, &target).await.map_err(|e| {
               OrmError::Transaction(format!("Failed to restore {}: {}", path.display(), e))

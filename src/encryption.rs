@@ -54,15 +54,20 @@ pub struct EnvKeyProvider {
 impl EnvKeyProvider {
   pub fn from_env(var: &str) -> OrmResult<Self> {
     let raw = std::env::var(var).map_err(|_| {
-      OrmError::Encryption(format!("environment variable {} is not set or not UTF-8", var))
+      OrmError::Encryption(format!(
+        "environment variable {} is not set or not UTF-8",
+        var
+      ))
     })?;
     if let Ok(decoded) = B64.decode(raw.trim()) {
       if decoded.len() == 32 {
         return Ok(Self { key: decoded });
       }
     }
-    if raw.as_bytes().len() == 32 {
-      return Ok(Self { key: raw.as_bytes().to_vec() });
+    if raw.len() == 32 {
+      return Ok(Self {
+        key: raw.as_bytes().to_vec(),
+      });
     }
     Err(OrmError::Encryption(format!(
       "environment variable {} must hold a 32-byte key (base64 or raw)",
@@ -120,8 +125,7 @@ fn decrypt_value(key: &[u8], ciphertext: &str) -> OrmResult<String> {
   let plaintext = key
     .open_in_place(nonce, Aad::empty(), &mut data)
     .map_err(|_| OrmError::Encryption("open failed".to_string()))?;
-  String::from_utf8(plaintext.to_vec())
-    .map_err(|e| OrmError::Encryption(format!("utf8: {}", e)))
+  String::from_utf8(plaintext.to_vec()).map_err(|e| OrmError::Encryption(format!("utf8: {}", e)))
 }
 
 #[derive(Clone)]
@@ -163,10 +167,9 @@ impl<P: Storage> EncryptedStorage<P> {
   // And/Or/Not are rewritten too. Everything else passes through untouched.
   fn rewrite_filter(&self, filter: &Filter) -> Filter {
     match filter {
-      Filter::Eq(field, Value::String(plain)) if self.is_searchable(field) => Filter::Eq(
-        token_field(field),
-        Value::String(self.tag(plain)),
-      ),
+      Filter::Eq(field, Value::String(plain)) if self.is_searchable(field) => {
+        Filter::Eq(token_field(field), Value::String(self.tag(plain)))
+      }
       Filter::In(field, values) if self.is_searchable(field) => {
         let mapped = values
           .iter()
@@ -177,12 +180,8 @@ impl<P: Storage> EncryptedStorage<P> {
           .collect();
         Filter::In(token_field(field), mapped)
       }
-      Filter::And(filters) => {
-        Filter::And(filters.iter().map(|f| self.rewrite_filter(f)).collect())
-      }
-      Filter::Or(filters) => {
-        Filter::Or(filters.iter().map(|f| self.rewrite_filter(f)).collect())
-      }
+      Filter::And(filters) => Filter::And(filters.iter().map(|f| self.rewrite_filter(f)).collect()),
+      Filter::Or(filters) => Filter::Or(filters.iter().map(|f| self.rewrite_filter(f)).collect()),
       Filter::Not(inner) => Filter::Not(Box::new(self.rewrite_filter(inner))),
       other => other.clone(),
     }
@@ -272,7 +271,14 @@ impl<P: Storage> Storage for EncryptedStorage<P> {
     let rewritten = self.rewritten(filter);
     let docs = self
       .inner
-      .find_many(collection, rewritten.as_ref(), skip, limit, sort_by, sort_asc)
+      .find_many(
+        collection,
+        rewritten.as_ref(),
+        skip,
+        limit,
+        sort_by,
+        sort_asc,
+      )
       .await?;
     Ok(docs.into_iter().map(|d| self.decrypt_doc(d)).collect())
   }
@@ -293,7 +299,11 @@ impl<P: Storage> Storage for EncryptedStorage<P> {
     self.inner.delete(collection, id).await
   }
 
-  async fn delete_many(&self, collection: &str, filter: Option<crate::query::Filter>) -> OrmResult<usize> {
+  async fn delete_many(
+    &self,
+    collection: &str,
+    filter: Option<crate::query::Filter>,
+  ) -> OrmResult<usize> {
     let rewritten = filter.as_ref().map(|f| self.rewrite_filter(f));
     self.inner.delete_many(collection, rewritten).await
   }
@@ -314,7 +324,11 @@ impl<P: Storage> Storage for EncryptedStorage<P> {
     self.inner.count(collection, rewritten.as_ref()).await
   }
 
-  async fn create_index(&self, collection: &str, index: &crate::nosql_index::NosqlIndex) -> OrmResult<()> {
+  async fn create_index(
+    &self,
+    collection: &str,
+    index: &crate::nosql_index::NosqlIndex,
+  ) -> OrmResult<()> {
     self.inner.create_index(collection, index).await
   }
 

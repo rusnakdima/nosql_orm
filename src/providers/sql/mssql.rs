@@ -13,9 +13,9 @@
 
 use crate::error::{OrmError, OrmResult};
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
-  Storage, TransactionControl, TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
+  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
+  TransactionId,
 };
 use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::utils::{
@@ -373,7 +373,6 @@ impl crate::providers::sql::SqlExecutor for MssqlProvider {
         .collect(),
     )
   }
-
 }
 
 fn is_tableless_drop_index(sql: &str) -> bool {

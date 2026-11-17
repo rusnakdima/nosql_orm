@@ -64,9 +64,7 @@ fn local_id_from_doc(doc: &Value, key: &str) -> OrmResult<String> {
     .get(key)
     .and_then(|v| v.as_str())
     .map(String::from)
-    .ok_or_else(|| {
-      OrmError::InvalidQuery(format!("Document carries no relation key {}", key))
-    })
+    .ok_or_else(|| OrmError::InvalidQuery(format!("Document carries no relation key {}", key)))
 }
 
 fn target_repo<E, P>(provider: &P) -> Arc<Repository<E, P>>
@@ -77,7 +75,11 @@ where
   Arc::new(Repository::new(provider.clone()))
 }
 
-fn single_handle<E, P>(provider: &P, doc: &Value, relation: &RelationDef) -> OrmResult<LazyRelation<E, P>>
+fn single_handle<E, P>(
+  provider: &P,
+  doc: &Value,
+  relation: &RelationDef,
+) -> OrmResult<LazyRelation<E, P>>
 where
   E: Entity,
   P: Storage,
@@ -99,7 +101,11 @@ where
   ))
 }
 
-fn collection_handle<E, P>(provider: &P, doc: &Value, relation: &RelationDef) -> OrmResult<LazyMany<E, P>>
+fn collection_handle<E, P>(
+  provider: &P,
+  doc: &Value,
+  relation: &RelationDef,
+) -> OrmResult<LazyMany<E, P>>
 where
   E: Entity,
   P: Storage,
@@ -107,7 +113,11 @@ where
   match relation.relation_type {
     RelationType::OneToMany => {
       let local_id = local_id_from_doc(doc, &relation.local_key)?;
-      Ok(LazyMany::new(target_repo(provider), relation.clone(), local_id))
+      Ok(LazyMany::new(
+        target_repo(provider),
+        relation.clone(),
+        local_id,
+      ))
     }
     RelationType::ManyToMany => {
       let join_field = relation
@@ -131,10 +141,7 @@ where
         )));
       }
       let filter = Filter::In("id".to_string(), ids);
-      Ok(
-        LazyMany::new(target_repo(provider), relation.clone(), String::new())
-          .with_filter(filter),
-      )
+      Ok(LazyMany::new(target_repo(provider), relation.clone(), String::new()).with_filter(filter))
     }
     _ => Err(OrmError::InvalidQuery(format!(
       "Relation {} is not a collection relation",

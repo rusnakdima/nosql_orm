@@ -339,4 +339,5 @@ where
     limit: Option<u64>,
   ) -> OrmResult<QueryStream<E, P>> {
     self.find_stream(filter, skip, limit, None, true).await
-  }}
+  }
+}

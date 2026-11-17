@@ -50,12 +50,7 @@ impl<L: Storage, R: Storage> SyncEngine<L, R> {
   }
 
   // Queue a write for sync (writes to local immediately).
-  pub async fn enqueue_write(
-    &self,
-    collection: &str,
-    op: SyncOp,
-    doc: Value,
-  ) -> OrmResult<()> {
+  pub async fn enqueue_write(&self, collection: &str, op: SyncOp, doc: Value) -> OrmResult<()> {
     // Write to local immediately
     match op {
       SyncOp::Insert => {
@@ -97,10 +92,18 @@ impl<L: Storage, R: Storage> SyncEngine<L, R> {
     for mut entry in entries {
       entry.status = SyncStatus::Syncing;
       let result = match entry.op {
-        SyncOp::Insert => self.remote.insert(&entry.collection, entry.doc.clone()).await.map(|_| ()),
+        SyncOp::Insert => self
+          .remote
+          .insert(&entry.collection, entry.doc.clone())
+          .await
+          .map(|_| ()),
         SyncOp::Update => {
           if let Some(id) = entry.doc.get("id").and_then(Value::as_str) {
-            self.remote.update(&entry.collection, id, entry.doc.clone()).await.map(|_| ())
+            self
+              .remote
+              .update(&entry.collection, id, entry.doc.clone())
+              .await
+              .map(|_| ())
           } else {
             Err(OrmError::InvalidInput("missing id".to_string()))
           }

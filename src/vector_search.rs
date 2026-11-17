@@ -146,7 +146,11 @@ impl<P: Storage> Storage for VectorSearchStorage<P> {
     self.inner.delete(collection, id).await
   }
 
-  async fn delete_many(&self, collection: &str, filter: Option<crate::query::Filter>) -> OrmResult<usize> {
+  async fn delete_many(
+    &self,
+    collection: &str,
+    filter: Option<crate::query::Filter>,
+  ) -> OrmResult<usize> {
     self.inner.delete_many(collection, filter).await
   }
 
@@ -163,7 +167,11 @@ impl<P: Storage> Storage for VectorSearchStorage<P> {
     self.inner.count(collection, filter).await
   }
 
-  async fn create_index(&self, collection: &str, index: &crate::nosql_index::NosqlIndex) -> OrmResult<()> {
+  async fn create_index(
+    &self,
+    collection: &str,
+    index: &crate::nosql_index::NosqlIndex,
+  ) -> OrmResult<()> {
     self.inner.create_index(collection, index).await
   }
 

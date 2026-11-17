@@ -8,9 +8,9 @@
 
 use crate::error::{OrmError, OrmResult};
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  FieldInfo, IndexInfo, ProviderConfig, RawResult, SchemaIntrospection,
-  Storage, TransactionControl, TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
+  IndexInfo, ProviderConfig, RawResult, SchemaIntrospection, Storage, TransactionControl,
+  TransactionId,
 };
 use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::utils::value_as_u64;
@@ -283,7 +283,6 @@ impl crate::providers::sql::SqlExecutor for DuckDbProvider {
 
     Ok(indexes)
   }
-
 }
 
 #[async_trait]

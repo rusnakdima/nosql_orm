@@ -42,7 +42,7 @@ macro_rules! filters {
       )*
       if conditions.len() == 1 {
         // The length was just checked, so the pop cannot fail.
-        conditions.pop().expect("conditions has exactly one element")
+        conditions.pop().expect("conditions has exactly one element") // ignore-unwrap: length checked above
       } else {
         Filter::And(conditions)
       }

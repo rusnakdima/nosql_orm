@@ -128,13 +128,13 @@ fn extract_index_fields(indexdef: &str) -> Vec<(String, i32)> {
   // literal (it compiles, and `indexdef` only ever comes from pg_indexes),
   // and group 1 is mandatory in it, so every capture carries group 1.
   let fields_re = regex::Regex::new(r"\((\w+)(?:\s+ASC|\s+DESC)?\)")
-    .expect("static index pattern is a valid regex");
+    .expect("static index pattern is a valid regex"); // ignore-unwrap: compile-time-constant pattern
   fields_re
     .captures_iter(indexdef)
     .map(|c| {
       let field = c
         .get(1)
-        .expect("group 1 is mandatory in the static index pattern");
+        .expect("group 1 is mandatory in the static index pattern"); // ignore-unwrap: the pattern has exactly one capture group
       (field.as_str().to_string(), 1i32)
     })
     .collect()
@@ -521,16 +521,8 @@ impl TransactionControl for PostgresProvider {
     let mut state = self.transaction_state.lock().await;
     match state.as_ref() {
       Some(active_id) if active_id == &id => {}
-      Some(_) => {
-        return Err(OrmError::Transaction(
-          "Transaction ID mismatch".to_string(),
-        ))
-      }
-      None => {
-        return Err(OrmError::Transaction(
-          "No active transaction".to_string(),
-        ))
-      }
+      Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => return Err(OrmError::Transaction("No active transaction".to_string())),
     }
 
     // Execute COMMIT on the dedicated connection
@@ -550,16 +542,8 @@ impl TransactionControl for PostgresProvider {
     let mut state = self.transaction_state.lock().await;
     match state.as_ref() {
       Some(active_id) if active_id == &id => {}
-      Some(_) => {
-        return Err(OrmError::Transaction(
-          "Transaction ID mismatch".to_string(),
-        ))
-      }
-      None => {
-        return Err(OrmError::Transaction(
-          "No active transaction".to_string(),
-        ))
-      }
+      Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => return Err(OrmError::Transaction("No active transaction".to_string())),
     }
 
     let mut tx_conn = self.tx_connection.lock().await;
@@ -618,12 +602,9 @@ impl SavepointControl for PostgresProvider {
       .as_mut()
       .ok_or_else(|| OrmError::Transaction("no active transaction".to_string()))?;
     let sql = format!("ROLLBACK TO SAVEPOINT {}", name);
-    client
-      .execute(&sql, &[])
-      .await
-      .map_err(|e| {
-        OrmError::Transaction(format!("rollback to savepoint {} failed: {}", name, e))
-      })?;
+    client.execute(&sql, &[]).await.map_err(|e| {
+      OrmError::Transaction(format!("rollback to savepoint {} failed: {}", name, e))
+    })?;
     Ok(())
   }
 }

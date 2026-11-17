@@ -15,7 +15,9 @@ use tempfile::tempdir;
 #[tokio::test]
 async fn test_json_transactions_commit() {
   let dir = tempdir().unwrap();
-  let provider = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
+  let provider = nosql_orm::providers::JsonProvider::new(dir.path())
+    .await
+    .unwrap();
 
   // Insert a base document
   provider
@@ -45,7 +47,9 @@ async fn test_json_transactions_commit() {
 #[tokio::test]
 async fn test_json_transactions_rollback() {
   let dir = tempdir().unwrap();
-  let provider = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
+  let provider = nosql_orm::providers::JsonProvider::new(dir.path())
+    .await
+    .unwrap();
 
   provider
     .insert("items", json!({"id": "base", "name": "Base"}))
@@ -55,7 +59,10 @@ async fn test_json_transactions_rollback() {
   let tx = provider.begin_transaction().await.unwrap();
 
   provider
-    .insert("items", json!({"id": "tx-rollback", "name": "ShouldNotExist"}))
+    .insert(
+      "items",
+      json!({"id": "tx-rollback", "name": "ShouldNotExist"}),
+    )
     .await
     .unwrap();
 
@@ -70,7 +77,9 @@ async fn test_json_transactions_rollback() {
 #[tokio::test]
 async fn test_cdc_captures_changes() {
   let dir = tempdir().unwrap();
-  let inner = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
+  let inner = nosql_orm::providers::JsonProvider::new(dir.path())
+    .await
+    .unwrap();
   let cdc = ChangeCaptureStorage::new(inner);
 
   cdc
@@ -95,7 +104,9 @@ async fn test_cdc_captures_changes() {
 #[tokio::test]
 async fn test_subscription_receives_events() {
   let dir = tempdir().unwrap();
-  let inner = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
+  let inner = nosql_orm::providers::JsonProvider::new(dir.path())
+    .await
+    .unwrap();
   let sub_storage = SubscribedStorage::new(inner, 100);
 
   let mut sub = sub_storage.subscribe(SubscriptionFilter::All);
@@ -117,13 +128,18 @@ async fn test_subscription_receives_events() {
 #[tokio::test]
 async fn test_encryption_roundtrip() {
   let dir = tempdir().unwrap();
-  let inner = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
+  let inner = nosql_orm::providers::JsonProvider::new(dir.path())
+    .await
+    .unwrap();
   let key = vec![0u8; 32];
   let kp = Arc::new(StaticKeyProvider::new(key).unwrap());
   let enc = EncryptedStorage::new(inner, kp, vec!["secret".to_string()]);
 
   enc
-    .insert("items", json!({"id": "1", "secret": "my-password", "public": "hello"}))
+    .insert(
+      "items",
+      json!({"id": "1", "secret": "my-password", "public": "hello"}),
+    )
     .await
     .unwrap();
 
@@ -132,7 +148,9 @@ async fn test_encryption_roundtrip() {
   assert_eq!(found["public"], "hello");
 
   // Verify stored encrypted
-  let raw = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
+  let raw = nosql_orm::providers::JsonProvider::new(dir.path())
+    .await
+    .unwrap();
   let raw_doc = raw.find_by_id("items", "1").await.unwrap().unwrap();
   assert!(raw_doc["secret"].as_str().unwrap().starts_with("enc:"));
 }
@@ -140,17 +158,30 @@ async fn test_encryption_roundtrip() {
 #[tokio::test]
 async fn test_vector_search() {
   let dir = tempdir().unwrap();
-  let inner = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
+  let inner = nosql_orm::providers::JsonProvider::new(dir.path())
+    .await
+    .unwrap();
   let vs = VectorSearchStorage::new(inner).with_metric(DistanceMetric::Cosine);
 
-  vs.upsert_with_embedding("docs", json!({"id": "1", "title": "Rust"}), vec![1.0, 0.0, 0.0])
-    .await
-    .unwrap();
-  vs.upsert_with_embedding("docs", json!({"id": "2", "title": "Python"}), vec![0.0, 1.0, 0.0])
-    .await
-    .unwrap();
+  vs.upsert_with_embedding(
+    "docs",
+    json!({"id": "1", "title": "Rust"}),
+    vec![1.0, 0.0, 0.0],
+  )
+  .await
+  .unwrap();
+  vs.upsert_with_embedding(
+    "docs",
+    json!({"id": "2", "title": "Python"}),
+    vec![0.0, 1.0, 0.0],
+  )
+  .await
+  .unwrap();
 
-  let results = vs.search_similar("docs", &[1.0, 0.0, 0.0], 2).await.unwrap();
+  let results = vs
+    .search_similar("docs", &[1.0, 0.0, 0.0], 2)
+    .await
+    .unwrap();
   assert_eq!(results.len(), 2);
   assert_eq!(results[0].0["title"], "Rust");
 
@@ -167,7 +198,9 @@ async fn test_vector_search() {
 #[tokio::test]
 async fn test_tenant_isolation() {
   let dir = tempdir().unwrap();
-  let inner = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
+  let inner = nosql_orm::providers::JsonProvider::new(dir.path())
+    .await
+    .unwrap();
   let t1 = TenantStorage::new(inner.clone(), "tenant-1");
   let t2 = TenantStorage::new(inner, "tenant-2");
 
@@ -190,7 +223,9 @@ async fn test_tenant_isolation() {
 #[tokio::test]
 async fn test_streaming() {
   let dir = tempdir().unwrap();
-  let provider = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
+  let provider = nosql_orm::providers::JsonProvider::new(dir.path())
+    .await
+    .unwrap();
 
   for i in 0..5 {
     provider
@@ -211,18 +246,29 @@ async fn test_streaming() {
 #[tokio::test]
 async fn test_full_text_search() {
   let dir = tempdir().unwrap();
-  let provider = nosql_orm::providers::JsonProvider::new(dir.path()).await.unwrap();
-
-  provider
-    .insert("docs", json!({"id": "1", "title": "Rust programming", "body": "Systems language"}))
-    .await
-    .unwrap();
-  provider
-    .insert("docs", json!({"id": "2", "title": "Python scripting", "body": "Dynamic language"}))
+  let provider = nosql_orm::providers::JsonProvider::new(dir.path())
     .await
     .unwrap();
 
-  let results = provider.search("docs", &["title", "body"], "rust").await.unwrap();
+  provider
+    .insert(
+      "docs",
+      json!({"id": "1", "title": "Rust programming", "body": "Systems language"}),
+    )
+    .await
+    .unwrap();
+  provider
+    .insert(
+      "docs",
+      json!({"id": "2", "title": "Python scripting", "body": "Dynamic language"}),
+    )
+    .await
+    .unwrap();
+
+  let results = provider
+    .search("docs", &["title", "body"], "rust")
+    .await
+    .unwrap();
   assert_eq!(results.len(), 1);
   assert_eq!(results[0]["title"], "Rust programming");
 }

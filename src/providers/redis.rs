@@ -1,10 +1,10 @@
-use crate::providers::kv_common;
 use crate::error::{map_err_connection, OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, IndexInfo,
   ProviderCapabilities, RawResult, SchemaIntrospection, Storage, TransactionControl, TransactionId,
 };
+use crate::providers::kv_common;
 use crate::query::Filter;
 // (compare_values, generate_id now in kv_common)
 use async_trait::async_trait;
@@ -12,9 +12,6 @@ use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use serde_json::Value;
 use std::collections::HashMap;
-
-
-
 
 #[derive(Clone)]
 pub struct RedisProvider {

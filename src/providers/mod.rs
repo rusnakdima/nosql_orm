@@ -22,7 +22,14 @@ pub mod redis;
 #[cfg(feature = "redis-vector")]
 pub mod redis_vector;
 
-#[cfg(any(feature = "redis", feature = "etcd", feature = "influxdb", feature = "couchdb", feature = "dynamodb", feature = "elasticsearch"))]
+#[cfg(any(
+  feature = "redis",
+  feature = "etcd",
+  feature = "influxdb",
+  feature = "couchdb",
+  feature = "dynamodb",
+  feature = "elasticsearch"
+))]
 pub mod kv_common;
 
 #[cfg(feature = "etcd")]
@@ -44,7 +51,10 @@ pub mod elasticsearch;
   feature = "sql-postgres",
   feature = "sql-sqlite",
   feature = "sql-mysql",
-  feature = "sql-mssql", feature = "sql-oracle", feature = "sql-duckdb", feature = "sql-clickhouse"
+  feature = "sql-mssql",
+  feature = "sql-oracle",
+  feature = "sql-duckdb",
+  feature = "sql-clickhouse"
 ))]
 pub mod sql;
 pub use sync::{ConflictResolution, ProviderSync, SyncOptions};

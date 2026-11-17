@@ -48,8 +48,9 @@ where
     let stored = self.provider.update(&Self::collection(), &id, doc).await?;
     let result = E::from_value(stored)?;
     if let Some(ref events) = self.events {
-      let before_value =
-        crate::entity::expand_value::<E>(before_doc.clone().unwrap_or_else(|| serde_json::json!({})));
+      let before_value = crate::entity::expand_value::<E>(
+        before_doc.clone().unwrap_or_else(|| serde_json::json!({})),
+      );
       events
         .dispatch_update(
           &before_value,

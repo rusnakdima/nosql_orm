@@ -185,7 +185,11 @@ impl<P: Storage> Storage for ChangeCaptureStorage<P> {
     Ok(result)
   }
 
-  async fn delete_many(&self, collection: &str, filter: Option<crate::query::Filter>) -> OrmResult<usize> {
+  async fn delete_many(
+    &self,
+    collection: &str,
+    filter: Option<crate::query::Filter>,
+  ) -> OrmResult<usize> {
     let docs = self
       .inner
       .find_many(collection, filter.as_ref(), None, None, None, true)
@@ -210,7 +214,11 @@ impl<P: Storage> Storage for ChangeCaptureStorage<P> {
     self.inner.count(collection, filter).await
   }
 
-  async fn create_index(&self, collection: &str, index: &crate::nosql_index::NosqlIndex) -> OrmResult<()> {
+  async fn create_index(
+    &self,
+    collection: &str,
+    index: &crate::nosql_index::NosqlIndex,
+  ) -> OrmResult<()> {
     self.inner.create_index(collection, index).await
   }
 

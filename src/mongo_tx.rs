@@ -47,9 +47,9 @@ impl<P: Storage> MongoTxStorage<P> {
   pub async fn commit_transaction(&self) -> OrmResult<()> {
     let ops = {
       let mut state = self.tx_state.lock().expect("lock poisoned");
-      state.take().ok_or_else(|| {
-        crate::error::OrmError::Transaction("No active transaction".to_string())
-      })?
+      state
+        .take()
+        .ok_or_else(|| crate::error::OrmError::Transaction("No active transaction".to_string()))?
     };
     for op in ops {
       match op {
@@ -115,7 +115,11 @@ impl<P: Storage> Storage for MongoTxStorage<P> {
     {
       let mut state = self.tx_state.lock().expect("lock poisoned");
       if let Some(ops) = state.as_mut() {
-        ops.push(PendingOp::Update(collection.to_string(), id.to_string(), doc.clone()));
+        ops.push(PendingOp::Update(
+          collection.to_string(),
+          id.to_string(),
+          doc.clone(),
+        ));
         return Ok(doc);
       }
     }
@@ -137,7 +141,11 @@ impl<P: Storage> Storage for MongoTxStorage<P> {
     self.inner.delete(collection, id).await
   }
 
-  async fn delete_many(&self, collection: &str, filter: Option<crate::query::Filter>) -> OrmResult<usize> {
+  async fn delete_many(
+    &self,
+    collection: &str,
+    filter: Option<crate::query::Filter>,
+  ) -> OrmResult<usize> {
     self.inner.delete_many(collection, filter).await
   }
 
@@ -154,7 +162,11 @@ impl<P: Storage> Storage for MongoTxStorage<P> {
     self.inner.count(collection, filter).await
   }
 
-  async fn create_index(&self, collection: &str, index: &crate::nosql_index::NosqlIndex) -> OrmResult<()> {
+  async fn create_index(
+    &self,
+    collection: &str,
+    index: &crate::nosql_index::NosqlIndex,
+  ) -> OrmResult<()> {
     self.inner.create_index(collection, index).await
   }
 

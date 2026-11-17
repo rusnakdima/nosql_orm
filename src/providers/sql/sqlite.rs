@@ -1,8 +1,8 @@
 use crate::error::{OrmError, OrmResult};
 use crate::provider::{
-  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth,
-  FieldInfo, IndexInfo, ProviderConfig, RawResult, SavepointControl,
-  SchemaIntrospection, Storage, TransactionControl, TransactionId,
+  AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, FieldInfo,
+  IndexInfo, ProviderConfig, RawResult, SavepointControl, SchemaIntrospection, Storage,
+  TransactionControl, TransactionId,
 };
 use crate::providers::sql::common::SqlProviderHelpers;
 use crate::providers::sql::row;
@@ -244,7 +244,6 @@ impl crate::providers::sql::SqlExecutor for SqliteProvider {
   async fn list_indexes_for(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
     self.list_sqlite_indexes(collection).await
   }
-
 }
 
 #[async_trait]

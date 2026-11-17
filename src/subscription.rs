@@ -5,7 +5,6 @@
 
 use crate::cdc::{ChangeEvent, ChangeOp};
 
-
 use tokio::sync::broadcast;
 
 #[derive(Clone)]
@@ -25,8 +24,7 @@ impl SubscriptionFilter {
         std::mem::discriminant(op) == std::mem::discriminant(&event.op)
       }
       SubscriptionFilter::CollectionAndOp(c, op) => {
-        event.collection == *c
-          && std::mem::discriminant(op) == std::mem::discriminant(&event.op)
+        event.collection == *c && std::mem::discriminant(op) == std::mem::discriminant(&event.op)
       }
     }
   }
@@ -52,10 +50,8 @@ impl SubscriptionManager {
     let (tx, rx_out) = tokio::sync::mpsc::channel(256);
     tokio::spawn(async move {
       while let Ok(event) = rx.recv().await {
-        if filter.matches(&event) {
-          if tx.send(event).await.is_err() {
-            break;
-          }
+        if filter.matches(&event) && tx.send(event).await.is_err() {
+          break;
         }
       }
     });

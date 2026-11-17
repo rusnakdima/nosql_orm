@@ -28,9 +28,7 @@
   feature = "chroma",
   feature = "redis-vector",
 ))]
-use nosql_orm::provider::{
-  AdminCommands, SchemaIntrospection, Storage, TransactionControl,
-};
+use nosql_orm::provider::{AdminCommands, SchemaIntrospection, Storage, TransactionControl};
 
 #[cfg(any(
   feature = "sql-mssql",
@@ -54,7 +52,8 @@ use nosql_orm::provider::{
   feature = "chroma",
   feature = "redis-vector",
 ))]
-fn assert_contract<P>() where
+fn assert_contract<P>()
+where
   P: Storage + SchemaIntrospection + AdminCommands + TransactionControl,
 {
 }

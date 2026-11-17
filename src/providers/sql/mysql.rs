@@ -549,16 +549,8 @@ impl TransactionControl for MySqlProvider {
     let mut state = self.transaction_state.lock().await;
     match state.as_ref() {
       Some(active_id) if active_id == &id => {}
-      Some(_) => {
-        return Err(OrmError::Transaction(
-          "Transaction ID mismatch".to_string(),
-        ))
-      }
-      None => {
-        return Err(OrmError::Transaction(
-          "No active transaction".to_string(),
-        ))
-      }
+      Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => return Err(OrmError::Transaction("No active transaction".to_string())),
     }
 
     let mut tx_conn = self.tx_connection.lock().await;
@@ -574,16 +566,8 @@ impl TransactionControl for MySqlProvider {
     let mut state = self.transaction_state.lock().await;
     match state.as_ref() {
       Some(active_id) if active_id == &id => {}
-      Some(_) => {
-        return Err(OrmError::Transaction(
-          "Transaction ID mismatch".to_string(),
-        ))
-      }
-      None => {
-        return Err(OrmError::Transaction(
-          "No active transaction".to_string(),
-        ))
-      }
+      Some(_) => return Err(OrmError::Transaction("Transaction ID mismatch".to_string())),
+      None => return Err(OrmError::Transaction("No active transaction".to_string())),
     }
 
     let mut tx_conn = self.tx_connection.lock().await;
@@ -639,12 +623,9 @@ impl SavepointControl for MySqlProvider {
       .as_mut()
       .ok_or_else(|| OrmError::Transaction("no active transaction".to_string()))?;
     let sql = format!("ROLLBACK TO SAVEPOINT {}", name);
-    conn
-      .query_drop(sql.as_str())
-      .await
-      .map_err(|e| {
-        OrmError::Transaction(format!("rollback to savepoint {} failed: {}", name, e))
-      })?;
+    conn.query_drop(sql.as_str()).await.map_err(|e| {
+      OrmError::Transaction(format!("rollback to savepoint {} failed: {}", name, e))
+    })?;
     Ok(())
   }
 }

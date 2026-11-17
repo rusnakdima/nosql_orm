@@ -55,9 +55,9 @@ mod json {
 
     let index = NosqlIndex::single("name", 1).name("idx_test_records_name");
     provider
-    .create_index("test_records", &index)
-    .await
-    .expect("create_index is a no-op");
+      .create_index("test_records", &index)
+      .await
+      .expect("create_index is a no-op");
     provider
       .drop_index("test_records", "idx_test_records_name")
       .await
@@ -67,8 +67,14 @@ mod json {
       .expect("list_indexes is a no-op");
     assert!(listed.is_empty());
     // Transactions are now supported for the JSON provider.
-    let tx_id = provider.begin_transaction().await.expect("begin_transaction");
-    provider.commit_transaction(tx_id).await.expect("commit_transaction");
+    let tx_id = provider
+      .begin_transaction()
+      .await
+      .expect("begin_transaction");
+    provider
+      .commit_transaction(tx_id)
+      .await
+      .expect("commit_transaction");
   }
 
   #[tokio::test]

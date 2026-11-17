@@ -19,7 +19,10 @@ async fn declared_indexes_round_trip_through_create_drop_and_restart() {
   );
 
   provider
-    .create_index("items", &NosqlIndex::single("email", 1).name("idx_email").unique())
+    .create_index(
+      "items",
+      &NosqlIndex::single("email", 1).name("idx_email").unique(),
+    )
     .await
     .unwrap();
   provider
@@ -53,7 +56,10 @@ async fn indexes_are_per_collection() {
   let provider = JsonProvider::new(temp.path()).await.unwrap();
 
   provider
-    .create_index("users", &NosqlIndex::single("email", 1).name("idx_users_email"))
+    .create_index(
+      "users",
+      &NosqlIndex::single("email", 1).name("idx_users_email"),
+    )
     .await
     .unwrap();
 

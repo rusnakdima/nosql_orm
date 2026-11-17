@@ -47,4 +47,3 @@ pub fn select_documents(
   let take = limit.map_or(usize::MAX, |n| n as usize);
   results.into_iter().skip(skip).take(take).collect()
 }
-

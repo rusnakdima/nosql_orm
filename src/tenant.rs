@@ -10,7 +10,6 @@ use crate::query::Filter;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-
 #[derive(Clone)]
 pub struct TenantStorage<P: Storage> {
   inner: P,
@@ -115,7 +114,10 @@ impl<P: Storage> Storage for TenantStorage<P> {
       Some(f) => Filter::And(vec![self.tenant_filter(), f]),
       None => self.tenant_filter(),
     };
-    self.inner.update_many(collection, Some(combined), updates).await
+    self
+      .inner
+      .update_many(collection, Some(combined), updates)
+      .await
   }
 
   async fn count(&self, collection: &str, filter: Option<&Filter>) -> OrmResult<u64> {
@@ -126,7 +128,11 @@ impl<P: Storage> Storage for TenantStorage<P> {
     self.inner.count(collection, Some(&combined)).await
   }
 
-  async fn create_index(&self, collection: &str, index: &crate::nosql_index::NosqlIndex) -> OrmResult<()> {
+  async fn create_index(
+    &self,
+    collection: &str,
+    index: &crate::nosql_index::NosqlIndex,
+  ) -> OrmResult<()> {
     self.inner.create_index(collection, index).await
   }
 
@@ -137,20 +143,27 @@ impl<P: Storage> Storage for TenantStorage<P> {
   async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<crate::provider::IndexInfo>> {
     crate::provider::Storage::list_indexes(&self.inner, collection).await
   }
-
 }
 
 #[async_trait]
-impl<P: Storage + crate::provider::SchemaIntrospection> crate::provider::SchemaIntrospection for TenantStorage<P> {
+impl<P: Storage + crate::provider::SchemaIntrospection> crate::provider::SchemaIntrospection
+  for TenantStorage<P>
+{
   async fn list_collections(&self) -> OrmResult<Vec<crate::provider::CollectionMeta>> {
     self.inner.list_collections().await
   }
 
-  async fn describe_collection(&self, collection: &str) -> OrmResult<crate::provider::CollectionSchema> {
+  async fn describe_collection(
+    &self,
+    collection: &str,
+  ) -> OrmResult<crate::provider::CollectionSchema> {
     self.inner.describe_collection(collection).await
   }
 
-  async fn get_collection_stats(&self, collection: &str) -> OrmResult<crate::provider::CollectionStats> {
+  async fn get_collection_stats(
+    &self,
+    collection: &str,
+  ) -> OrmResult<crate::provider::CollectionStats> {
     self.inner.get_collection_stats(collection).await
   }
 
@@ -168,12 +181,22 @@ impl<P: Storage + crate::provider::SchemaIntrospection> crate::provider::SchemaI
 }
 
 #[async_trait]
-impl<P: Storage + crate::provider::AdminCommands> crate::provider::AdminCommands for TenantStorage<P> {
-  async fn execute_raw(&self, sql: &str, params: Vec<Value>) -> OrmResult<crate::provider::RawResult> {
+impl<P: Storage + crate::provider::AdminCommands> crate::provider::AdminCommands
+  for TenantStorage<P>
+{
+  async fn execute_raw(
+    &self,
+    sql: &str,
+    params: Vec<Value>,
+  ) -> OrmResult<crate::provider::RawResult> {
     self.inner.execute_raw(sql, params).await
   }
 
-  async fn create_collection(&self, name: &str, schema: Option<crate::provider::CollectionSchema>) -> OrmResult<()> {
+  async fn create_collection(
+    &self,
+    name: &str,
+    schema: Option<crate::provider::CollectionSchema>,
+  ) -> OrmResult<()> {
     self.inner.create_collection(name, schema).await
   }
 

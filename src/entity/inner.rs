@@ -109,6 +109,9 @@ pub fn extract_id(value: &Value, id_field: &str) -> Option<String> {
     .and_then(|v| v.as_str().map(ToString::to_string))
 }
 
+// E is consumed only when the `embedded` feature is on (E::embedded_fields);
+// the default build keeps the signature for call-site uniformity.
+#[allow(clippy::extra_unused_type_parameters)]
 pub(crate) fn flatten_value<E: Entity>(value: Value) -> Value {
   #[cfg(feature = "embedded")]
   let value = {
@@ -122,6 +125,9 @@ pub(crate) fn flatten_value<E: Entity>(value: Value) -> Value {
   value
 }
 
+// E is consumed only when the `embedded` feature is on (E::embedded_fields);
+// the default build keeps the signature for call-site uniformity.
+#[allow(clippy::extra_unused_type_parameters)]
 pub(crate) fn expand_value<E: Entity>(value: Value) -> Value {
   #[cfg(feature = "embedded")]
   let value = {
