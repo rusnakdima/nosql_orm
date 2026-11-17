@@ -193,6 +193,7 @@ pub async fn connect_backend(kind: BackendKind, url: &str) -> OrmResult<Arc<dyn 
   }
 }
 
+// because only called from provider arms gated off in the default feature set
 #[allow(dead_code)]
 fn missing_feature(kind: &str) -> OrmError {
   OrmError::NotSupported(format!(

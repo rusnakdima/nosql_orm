@@ -19,7 +19,7 @@ mod recursive;
 pub struct RelationLoader<P: Storage> {
   pub(crate) provider: P,
 }
-
+// because eager-relation loader kept for the relation-loading workstream
 #[allow(dead_code)]
 impl<P: Storage> RelationLoader<P> {
   pub fn new(provider: P) -> Self {

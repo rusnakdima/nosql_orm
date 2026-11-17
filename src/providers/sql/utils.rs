@@ -4,6 +4,7 @@ pub fn base64_encode(data: &[u8]) -> String {
   general_purpose::STANDARD.encode(data)
 }
 
+// because SQL statement classification is only consumed by the postgres adapter
 #[cfg_attr(not(feature = "sql-postgres"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StatementKind {
@@ -11,6 +12,7 @@ pub(crate) enum StatementKind {
   Write,
 }
 
+// because SQL statement classification is only consumed by the postgres adapter
 #[cfg_attr(not(feature = "sql-postgres"), allow(dead_code))]
 pub(crate) fn statement_kind(sql: &str) -> StatementKind {
   let keyword = first_keyword(sql);

@@ -12,6 +12,7 @@ pub struct OptimizedQuery {
   pub warnings: Vec<String>,
 }
 
+// because query-optimizer seam reserved until the optimizer rule engine lands
 #[allow(dead_code)]
 pub struct QueryOptimizer {
   analyzers: HashMap<String, QueryAnalyzer>,

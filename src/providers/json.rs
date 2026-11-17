@@ -86,12 +86,6 @@ fn validate_collection_name(name: &str) -> OrmResult<()> {
   Ok(())
 }
 
-#[allow(dead_code)]
-fn make_path(base_dir: &Path, collection: &str) -> OrmResult<PathBuf> {
-  validate_collection_name(collection)?;
-  Ok(base_dir.join(format!("{}.json", collection)))
-}
-
 #[derive(Clone)]
 pub struct JsonProvider {
   base_dir: PathBuf,

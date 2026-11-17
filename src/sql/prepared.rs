@@ -127,6 +127,7 @@ impl PreparedStatementCache {
   }
 }
 
+// because batch prepared-statement cache reserved until batched execution lands
 #[allow(dead_code)]
 pub struct BatchPreparedStatements {
   cache: PreparedStatementCache,

@@ -25,6 +25,7 @@ pub fn cascade_value(entity_id: &str) -> serde_json::Value {
   serde_json::Value::String(entity_id.to_string())
 }
 
+// because cascade bookkeeping helper kept for the cascade paths still being enabled
 #[allow(dead_code)]
 pub fn insert_cascade_id(
   deleted_ids: &mut HashSet<String>,

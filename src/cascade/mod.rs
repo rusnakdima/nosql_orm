@@ -146,7 +146,7 @@ impl<P: Storage> CascadeManager<P> {
       ))),
     }
   }
-
+  // because many-to-many join cascade is reserved until relation cascades are enabled
   #[allow(dead_code)]
   async fn cascade_remove_many_to_many_join<E: Entity>(
     &self,
