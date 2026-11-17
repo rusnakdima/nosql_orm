@@ -1,10 +1,12 @@
 use super::*;
+use crate::error::{OrmError, OrmResult};
 use crate::nosql_index::NosqlIndex;
 use crate::provider::{
   AdminCommands, CollectionMeta, CollectionSchema, CollectionStats, ConnectionHealth, IndexInfo,
   RawResult, SchemaIntrospection, Storage, TransactionControl, TransactionId,
 };
 use crate::query::Filter;
+use crate::relations::types::RelationDef;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use serde_json::Value;
