@@ -98,6 +98,11 @@ pub struct JsonProvider {
   cache: Store,
   cache_config: JsonCacheConfig,
   access_order: Arc<RwLock<HashMap<String, VecDeque<String>>>>,
+  // Declared indexes, persisted to `_indexes.json` beside the collections.
+  // The JSON provider scans collection arrays rather than maintaining index
+  // structures, so an index is bookkeeping: it must survive create/drop and
+  // be reportable, never silently discarded.
+  indexes: Arc<RwLock<HashMap<String, Vec<IndexInfo>>>>,
   // Transaction state: (transaction_id, backup_dir). None when no transaction active.
   transaction_state: Arc<Mutex<Option<(TransactionId, PathBuf)>>>,
 }
@@ -110,13 +115,34 @@ impl JsonProvider {
   pub async fn with_config(config: JsonProviderConfig) -> OrmResult<Self> {
     tokio::fs::create_dir_all(&config.base_dir).await?;
 
+    let indexes_path = config.base_dir.join("_indexes.json");
+    let indexes = if indexes_path.exists() {
+      let content = tokio::fs::read_to_string(&indexes_path).await?;
+      serde_json::from_str::<HashMap<String, Vec<IndexInfo>>>(&content)
+        .unwrap_or_default()
+    } else {
+      HashMap::new()
+    };
+
     Ok(Self {
       base_dir: config.base_dir,
       cache: Arc::new(RwLock::new(HashMap::new())),
       cache_config: config.cache_config,
       access_order: Arc::new(RwLock::new(HashMap::new())),
+      indexes: Arc::new(RwLock::new(indexes)),
       transaction_state: Arc::new(Mutex::new(None)),
     })
+  }
+
+  fn indexes_path(&self) -> PathBuf {
+    self.base_dir.join("_indexes.json")
+  }
+
+  async fn persist_indexes(&self) -> OrmResult<()> {
+    let indexes = self.indexes.read().await;
+    let content = serde_json::to_string_pretty(&*indexes)?;
+    tokio::fs::write(self.indexes_path(), content).await?;
+    Ok(())
   }
 
   async fn evict_if_needed(&self, collection: &str) {
@@ -476,18 +502,51 @@ impl Storage for JsonProvider {
     Ok(deleted)
   }
 
-  async fn create_index(&self, _collection: &str, _index: &NosqlIndex) -> OrmResult<()> {
-    // The JSON provider has no index engine: index declarations are accepted
-    // as no-ops so content that declares them does not fail to load.
-    Ok(())
+  async fn create_index(&self, collection: &str, index: &NosqlIndex) -> OrmResult<()> {
+    validate_collection_name(collection)?;
+    let name = index
+      .get_name()
+      .map(str::to_string)
+      .unwrap_or_else(|| format!("idx_{}_{}", collection, index.get_fields().len()));
+    let info = IndexInfo {
+      name: name.clone(),
+      collection: collection.to_string(),
+      fields: index.get_fields().iter().map(|(f, _)| f.clone()).collect(),
+      index_type: format!("{:?}", index.get_index_type()),
+      unique: index.is_unique(),
+      sparse: index.is_sparse(),
+    };
+    {
+      let mut indexes = self.indexes.write().await;
+      let list = indexes.entry(collection.to_string()).or_default();
+      list.retain(|existing| existing.name != name);
+      list.push(info);
+    }
+    self.persist_indexes().await
   }
 
-  async fn drop_index(&self, _collection: &str, _index_name: &str) -> OrmResult<()> {
-    Ok(())
+  async fn drop_index(&self, collection: &str, index_name: &str) -> OrmResult<()> {
+    validate_collection_name(collection)?;
+    {
+      let mut indexes = self.indexes.write().await;
+      if let Some(list) = indexes.get_mut(collection) {
+        list.retain(|existing| existing.name != index_name);
+      }
+    }
+    self.persist_indexes().await
   }
 
-  async fn list_indexes(&self, _collection: &str) -> OrmResult<Vec<IndexInfo>> {
-    Ok(Vec::new())
+  async fn list_indexes(&self, collection: &str) -> OrmResult<Vec<IndexInfo>> {
+    validate_collection_name(collection)?;
+    Ok(
+      self
+        .indexes
+        .read()
+        .await
+        .get(collection)
+        .cloned()
+        .unwrap_or_default(),
+    )
   }
 
   fn capabilities(&self) -> ProviderCapabilities {
