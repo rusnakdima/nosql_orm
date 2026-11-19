@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -13,6 +13,9 @@ use crate::provider::{
   TransactionControl, TransactionId,
 };
 use crate::query::Filter;
+use crate::structure::{
+  blocking_violations, validate_records, StructureManifest, StructureViolationCode,
+};
 use crate::utils::{compare_values, generate_id, get_document_id_string};
 
 type Store = Arc<RwLock<HashMap<String, Vec<Value>>>>;
@@ -38,6 +41,9 @@ impl Default for JsonCacheConfig {
 pub struct JsonProviderConfig {
   pub base_dir: PathBuf,
   pub cache_config: JsonCacheConfig,
+  // Optional 3NF structure contract. Collections absent from it keep the
+  // provider's historic behavior byte-for-byte.
+  pub structure_manifest: Option<StructureManifest>,
 }
 
 impl JsonProviderConfig {
@@ -53,11 +59,17 @@ impl JsonProviderConfig {
     Self {
       base_dir: final_path,
       cache_config: JsonCacheConfig::default(),
+      structure_manifest: None,
     }
   }
 
   pub fn with_cache_config(mut self, config: JsonCacheConfig) -> Self {
     self.cache_config = config;
+    self
+  }
+
+  pub fn with_structure_manifest(mut self, manifest: StructureManifest) -> Self {
+    self.structure_manifest = Some(manifest);
     self
   }
 }
@@ -99,6 +111,8 @@ pub struct JsonProvider {
   indexes: Arc<RwLock<HashMap<String, Vec<IndexInfo>>>>,
   // Transaction state: (transaction_id, backup_dir). None when no transaction active.
   transaction_state: Arc<Mutex<Option<(TransactionId, PathBuf)>>>,
+  // Optional 3NF contract. Never set by default; see config builder.
+  structure_manifest: Arc<RwLock<Option<StructureManifest>>>,
 }
 
 impl JsonProvider {
@@ -124,6 +138,7 @@ impl JsonProvider {
       access_order: Arc::new(RwLock::new(HashMap::new())),
       indexes: Arc::new(RwLock::new(indexes)),
       transaction_state: Arc::new(Mutex::new(None)),
+      structure_manifest: Arc::new(RwLock::new(config.structure_manifest)),
     })
   }
 
@@ -213,12 +228,143 @@ impl JsonProvider {
     crate::utils::get_document_id(doc)
   }
 
+  // Pure patch application, shared by the read-then-validate patch path.
+  fn apply_patch(mut base: Value, patch: Value) -> Value {
+    if let (Value::Object(ref mut target), Value::Object(updates)) = (&mut base, patch) {
+      if let Some(inc_ops) = updates.get("$inc").and_then(|v| v.as_object()) {
+        for (field, delta) in inc_ops {
+          if let (Some(current), Some(delta_num)) = (target.get(field), delta.as_i64()) {
+            if let Some(new_val) = current.as_i64().map(|c| c + delta_num) {
+              target.insert(field.clone(), serde_json::json!(new_val));
+            } else if let Some(new_val) = current.as_f64().map(|c| c + delta_num as f64) {
+              target.insert(field.clone(), serde_json::json!(new_val));
+            }
+          }
+        }
+      }
+      for (key, value) in updates {
+        if key != "$inc" {
+          target.insert(key, value);
+        }
+      }
+    }
+    base
+  }
+
   pub async fn clear_cache(&self) -> OrmResult<()> {
     let mut cache = self.cache.write().await;
     let mut access = self.access_order.write().await;
     cache.clear();
     access.clear();
     Ok(())
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Structure-manifest enforcement (opt-in, backward compatible)
+  // ─────────────────────────────────────────────────────────────────────
+
+  // Attach (or replace) the 3NF structure contract at runtime.
+  pub async fn set_structure_manifest(&self, manifest: StructureManifest) {
+    *self.structure_manifest.write().await = Some(manifest);
+  }
+
+  pub async fn structure_manifest(&self) -> Option<StructureManifest> {
+    self.structure_manifest.read().await.clone()
+  }
+
+  // Declare every index the manifest asks for. The JSON provider treats an
+  // index as bookkeeping (it scans collection arrays), but the unique bit is
+  // persisted in `_indexes.json` and reported like any other index.
+  pub async fn apply_structure_indexes(&self) -> OrmResult<usize> {
+    let Some(manifest) = self.structure_manifest().await else {
+      return Ok(0);
+    };
+    let mut created = 0;
+    for (collection, index) in manifest.index_declarations() {
+      self.create_index(&collection, &index).await?;
+      created += 1;
+    }
+    Ok(created)
+  }
+
+  // Validate one prospective write against the SAME core the engine uses.
+  // `replace_id` is Some when an existing document is being overwritten.
+  async fn validate_manifest_write(
+    &self,
+    collection: &str,
+    doc: &Value,
+    replace_id: Option<&str>,
+  ) -> OrmResult<()> {
+    let Some(manifest) = self.structure_manifest().await else {
+      return Ok(());
+    };
+    if manifest.collection(collection).is_none() {
+      return Ok(()); // no contract for this collection — historic behavior
+    }
+
+    // Load the whole declared snapshot before taking any long-held lock: FK
+    // checks need sibling collections, and ensure_loaded takes the cache lock.
+    for name in manifest.collections.keys() {
+      self.ensure_loaded(name).await?;
+    }
+    let (mut all, existing) = {
+      let cache = self.cache.read().await;
+      let mut all = BTreeMap::new();
+      for name in manifest.collections.keys() {
+        all.insert(name.clone(), cache.get(name).cloned().unwrap_or_default());
+      }
+      let existing = all.get(collection).cloned().unwrap_or_default();
+      (all, existing)
+    };
+
+    let mut records = existing;
+    match replace_id {
+      Some(id) => {
+        if let Some(pos) = records.iter().position(|r| Self::id_of(r) == Some(id)) {
+          records[pos] = doc.clone();
+        } else {
+          records.push(doc.clone());
+        }
+      }
+      None => records.push(doc.clone()),
+    }
+    let id = doc
+      .get("id")
+      .and_then(Value::as_str)
+      .unwrap_or("<new>")
+      .to_string();
+    all.insert(collection.to_string(), records);
+
+    Self::manifest_write_check(&manifest, collection, &all, &id)
+  }
+
+  fn manifest_write_check(
+    manifest: &StructureManifest,
+    collection: &str,
+    all: &BTreeMap<String, Vec<Value>>,
+    id: &str,
+  ) -> OrmResult<()> {
+    let findings = validate_records(manifest, all);
+    // Pre-existing violations in sibling records must not block this write.
+    let mine: Vec<_> = blocking_violations(&findings)
+      .into_iter()
+      .filter(|v| v.collection == collection && v.record == id)
+      .collect();
+    if mine.is_empty() {
+      return Ok(());
+    }
+    let duplicate = mine.iter().any(|v| {
+      matches!(
+        v.code,
+        StructureViolationCode::DuplicatePrimaryKey | StructureViolationCode::UniqueViolation
+      )
+    });
+    let message = format!("{}: {}", collection, mine[0].message);
+    if duplicate {
+      Err(OrmError::Duplicate(message))
+    } else {
+      Err(OrmError::Validation(message))
+    }
   }
 }
 
@@ -235,6 +381,10 @@ impl Storage for JsonProvider {
     {
       doc["id"] = json!(generate_id());
     }
+
+    // Manifest-aware validation runs before the write; collections without a
+    // manifest entry take the exact same path as before.
+    self.validate_manifest_write(collection, &doc, None).await?;
 
     let mut w = self.cache.write().await;
     let records = w.entry(collection.to_string()).or_default();
@@ -356,6 +506,15 @@ impl Storage for JsonProvider {
       doc = new_doc;
     }
 
+    // Validate the prospective replacement with its id present.
+    let mut candidate = doc.clone();
+    if let Value::Object(ref mut obj) = candidate {
+      obj.insert("id".to_string(), json!(id));
+    }
+    self
+      .validate_manifest_write(collection, &candidate, Some(id))
+      .await?;
+
     let mut w = self.cache.write().await;
     let records = w
       .get_mut(collection)
@@ -377,35 +536,37 @@ impl Storage for JsonProvider {
 
   async fn patch(&self, collection: &str, id: &str, patch: Value) -> OrmResult<Value> {
     self.ensure_loaded(collection).await?;
+
+    // Build the prospective document under a short read lock, then validate it
+    // before committing — validation needs locks of its own.
+    let mut updated = {
+      let r = self.cache.read().await;
+      let records = r
+        .get(collection)
+        .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
+      let base = records
+        .iter()
+        .find(|rec| Self::id_of(rec) == Some(id))
+        .cloned()
+        .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
+      Self::apply_patch(base, patch)
+    };
+    if let Value::Object(ref mut obj) = updated {
+      obj.insert("id".to_string(), json!(id));
+    }
+    self
+      .validate_manifest_write(collection, &updated, Some(id))
+      .await?;
+
     let mut w = self.cache.write().await;
     let records = w
       .get_mut(collection)
       .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
-
     let pos = records
       .iter()
       .position(|r| Self::id_of(r) == Some(id))
       .ok_or_else(|| OrmError::NotFound(format!("{}/{}", collection, id)))?;
-
-    if let (Value::Object(base), Value::Object(updates)) = (&mut records[pos], patch) {
-      if let Some(inc_ops) = updates.get("$inc").and_then(|v| v.as_object()) {
-        for (field, delta) in inc_ops {
-          if let (Some(current), Some(delta_num)) = (base.get(field), delta.as_i64()) {
-            if let Some(new_val) = current.as_i64().map(|c| c + delta_num) {
-              base.insert(field.clone(), serde_json::json!(new_val));
-            } else if let Some(new_val) = current.as_f64().map(|c| c + delta_num as f64) {
-              base.insert(field.clone(), serde_json::json!(new_val));
-            }
-          }
-        }
-      }
-      for (k, v) in updates {
-        if k != "$inc" {
-          base.insert(k, v);
-        }
-      }
-    }
-    let updated = records[pos].clone();
+    records[pos] = updated.clone();
     drop(w);
     self.flush(collection).await?;
     Ok(updated)

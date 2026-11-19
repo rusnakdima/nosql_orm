@@ -6,6 +6,9 @@ use crate::provider::{
   Storage, TransactionControl, TransactionId,
 };
 use crate::query::Filter;
+use crate::structure::{
+  blocking_violations, validate_records, StructureManifest, StructureViolationCode,
+};
 use crate::utils::generate_id;
 use async_trait::async_trait;
 use mongodb::{
@@ -14,7 +17,9 @@ use mongodb::{
   Database,
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::providers::mongo::convert::{bson_to_json, json_to_bson};
 use crate::providers::mongo::filter::filter_to_doc;
@@ -23,6 +28,8 @@ use crate::providers::mongo::indexes::{build_index_keys, build_index_options};
 #[derive(Clone)]
 pub struct MongoProvider {
   db: Database,
+  // Optional 3NF contract; collections absent from it behave as before.
+  structure_manifest: Arc<RwLock<Option<StructureManifest>>>,
 }
 
 impl MongoProvider {
@@ -32,6 +39,7 @@ impl MongoProvider {
 
     Ok(Self {
       db: client.database(db_name.as_ref()),
+      structure_manifest: Arc::new(RwLock::new(None)),
     })
   }
 
@@ -121,6 +129,137 @@ impl MongoProvider {
   fn filter_to_doc(filter: &Filter) -> OrmResult<Document> {
     filter_to_doc(filter)
   }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Structure-manifest enforcement (opt-in, backward compatible)
+  // ─────────────────────────────────────────────────────────────────────
+
+  pub async fn with_structure_manifest(self, manifest: StructureManifest) -> Self {
+    self.set_structure_manifest(manifest).await;
+    self
+  }
+
+  pub async fn set_structure_manifest(&self, manifest: StructureManifest) {
+    *self.structure_manifest.write().await = Some(manifest);
+  }
+
+  pub async fn structure_manifest(&self) -> Option<StructureManifest> {
+    self.structure_manifest.read().await.clone()
+  }
+
+  // Declare manifest indexes (including unique constraints and PKs) in
+  // MongoDB. Mongo enforces the unique bit itself on subsequent writes.
+  pub async fn apply_structure_indexes(&self) -> OrmResult<usize> {
+    let Some(manifest) = self.structure_manifest().await else {
+      return Ok(0);
+    };
+    let mut created = 0;
+    for (collection, index) in manifest.index_declarations() {
+      self.create_mongo_index(&collection, &index).await?;
+      created += 1;
+    }
+    Ok(created)
+  }
+
+  // Check a prospective document using the same core as the JSON provider
+  // and the engine validator. FK/derived checks need a full snapshot and are
+  // deliberately fail-open here — Mongo's own unique indexes cover they
+  // cannot be checked with a single-document snapshot.
+  async fn validate_manifest_write(&self, collection: &str, doc: &Value) -> OrmResult<()> {
+    let Some(manifest) = self.structure_manifest().await else {
+      return Ok(());
+    };
+    if manifest.collection(collection).is_none() {
+      return Ok(());
+    }
+    let mut snapshot: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    snapshot.insert(collection.to_string(), vec![doc.clone()]);
+    let findings = validate_records(&manifest, &snapshot);
+    let id = doc
+      .get("id")
+      .and_then(Value::as_str)
+      .unwrap_or("<new>")
+      .to_string();
+    Self::manifest_write_check(&manifest, collection, &id, &findings)?;
+
+    // Uniqueness against existing documents: the same field sets the JSON
+    // provider checks. This closes the gap when apply_structure_indexes has
+    // not been called yet, and makes duplicate writes fail consistently.
+    for fields in manifest.unique_field_sets(collection) {
+      let terms: Vec<Filter> = fields
+        .iter()
+        .filter_map(|field| {
+          doc
+            .get(field)
+            .filter(|value| !value.is_null())
+            .map(|value| Filter::Eq(field.clone(), value.clone()))
+        })
+        .collect();
+      if terms.len() != fields.len() {
+        continue; // incomplete key: the core validator reports missing required
+      }
+      let filter = if let Some(single) = terms.first() {
+        if terms.len() == 1 {
+          single.clone()
+        } else {
+          Filter::And(terms)
+        }
+      } else {
+        continue;
+      };
+      let existing =
+        Storage::find_many(self, collection, Some(&filter), None, Some(1), None, true).await?;
+      if !existing.is_empty() {
+        return Err(OrmError::Duplicate(format!(
+          "{}: value {} already exists on unique constraint [{}]",
+          collection,
+          fields
+            .iter()
+            .filter_map(|f| doc.get(f).and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("|"),
+          fields.join(", ")
+        )));
+      }
+    }
+    Ok(())
+  }
+
+  fn manifest_write_check(
+    _manifest: &StructureManifest,
+    collection: &str,
+    id: &str,
+    findings: &[crate::structure::StructureViolation],
+  ) -> OrmResult<()> {
+    let mine: Vec<_> = blocking_violations(findings)
+      .into_iter()
+      .filter(|v| v.collection == collection && v.record == id)
+      .collect();
+    if mine.is_empty() {
+      return Ok(());
+    }
+    let duplicate = mine.iter().any(|v| {
+      matches!(
+        v.code,
+        StructureViolationCode::DuplicatePrimaryKey | StructureViolationCode::UniqueViolation
+      )
+    });
+    let message = format!("{}: {}", collection, mine[0].message);
+    if duplicate {
+      Err(OrmError::Duplicate(message))
+    } else {
+      Err(OrmError::Validation(message))
+    }
+  }
+
+  fn map_insert_error(err: mongodb::error::Error) -> OrmError {
+    let text = err.to_string();
+    if text.contains("E11000") || text.contains("duplicate key") {
+      OrmError::Duplicate(text)
+    } else {
+      OrmError::Mongo(err)
+    }
+  }
 }
 
 #[async_trait]
@@ -133,12 +272,16 @@ impl Storage for MongoProvider {
     {
       doc["id"] = serde_json::json!(generate_id());
     }
+    self.validate_manifest_write(collection, &doc).await?;
     let coll = self.db.collection::<Document>(collection);
     let mut bson_doc = Self::json_to_bson(doc.clone())?;
     if let Some(id) = bson_doc.remove("id") {
       bson_doc.insert("_id", id);
     }
-    coll.insert_one(bson_doc, None).await?;
+    coll
+      .insert_one(bson_doc, None)
+      .await
+      .map_err(Self::map_insert_error)?;
     Ok(doc)
   }
 

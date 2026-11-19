@@ -27,6 +27,7 @@ pub mod schema;
 pub mod search;
 pub mod soft_delete;
 pub mod sql;
+pub mod structure;
 pub mod sync;
 pub mod tenant;
 pub mod timestamps;
@@ -140,6 +141,13 @@ pub use migrations::migration::{JsonMigration, Migration, MigrationMeta, SqlMigr
 pub use migrations::runner::MigrationRunner;
 pub use schema::{PrefixConfig, PrefixHolder, Schema, SchemaManager};
 pub use soft_delete::{SoftDeletable, SoftDeleteExt};
+pub use structure::{
+  affected_collections, blocking_violations, load_manifest as load_structure_manifest,
+  parse_manifest as parse_structure_manifest, validate_records, CollectionStructure,
+  FieldStructure, IndexDeclaration, OwnedChild, StructureError, StructureManifest, StructureMode,
+  StructureSeverity, StructureViolation, StructureViolationCode, UniqueConstraint,
+  STRUCTURE_SCHEMA_VERSION,
+};
 pub use validators::{
   EmailValidator, FieldValidator, LengthValidator, PatternValidator, RangeValidator,
   ValidationError, ValidationResult,
