@@ -60,12 +60,11 @@ pub fn parse_validation_meta(meta: &Meta) -> Vec<ValidationType> {
               i += 1
             }
           }
-          "range"
-            if i + 1 < tokens.len() => {
-              let (mn, mx) = parse_range_args(&tokens[i + 1].to_string());
-              validations.push(ValidationType::Range(mn, mx));
-              i += 1
-            }
+          "range" if i + 1 < tokens.len() => {
+            let (mn, mx) = parse_range_args(&tokens[i + 1].to_string());
+            validations.push(ValidationType::Range(mn, mx));
+            i += 1
+          }
           _ => {}
         }
         i += 1;
