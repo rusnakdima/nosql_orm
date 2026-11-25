@@ -158,7 +158,6 @@ optimizer.rs (80)          → QueryOptimizer → OptimizedQuery
 hints.rs (184)             → OptimizationHint, QueryAnalyzer, QueryHint
 index_recommender.rs (88)  → IndexRecommendation, IndexRecommender, QueryStats
 stats.rs (139)             → QueryCollectionStats, FilterPattern, QueryStatistics
-profiling.rs (177)         → runtime query profiling
 types.rs (70)              → Cursor, OrderBy, PaginatedResult, SortDirection
 zero_copy.rs (143)         → DirectDeserializer, LazyValue, TypedArrayDeserializer,
                               ZeroCopyDeserialize

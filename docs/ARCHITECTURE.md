@@ -64,7 +64,7 @@ src/
 ├── repository/         Repository<E, P>, RelationRepository, indexes, fast path,
 │                       query, delete, crud, find, relations, mod
 ├── query/              Filter, QueryBuilder, Projection, optimizer, hints,
-│                       index recommender, stats, profiling, types, zero_copy
+│                       index recommender, stats, types, zero_copy
 ├── entity/             Entity, EntityMeta, accessors, mutators, FrontendProjection
 ├── relations/          RelationDef, loaders, registry, traversal, wrappers
 ├── cascade/            cascade delete and restore across relations
